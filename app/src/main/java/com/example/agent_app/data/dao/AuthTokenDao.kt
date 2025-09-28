@@ -19,6 +19,15 @@ interface AuthTokenDao {
     @Query("SELECT * FROM auth_tokens WHERE provider = :provider")
     suspend fun getByProvider(provider: String): AuthToken?
 
+    @Query(
+        "SELECT * FROM auth_tokens WHERE provider = :provider AND account_email = :accountEmail"
+    )
+    suspend fun getByProviderAndEmail(provider: String, accountEmail: String): AuthToken?
+
+    @Query("DELETE FROM auth_tokens WHERE provider = :provider AND account_email = :accountEmail")
+    suspend fun delete(provider: String, accountEmail: String)
+
+
     @Query("SELECT * FROM auth_tokens")
     fun observeAll(): Flow<List<AuthToken>>
 }

@@ -176,21 +176,26 @@ class AppDatabaseTest {
         val provider = "google"
         val token = AuthToken(
             provider = provider,
-            accessToken = "access",
-            refreshToken = "refresh",
+
+            accountEmail = "user@example.com",
+            accessTokenKey = "google:user@example.com_access",
+            refreshTokenKey = "google:user@example.com_refresh",
             scope = "scope",
             expiresAt = 1727450000L,
+            serverAuthCode = "server-code",
+            idTokenKey = null,
         )
 
         authTokenDao.upsert(token)
-        var stored = authTokenDao.getByProvider(provider)
+        var stored = authTokenDao.getByProviderAndEmail(provider, "user@example.com")
         assertNotNull(stored)
-        assertEquals("access", stored!!.accessToken)
+        assertEquals("google:user@example.com_access", stored!!.accessTokenKey)
 
-        val updated = token.copy(accessToken = "updated_access")
+        val updated = token.copy(accessTokenKey = "google:user@example.com_access_v2")
         authTokenDao.upsert(updated)
-        stored = authTokenDao.getByProvider(provider)
-        assertEquals("updated_access", stored!!.accessToken)
+        stored = authTokenDao.getByProviderAndEmail(provider, "user@example.com")
+        assertEquals("google:user@example.com_access_v2", stored!!.accessTokenKey)
+
     }
 
     @Test
