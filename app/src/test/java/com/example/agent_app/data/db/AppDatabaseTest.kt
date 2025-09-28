@@ -176,6 +176,7 @@ class AppDatabaseTest {
         val provider = "google"
         val token = AuthToken(
             provider = provider,
+
             accountEmail = "user@example.com",
             accessTokenKey = "google:user@example.com_access",
             refreshTokenKey = "google:user@example.com_refresh",
@@ -194,6 +195,7 @@ class AppDatabaseTest {
         authTokenDao.upsert(updated)
         stored = authTokenDao.getByProviderAndEmail(provider, "user@example.com")
         assertEquals("google:user@example.com_access_v2", stored!!.accessTokenKey)
+
     }
 
     @Test

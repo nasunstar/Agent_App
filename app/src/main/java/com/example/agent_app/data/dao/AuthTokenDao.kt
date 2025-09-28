@@ -27,6 +27,7 @@ interface AuthTokenDao {
     @Query("DELETE FROM auth_tokens WHERE provider = :provider AND account_email = :accountEmail")
     suspend fun delete(provider: String, accountEmail: String)
 
+
     @Query("SELECT * FROM auth_tokens")
     fun observeAll(): Flow<List<AuthToken>>
 }

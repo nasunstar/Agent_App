@@ -23,6 +23,7 @@ type_name (unique)    user_id (FK)             event_id (FK→events.id)
                       location
                       status
 
+
  event_notifications          auth_tokens                   ingest_items
  --------------------         -----------                   ------------
  id (PK)                      provider (PK)                 id (PK)
@@ -34,10 +35,11 @@ type_name (unique)    user_id (FK)             event_id (FK→events.id)
                               server_auth_code              due_date
                               id_token (secure key)         confidence
                               updated_at                    meta_json
-```
+
 
 - `ingest_items` includes indices on `timestamp` and `due_date` to support time based queries.
 - Full-text search tables are intentionally omitted in this iteration per project direction.
+
 - Database version 2 migrates the `auth_tokens` table to record account metadata while delegating raw token
   values to the encrypted preferences layer.
 
@@ -49,6 +51,7 @@ type_name (unique)    user_id (FK)             event_id (FK→events.id)
   is backed by `EncryptedSharedPreferences` and the Android Keystore.
 - `LoginViewModel` and the Compose-based `LoginScreen` expose a simple UI to trigger sign-in, show loading/error
   states, and allow signing out. Provide your own OAuth client id via `GoogleAuthClient.DEFAULT_WEB_CLIENT_ID`.
+
 
 ## Testing
 

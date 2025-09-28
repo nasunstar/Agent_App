@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 data class AuthToken(
     @PrimaryKey
     val provider: String,
+
     @ColumnInfo(name = "account_email")
     val accountEmail: String,
     @ColumnInfo(name = "access_token")
@@ -23,4 +24,5 @@ data class AuthToken(
     val idTokenKey: String?,
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long = System.currentTimeMillis(),
+
 )

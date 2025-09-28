@@ -1,6 +1,7 @@
 package com.example.agent_app.data.db.migrations
 
 import androidx.room.migration.Migration
+
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DatabaseMigrations {
@@ -14,4 +15,5 @@ object DatabaseMigrations {
     }
 
     val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+
 }

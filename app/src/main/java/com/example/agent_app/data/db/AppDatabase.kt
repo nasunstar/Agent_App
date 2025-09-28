@@ -34,7 +34,9 @@ import com.example.agent_app.data.entity.User
         AuthToken::class,
         IngestItem::class,
     ],
+
     version = 2,
+
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
