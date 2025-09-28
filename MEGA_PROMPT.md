@@ -6,36 +6,54 @@ project
 │     ├─ data/
 │     │  ├─ db/
 │     │  │  ├─ AppDatabase.kt
-│     │  │  └─ migrations/
+│     │  │  └─ migrations/ (마이그레이션 파일들)
 │     │  ├─ entity/
-│     │  │  ├─ Contact.kt, Event.kt, ... (10 total entities)
+│     │  │  ├─ Contact.kt
+│     │  │  ├─ Event.kt
+│     │  │  ├─ EventDetail.kt
+│     │  │  ├─ EventNotification.kt
+│     │  │  ├─ EventType.kt
+│     │  │  ├─ Note.kt
+│     │  │  ├─ User.kt
+│     │  │  ├─ AuthToken.kt          // OAuth 토큰 저장
+│     │  │  └─ IngestItem.kt         // 메일/SMS/OCR 수집 통합
 │     │  ├─ dao/
-│     │  │  ├─ ContactDao.kt, EventDao.kt, ... (6 total DAOs)
+│     │  │  ├─ ContactDao.kt
+│     │  │  ├─ EventDao.kt
+│     │  │  ├─ EventTypeDao.kt
+│     │  │  ├─ NoteDao.kt
+│     │  │  ├─ UserDao.kt
+│     │  │  └─ IngestItemDao.kt
 │     │  ├─ repo/
-│     │  │  ├─ AuthRepository.kt, GmailRepository.kt, IngestRepository.kt
+│     │  │  ├─ AuthRepository.kt
+│     │  │  ├─ GmailRepository.kt
+│     │  │  └─ IngestRepository.kt
 │     │  └─ search/
-│     │     ├─ FtsSchema.kt
-│     │     ├─ EmbeddingStore.kt
-│     │     └─ HybridSearch.kt
+│     │     ├─ FtsSchema.kt          // FTS5 가상테이블
+│     │     ├─ EmbeddingStore.kt     // 벡터 BLOB 저장/조회
+│     │     └─ HybridSearch.kt       // 키워드+벡터 하이브리드
 │     ├─ ocr/
-│     │  └─ OcrClient.kt
+│     │  └─ OcrClient.kt             // ML Kit 스텁(후속)
 │     ├─ gmail/
-│     │  ├─ GmailApi.kt
+│     │  ├─ GmailApi.kt              // Retrofit 인터페이스
 │     │  └─ GmailModels.kt
 │     ├─ openai/
-│     │  ├─ OpenAiClient.kt
-│     │  └─ PromptBuilder.kt
+│     │  ├─ OpenAiClient.kt          // Retrofit(혹은 공식 SDK)로 Chat Completions
+│     │  └─ PromptBuilder.kt         // 컨텍스트 결합 프롬프트
 │     ├─ ui/
 │     │  ├─ App.kt
 │     │  ├─ screen/
-│     │  │  ├─ LoginScreen.kt, InboxScreen.kt, ReviewScreen.kt, ChatScreen.kt
+│     │  │  ├─ LoginScreen.kt
+│     │  │  ├─ InboxScreen.kt        // 수집 목록
+│     │  │  ├─ ReviewScreen.kt       // “검토 필요” 큐
+│     │  │  └─ ChatScreen.kt         // 챗봇(질문→검색→답변)
 │     │  └─ widget/
-│     │     └─ TasksWidget.kt
+│     │     └─ TasksWidget.kt        // 오늘/주/월 Glance
 │     ├─ util/
-│     │  ├─ CryptoPrefs.kt
-│     │  └─ TimeResolver.kt
+│     │  ├─ CryptoPrefs.kt           // Keystore+EncryptedSharedPrefs
+│     │  └─ TimeResolver.kt          // “내일/이번주/날짜” 절대시간 변환
 │     └─ di/
-│        └─ AppModule.kt
+│        └─ AppModule.kt             // Hilt 없이 간단 제공자라도 OK
 ├─ build.gradle.kts
 ├─ gradle/libs.versions.toml
 ├─ CODEX_PLAN.md
