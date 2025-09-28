@@ -4,25 +4,56 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
+import com.example.agent_app.data.dao.AuthTokenDao
+import com.example.agent_app.data.dao.ContactDao
+import com.example.agent_app.data.dao.EventDao
+import com.example.agent_app.data.dao.EventTypeDao
+import com.example.agent_app.data.dao.IngestItemDao
+import com.example.agent_app.data.dao.NoteDao
+import com.example.agent_app.data.dao.UserDao
+import com.example.agent_app.data.db.migrations.DatabaseMigrations
+import com.example.agent_app.data.entity.AuthToken
+import com.example.agent_app.data.entity.Contact
+import com.example.agent_app.data.entity.Event
+import com.example.agent_app.data.entity.EventDetail
+import com.example.agent_app.data.entity.EventNotification
+import com.example.agent_app.data.entity.EventType
+import com.example.agent_app.data.entity.IngestItem
+import com.example.agent_app.data.entity.Note
+import com.example.agent_app.data.entity.User
 
 @Database(
-    entities = [IngestItemEntity::class, IngestItemFtsEntity::class, AuthTokenEntity::class],
-    version = 1,
-    exportSchema = true
+    entities = [
+        Contact::class,
+        User::class,
+        Note::class,
+        EventType::class,
+        Event::class,
+        EventDetail::class,
+        EventNotification::class,
+        AuthToken::class,
+        IngestItem::class,
+    ],
+    version = 2,
+    exportSchema = true,
 )
-@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
+    abstract fun contactDao(): ContactDao
+    abstract fun userDao(): UserDao
+    abstract fun noteDao(): NoteDao
+    abstract fun eventTypeDao(): EventTypeDao
+    abstract fun eventDao(): EventDao
+    abstract fun authTokenDao(): AuthTokenDao
     abstract fun ingestItemDao(): IngestItemDao
 
-    abstract fun authTokenDao(): AuthTokenDao
-
     companion object {
-        const val DATABASE_NAME: String = "agent_app.db"
+        private const val DATABASE_NAME = "assistant.db"
 
-        fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, DATABASE_NAME)
-                .build()
+        fun build(context: Context): AppDatabase = Room
+            .databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
+            .addMigrations(*DatabaseMigrations.ALL)
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .build()
     }
 }
