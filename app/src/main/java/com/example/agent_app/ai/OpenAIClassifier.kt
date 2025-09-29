@@ -54,14 +54,25 @@ class OpenAIClassifier {
 
     suspend fun classifyEmail(subject: String?, body: String?): ClassificationResult {
         val content = buildString {
-            append("이메일을 분석해서 다음 카테고리 중 하나로 분류해주세요:\n")
-            append("- contact: 연락처 정보 (이름, 이메일, 전화번호 등)\n")
-            append("- event: 일정/이벤트 (회의, 약속, 이벤트 등)\n")
-            append("- note: 노트/메모 (중요한 정보, 할 일, 알림 등)\n")
-            append("- ingest: 일반 이메일 (분류 불가능한 경우)\n\n")
+            append("이메일을 분석해서 다음 카테고리 중 하나로 분류해주세요. 가능한 한 구체적으로 분류해주세요:\n\n")
+            append("📞 CONTACT (연락처):\n")
+            append("- 새로운 사람과의 연락 (소개, 인사, 연락처 교환)\n")
+            append("- 비즈니스 연락 (영업, 협업 제안, 파트너십)\n")
+            append("- 개인 연락 (친구, 가족, 지인과의 소통)\n\n")
+            append("📅 EVENT (일정/이벤트):\n")
+            append("- 회의, 미팅, 약속 (시간과 장소가 명시된 경우)\n")
+            append("- 이벤트 초대 (생일파티, 결혼식, 회식 등)\n")
+            append("- 일정 관련 알림 (리마인더, 스케줄 변경)\n\n")
+            append("📝 NOTE (노트/메모):\n")
+            append("- 중요한 정보나 알림 (계정 보안, 결제, 업데이트)\n")
+            append("- 할 일이나 작업 관련 내용\n")
+            append("- 개인적인 메모나 기록할 내용\n")
+            append("- 서비스 알림이나 시스템 메시지\n")
+            append("- 뉴스레터, 마케팅 이메일\n")
+            append("- 기타 모든 이메일 (위 카테고리에 해당하지 않는 경우)\n\n")
             append("제목: ${subject ?: "없음"}\n")
             append("내용: ${body ?: "없음"}\n\n")
-            append("중요: 가능한 한 많은 정보를 추출해주세요. null 대신 실제 내용을 넣어주세요.\n")
+            append("⚠️ 중요: 가능한 한 구체적으로 분류하고, null 대신 실제 내용을 추출해주세요.\n")
             append("JSON 형태로 응답해주세요:\n")
             append("{\n")
             append("  \"type\": \"분류결과\",\n")
@@ -85,7 +96,7 @@ class OpenAIClassifier {
             messages = listOf(
                 OpenAIMessage(
                     role = "system",
-                    content = "당신은 이메일 분류 전문가입니다. 이메일 내용을 분석해서 적절한 카테고리로 분류하고 관련 정보를 추출해주세요."
+                    content = "당신은 이메일 분류 전문가입니다. 이메일을 분석해서 가능한 한 구체적으로 분류해주세요. 'ingest'는 절대 사용하지 마세요. 모든 이메일을 contact, event, note 중 하나로 분류해주세요. 서비스 알림, 시스템 메시지, 뉴스레터, 마케팅 이메일 등은 모두 'note'로 분류해주세요."
                 ),
                 OpenAIMessage(
                     role = "user",

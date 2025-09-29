@@ -34,17 +34,34 @@ class ClassifiedDataRepository(
         timestamp: Long? = null
     ): ClassificationResult = withContext(dispatcher) {
         
+        android.util.Log.d("ClassifiedDataRepository", "이메일 분류 시작 - ID: $originalId")
+        
         // OpenAI로 분류
         val classification = openAIClassifier.classifyEmail(subject, body)
         
+        android.util.Log.d("ClassifiedDataRepository", "AI 분류 결과 - Type: ${classification.type}, Confidence: ${classification.confidence}")
+        
         // 분류 결과에 따라 적절한 테이블에 저장
         when (classification.type) {
-            "contact" -> storeAsContact(classification, subject, body, originalId, timestamp)
-            "event" -> storeAsEvent(classification, subject, body, originalId, timestamp)
-            "note" -> storeAsNote(classification, subject, body, originalId, timestamp)
-            else -> storeAsIngestItem(subject, body, source, originalId, timestamp)
+            "contact" -> {
+                android.util.Log.d("ClassifiedDataRepository", "Contact 테이블에 저장")
+                storeAsContact(classification, subject, body, originalId, timestamp)
+            }
+            "event" -> {
+                android.util.Log.d("ClassifiedDataRepository", "Event 테이블에 저장")
+                storeAsEvent(classification, subject, body, originalId, timestamp)
+            }
+            "note", "ingest" -> {
+                android.util.Log.d("ClassifiedDataRepository", "Note 테이블에 저장 (type: ${classification.type})")
+                storeAsNote(classification, subject, body, originalId, timestamp)
+            }
+            else -> {
+                android.util.Log.d("ClassifiedDataRepository", "Note 테이블에 저장 (기본값)")
+                storeAsNote(classification, subject, body, originalId, timestamp)
+            }
         }
         
+        android.util.Log.d("ClassifiedDataRepository", "이메일 저장 완료 - ID: $originalId")
         classification
     }
     
@@ -93,7 +110,8 @@ class ClassifiedDataRepository(
                 append("}")
             }
         )
-        contactDao.insert(contact)
+        val contactId = contactDao.insert(contact)
+        android.util.Log.d("ClassifiedDataRepository", "Contact 저장 완료 - ID: $contactId, Name: ${contact.name}")
     }
     
     private suspend fun storeAsEvent(
@@ -176,6 +194,7 @@ class ClassifiedDataRepository(
             }
         )
         ingestItemDao.upsert(ingestItem)
+        android.util.Log.d("ClassifiedDataRepository", "IngestItem 저장 완료 - ID: $originalId, Title: $subject")
     }
     
     // 분류된 데이터 조회 메서드들
