@@ -14,6 +14,9 @@ interface ContactDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(contact: Contact): Long
 
+    @Insert
+    suspend fun insert(contact: Contact): Long
+
     @Update
     suspend fun update(contact: Contact)
 
@@ -25,4 +28,7 @@ interface ContactDao {
 
     @Query("SELECT * FROM contacts ORDER BY name ASC")
     fun observeAll(): Flow<List<Contact>>
+    
+    @Query("SELECT * FROM contacts ORDER BY name ASC")
+    suspend fun getAll(): List<Contact>
 }

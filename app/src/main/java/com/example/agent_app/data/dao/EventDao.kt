@@ -17,6 +17,9 @@ interface EventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(event: Event): Long
 
+    @Insert
+    suspend fun insert(event: Event): Long
+
     @Update
     suspend fun update(event: Event)
 
@@ -52,4 +55,7 @@ interface EventDao {
 
     @Query("DELETE FROM event_notifications WHERE event_id = :eventId")
     suspend fun deleteNotifications(eventId: Long)
+    
+    @Query("SELECT * FROM events ORDER BY start_at ASC")
+    suspend fun getAll(): List<Event>
 }

@@ -40,13 +40,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlin.math.roundToInt
 import com.example.agent_app.R
 import com.example.agent_app.data.entity.IngestItem
+import com.example.agent_app.data.entity.Contact
+import com.example.agent_app.data.entity.Event
+import com.example.agent_app.data.entity.Note
 import com.example.agent_app.util.TimeFormatter
 
 @Composable
-fun AssistantApp(viewModel: MainViewModel, onGoogleLogin: () -> Unit) {
+fun AssistantApp(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -67,8 +69,8 @@ fun AssistantApp(viewModel: MainViewModel, onGoogleLogin: () -> Unit) {
         onExpiresAtChange = viewModel::updateExpiresAt,
         onSaveToken = viewModel::saveToken,
         onClearToken = viewModel::clearToken,
-        onGoogleLogin = onGoogleLogin,
         onSync = viewModel::syncGmail,
+        onResetDatabase = viewModel::resetDatabase,
     )
 }
 
@@ -83,8 +85,8 @@ private fun AssistantScaffold(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
-    onGoogleLogin: () -> Unit,
     onSync: () -> Unit,
+    onResetDatabase: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -104,8 +106,8 @@ private fun AssistantScaffold(
             onExpiresAtChange = onExpiresAtChange,
             onSaveToken = onSaveToken,
             onClearToken = onClearToken,
-            onGoogleLogin = onGoogleLogin,
             onSync = onSync,
+            onResetDatabase = onResetDatabase,
         )
     }
 }
@@ -120,8 +122,8 @@ private fun AssistantContent(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
-    onGoogleLogin: () -> Unit,
     onSync: () -> Unit,
+    onResetDatabase: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -139,13 +141,18 @@ private fun AssistantContent(
             onExpiresAtChange = onExpiresAtChange,
             onSaveToken = onSaveToken,
             onClearToken = onClearToken,
-            onGoogleLogin = onGoogleLogin,
         )
-        GmailCard(
-            items = uiState.gmailItems,
-            isSyncing = uiState.isSyncing,
-            onSync = onSync,
-        )
+               GmailCard(
+                   items = uiState.gmailItems,
+                   isSyncing = uiState.isSyncing,
+                   onSync = onSync,
+                   onResetDatabase = onResetDatabase,
+               )
+               ClassifiedDataCard(
+                   contacts = uiState.contacts,
+                   events = uiState.events,
+                   notes = uiState.notes,
+               )
     }
 }
 
@@ -158,7 +165,6 @@ private fun LoginCard(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
-    onGoogleLogin: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -174,22 +180,23 @@ private fun LoginCard(
                 text = "Google 계정 로그인을 통해 gmail.readonly 권한을 부여하면 토큰이 자동으로 저장됩니다. 필요 시 아래 필드를 사용해 수동으로 토큰을 입력할 수도 있습니다.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(
-                onClick = onGoogleLogin,
-                enabled = !loginState.isGoogleLoginInProgress,
-            ) {
-                if (loginState.isGoogleLoginInProgress) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "로그인 진행 중...")
-                } else {
-                    Text(text = "Google 계정으로 로그인")
-                }
-            }
+            // Google 로그인 버튼은 현재 비활성화
+            // Button(
+            //     onClick = onGoogleLogin,
+            //     enabled = !loginState.isGoogleLoginInProgress,
+            // ) {
+            //     if (loginState.isGoogleLoginInProgress) {
+            //         CircularProgressIndicator(
+            //             modifier = Modifier.size(18.dp),
+            //             strokeWidth = 2.dp,
+            //             color = MaterialTheme.colorScheme.onPrimary,
+            //         )
+            //         Spacer(modifier = Modifier.width(8.dp))
+            //         Text(text = "로그인 진행 중...")
+            //     } else {
+            //         Text(text = "Google 계정으로 로그인")
+            //     }
+            // }
             Divider(modifier = Modifier.padding(vertical = 8.dp))
             OutlinedTextField(
                 value = loginState.accessTokenInput,
@@ -249,6 +256,7 @@ private fun GmailCard(
     items: List<IngestItem>,
     isSyncing: Boolean,
     onSync: () -> Unit,
+    onResetDatabase: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -265,13 +273,24 @@ private fun GmailCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Button(onClick = onSync, enabled = !isSyncing) {
-                    Text(text = "최근 20개 동기화")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onSync, enabled = !isSyncing) {
+                        Text(text = "최근 20개 동기화")
+                    }
+                    TextButton(
+                        onClick = onResetDatabase,
+                        enabled = !isSyncing
+                    ) {
+                        Text(text = "DB 초기화")
+                    }
                 }
             }
             if (isSyncing) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
                 }
             }
             if (items.isEmpty()) {
@@ -318,12 +337,104 @@ private fun GmailMessageRow(item: IngestItem) {
         if (item.dueDate != null || item.confidence != null) {
             Spacer(modifier = Modifier.height(4.dp))
             val dueText = item.dueDate?.let { "예상 일정: ${TimeFormatter.format(it)}" }
-            val confidenceText = item.confidence?.let { "신뢰도 ${(it * 100).coerceIn(0.0, 100.0).roundToInt()}%" }
+            val confidenceText = item.confidence?.let { "신뢰도 ${(it * 100).coerceIn(0.0, 100.0).toInt()}%" }
             val summary = listOfNotNull(dueText, confidenceText).joinToString(separator = " · ")
             Text(
                 text = summary,
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun ClassifiedDataCard(
+    contacts: List<Contact>,
+    events: List<Event>,
+    notes: List<Note>,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = "분류된 데이터",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            
+            // 연락처 섹션
+            if (contacts.isNotEmpty()) {
+                Text(
+                    text = "연락처 (${contacts.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                )
+                contacts.take(3).forEach { contact ->
+                    Text(
+                        text = "${contact.name} - ${contact.email ?: contact.phone ?: "정보 없음"}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (contacts.size > 3) {
+                    Text(
+                        text = "... 외 ${contacts.size - 3}개",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Divider()
+            }
+            
+            // 이벤트 섹션
+            if (events.isNotEmpty()) {
+                Text(
+                    text = "일정 (${events.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                )
+                events.take(3).forEach { event ->
+                    Text(
+                        text = "${event.title} - ${event.location ?: "장소 미정"}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (events.size > 3) {
+                    Text(
+                        text = "... 외 ${events.size - 3}개",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Divider()
+            }
+            
+            // 노트 섹션
+            if (notes.isNotEmpty()) {
+                Text(
+                    text = "메모 (${notes.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                )
+                notes.take(3).forEach { note ->
+                    Text(
+                        text = "${note.title} - ${note.body.take(50)}${if (note.body.length > 50) "..." else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (notes.size > 3) {
+                    Text(
+                        text = "... 외 ${notes.size - 3}개",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            
+            if (contacts.isEmpty() && events.isEmpty() && notes.isEmpty()) {
+                Text(
+                    text = "Gmail을 동기화하면 AI가 자동으로 분류한 데이터가 여기에 표시됩니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }

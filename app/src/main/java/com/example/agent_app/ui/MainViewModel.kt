@@ -3,10 +3,14 @@ package com.example.agent_app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.agent_app.data.entity.IngestItem
+import com.example.agent_app.data.entity.Contact
+import com.example.agent_app.data.entity.Event
+import com.example.agent_app.data.entity.Note
 import com.example.agent_app.data.repo.AuthRepository
 import com.example.agent_app.data.repo.GmailRepository
 import com.example.agent_app.data.repo.GmailSyncResult
 import com.example.agent_app.data.repo.IngestRepository
+import com.example.agent_app.data.repo.ClassifiedDataRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +25,7 @@ class MainViewModel(
     private val authRepository: AuthRepository,
     private val ingestRepository: IngestRepository,
     private val gmailRepository: GmailRepository,
+    private val classifiedDataRepository: ClassifiedDataRepository? = null,
 ) : ViewModel() {
 
     private val loginState = MutableStateFlow(LoginUiState())
@@ -29,15 +34,33 @@ class MainViewModel(
     private val gmailItemsState = ingestRepository
         .observeBySource("gmail")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    
+    // 분류된 데이터 상태
+    private val contactsState = MutableStateFlow<List<Contact>>(emptyList())
+    private val eventsState = MutableStateFlow<List<Event>>(emptyList())
+    private val notesState = MutableStateFlow<List<Note>>(emptyList())
 
     val uiState: StateFlow<AssistantUiState> = combine(
         loginState,
         gmailItemsState,
+        contactsState,
+        eventsState,
+        notesState,
         syncState,
-    ) { login, gmailItems, sync ->
+    ) { flows ->
+        val login = flows[0] as LoginUiState
+        val gmailItems = flows[1] as List<IngestItem>
+        val contacts = flows[2] as List<Contact>
+        val events = flows[3] as List<Event>
+        val notes = flows[4] as List<Note>
+        val sync = flows[5] as SyncState
+        
         AssistantUiState(
             loginState = login,
             gmailItems = gmailItems,
+            contacts = contacts,
+            events = events,
+            notes = notes,
             isSyncing = sync.isSyncing,
             syncMessage = sync.message,
         )
@@ -59,40 +82,14 @@ class MainViewModel(
                 }
             }
         }
-    }
-
-    fun onGoogleLoginStarted() {
-        loginState.update {
-            it.copy(
-                isGoogleLoginInProgress = true,
-                statusMessage = null,
-            )
-        }
-    }
-
-    fun onGoogleLoginSucceeded(accessToken: String, scope: String = DEFAULT_GMAIL_SCOPE, expiresAt: Long? = null) {
+        
+        // 분류된 데이터 로드
         viewModelScope.launch {
-            authRepository.upsertGoogleToken(
-                accessToken = accessToken,
-                refreshToken = null,
-                scope = scope,
-                expiresAt = expiresAt,
-            )
-            loginState.update {
-                it.copy(
-                    isGoogleLoginInProgress = false,
-                    statusMessage = "Google 로그인에 성공했습니다.",
-                )
+            classifiedDataRepository?.let { repo ->
+                contactsState.value = repo.getAllContacts()
+                eventsState.value = repo.getAllEvents()
+                notesState.value = repo.getAllNotes()
             }
-        }
-    }
-
-    fun onGoogleLoginFailed(message: String) {
-        loginState.update {
-            it.copy(
-                isGoogleLoginInProgress = false,
-                statusMessage = message,
-            )
         }
     }
 
@@ -120,22 +117,43 @@ class MainViewModel(
             return
         }
         val expiresAt = state.expiresAtInput.trim().takeIf { it.isNotEmpty() }?.toLongOrNull()
+        
+        // 디버깅을 위한 로그 추가
+        android.util.Log.d("MainViewModel", "토큰 저장 시도 - Access Token: ${access.take(20)}...")
+        android.util.Log.d("MainViewModel", "토큰 저장 시도 - Refresh Token: ${state.refreshTokenInput.take(20)}...")
+        android.util.Log.d("MainViewModel", "토큰 저장 시도 - Scope: ${state.scopeInput}")
+        android.util.Log.d("MainViewModel", "토큰 저장 시도 - Expires At: $expiresAt")
+        
         viewModelScope.launch {
-            authRepository.upsertGoogleToken(
-                accessToken = access,
-                refreshToken = state.refreshTokenInput.trim().takeIf { it.isNotEmpty() },
-                scope = state.scopeInput.trim().ifEmpty { DEFAULT_GMAIL_SCOPE },
-                expiresAt = expiresAt,
-            )
-            loginState.update {
-                it.copy(
-                    accessTokenInput = "",
-                    refreshTokenInput = "",
-                    expiresAtInput = expiresAt?.toString() ?: "",
-                    scopeInput = it.scopeInput.ifEmpty { DEFAULT_GMAIL_SCOPE },
-                    statusMessage = "토큰이 저장되었습니다.",
-                    isGoogleLoginInProgress = false,
+            try {
+                // 토큰에서 개행 문자와 공백 제거
+                val cleanAccessToken = access.replace("\n", "").replace("\r", "").trim()
+                val cleanRefreshToken = state.refreshTokenInput.replace("\n", "").replace("\r", "").trim().takeIf { it.isNotEmpty() }
+                
+                android.util.Log.d("MainViewModel", "정리된 Access Token 길이: ${cleanAccessToken.length}")
+                android.util.Log.d("MainViewModel", "정리된 Refresh Token 길이: ${cleanRefreshToken?.length ?: 0}")
+                
+                authRepository.upsertGoogleToken(
+                    accessToken = cleanAccessToken,
+                    refreshToken = cleanRefreshToken,
+                    scope = state.scopeInput.trim().ifEmpty { DEFAULT_GMAIL_SCOPE },
+                    expiresAt = expiresAt,
                 )
+                android.util.Log.d("MainViewModel", "토큰 저장 성공")
+                loginState.update {
+                    it.copy(
+                        accessTokenInput = "",
+                        refreshTokenInput = "",
+                        expiresAtInput = expiresAt?.toString() ?: "",
+                        scopeInput = it.scopeInput.ifEmpty { DEFAULT_GMAIL_SCOPE },
+                        statusMessage = "토큰이 저장되었습니다.",
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "토큰 저장 실패", e)
+                loginState.update {
+                    it.copy(statusMessage = "토큰 저장 실패: ${e.message}")
+                }
             }
         }
     }
@@ -146,7 +164,6 @@ class MainViewModel(
             loginState.update {
                 it.copy(
                     statusMessage = "저장된 토큰 정보를 삭제했습니다.",
-                    isGoogleLoginInProgress = false,
                 )
             }
         }
@@ -156,6 +173,12 @@ class MainViewModel(
         viewModelScope.launch {
             syncState.value = SyncState(isSyncing = true, message = null)
             val token = authRepository.getGoogleToken()
+            
+            // 디버깅을 위한 로그 추가
+            android.util.Log.d("MainViewModel", "토큰 조회 결과: $token")
+            android.util.Log.d("MainViewModel", "Access Token: ${token?.accessToken?.take(20)}...")
+            android.util.Log.d("MainViewModel", "토큰 만료 시간: ${token?.expiresAt}")
+            
             if (token?.accessToken.isNullOrBlank()) {
                 syncState.value = SyncState(
                     isSyncing = false,
@@ -165,9 +188,16 @@ class MainViewModel(
             }
             when (val result = gmailRepository.syncRecentMessages(token!!.accessToken)) {
                 is GmailSyncResult.Success -> {
+                    // Gmail 동기화 후 분류된 데이터 다시 로드
+                    classifiedDataRepository?.let { repo ->
+                        contactsState.value = repo.getAllContacts()
+                        eventsState.value = repo.getAllEvents()
+                        notesState.value = repo.getAllNotes()
+                    }
+                    
                     syncState.value = SyncState(
                         isSyncing = false,
-                        message = "${result.upsertedCount}개의 메시지를 동기화했습니다.",
+                        message = "${result.upsertedCount}개의 메시지를 동기화했습니다. (${com.example.agent_app.util.TimeFormatter.formatSyncTime()})",
                     )
                 }
                 is GmailSyncResult.Unauthorized -> {
@@ -192,6 +222,33 @@ class MainViewModel(
         }
     }
 
+    fun resetDatabase() {
+        viewModelScope.launch {
+            try {
+                // 모든 테이블 초기화
+                ingestRepository.clearAll()
+                classifiedDataRepository?.let { repo ->
+                    // 분류된 데이터도 초기화 (필요시)
+                }
+                
+                // 상태 초기화
+                contactsState.value = emptyList()
+                eventsState.value = emptyList()
+                notesState.value = emptyList()
+                
+                syncState.value = SyncState(
+                    isSyncing = false,
+                    message = "데이터베이스가 초기화되었습니다."
+                )
+            } catch (e: Exception) {
+                syncState.value = SyncState(
+                    isSyncing = false,
+                    message = "데이터베이스 초기화 중 오류가 발생했습니다: ${e.message}"
+                )
+            }
+        }
+    }
+
     fun consumeStatusMessage() {
         loginState.update { it.copy(statusMessage = null) }
         syncState.update { it.copy(message = null) }
@@ -201,6 +258,9 @@ class MainViewModel(
 data class AssistantUiState(
     val loginState: LoginUiState = LoginUiState(),
     val gmailItems: List<IngestItem> = emptyList(),
+    val contacts: List<Contact> = emptyList(),
+    val events: List<Event> = emptyList(),
+    val notes: List<Note> = emptyList(),
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
 )
@@ -214,7 +274,6 @@ data class LoginUiState(
     val storedScope: String? = null,
     val storedExpiresAt: Long? = null,
     val statusMessage: String? = null,
-    val isGoogleLoginInProgress: Boolean = false,
 )
 
 data class SyncState(

@@ -19,6 +19,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun getById(id: Long): User?
 
+    @Insert
+    suspend fun insert(user: User): Long
+
     @Query("SELECT * FROM users ORDER BY created_at DESC")
     fun observeAll(): Flow<List<User>>
 }

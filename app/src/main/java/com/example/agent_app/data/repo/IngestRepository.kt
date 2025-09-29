@@ -18,4 +18,8 @@ class IngestRepository(
     }
 
     fun observeBySource(source: String): Flow<List<IngestItem>> = dao.observeBySource(source)
+    
+    suspend fun clearAll() = withContext(dispatcher) {
+        dao.clearAll()
+    }
 }

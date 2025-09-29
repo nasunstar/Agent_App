@@ -28,6 +28,12 @@ interface IngestItemDao {
 
     @Query("SELECT * FROM ingest_items WHERE source = :source ORDER BY timestamp DESC")
     fun observeBySource(source: String): Flow<List<IngestItem>>
+    
+    @Query("SELECT * FROM ingest_items WHERE source = :source ORDER BY timestamp DESC")
+    suspend fun getBySource(source: String): List<IngestItem>
+    
+    @Query("SELECT * FROM ingest_items WHERE source = :source AND type = :type ORDER BY timestamp DESC")
+    suspend fun getBySourceAndType(source: String, type: String): List<IngestItem>
 
     @Query(
         "SELECT * FROM ingest_items WHERE (:start IS NULL OR timestamp >= :start) " +
@@ -41,4 +47,7 @@ interface IngestItemDao {
             "AND (:before IS NULL OR due_date <= :before) ORDER BY due_date ASC"
     )
     fun observeDueBetween(after: Long?, before: Long?): Flow<List<IngestItem>>
+    
+    @Query("DELETE FROM ingest_items")
+    suspend fun clearAll()
 }

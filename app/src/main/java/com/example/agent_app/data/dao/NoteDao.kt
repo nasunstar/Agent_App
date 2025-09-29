@@ -14,6 +14,9 @@ interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(note: Note): Long
 
+    @Insert
+    suspend fun insert(note: Note): Long
+
     @Update
     suspend fun update(note: Note)
 
@@ -25,4 +28,7 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes WHERE user_id = :userId ORDER BY updated_at DESC")
     fun observeByUser(userId: Long): Flow<List<Note>>
+    
+    @Query("SELECT * FROM notes ORDER BY updated_at DESC")
+    suspend fun getAll(): List<Note>
 }
