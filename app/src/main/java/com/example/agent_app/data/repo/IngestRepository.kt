@@ -9,10 +9,12 @@ import kotlinx.coroutines.withContext
 
 class IngestRepository(
     private val dao: IngestItemDao,
+    private val parser: IngestItemParser = IngestItemParser(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun upsert(item: IngestItem) = withContext(dispatcher) {
-        dao.upsert(item)
+        val enriched = parser.enrich(item)
+        dao.upsert(enriched)
     }
 
     fun observeBySource(source: String): Flow<List<IngestItem>> = dao.observeBySource(source)

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,12 +40,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 import com.example.agent_app.R
 import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.util.TimeFormatter
 
 @Composable
-fun AssistantApp(viewModel: MainViewModel) {
+fun AssistantApp(viewModel: MainViewModel, onGoogleLogin: () -> Unit) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -64,6 +67,7 @@ fun AssistantApp(viewModel: MainViewModel) {
         onExpiresAtChange = viewModel::updateExpiresAt,
         onSaveToken = viewModel::saveToken,
         onClearToken = viewModel::clearToken,
+        onGoogleLogin = onGoogleLogin,
         onSync = viewModel::syncGmail,
     )
 }
@@ -79,6 +83,7 @@ private fun AssistantScaffold(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
+    onGoogleLogin: () -> Unit,
     onSync: () -> Unit,
 ) {
     Scaffold(
@@ -99,6 +104,7 @@ private fun AssistantScaffold(
             onExpiresAtChange = onExpiresAtChange,
             onSaveToken = onSaveToken,
             onClearToken = onClearToken,
+            onGoogleLogin = onGoogleLogin,
             onSync = onSync,
         )
     }
@@ -114,6 +120,7 @@ private fun AssistantContent(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
+    onGoogleLogin: () -> Unit,
     onSync: () -> Unit,
 ) {
     Column(
@@ -132,6 +139,7 @@ private fun AssistantContent(
             onExpiresAtChange = onExpiresAtChange,
             onSaveToken = onSaveToken,
             onClearToken = onClearToken,
+            onGoogleLogin = onGoogleLogin,
         )
         GmailCard(
             items = uiState.gmailItems,
@@ -150,6 +158,7 @@ private fun LoginCard(
     onExpiresAtChange: (String) -> Unit,
     onSaveToken: () -> Unit,
     onClearToken: () -> Unit,
+    onGoogleLogin: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -162,9 +171,26 @@ private fun LoginCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "OAuth 플로우를 완료한 뒤 발급받은 액세스 토큰을 입력하면 최근 Gmail을 동기화할 수 있습니다.",
+                text = "Google 계정 로그인을 통해 gmail.readonly 권한을 부여하면 토큰이 자동으로 저장됩니다. 필요 시 아래 필드를 사용해 수동으로 토큰을 입력할 수도 있습니다.",
                 style = MaterialTheme.typography.bodyMedium,
             )
+            Button(
+                onClick = onGoogleLogin,
+                enabled = !loginState.isGoogleLoginInProgress,
+            ) {
+                if (loginState.isGoogleLoginInProgress) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "로그인 진행 중...")
+                } else {
+                    Text(text = "Google 계정으로 로그인")
+                }
+            }
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
             OutlinedTextField(
                 value = loginState.accessTokenInput,
                 onValueChange = onAccessTokenChange,
@@ -289,5 +315,15 @@ private fun GmailMessageRow(item: IngestItem) {
             text = "수신: ${TimeFormatter.format(item.timestamp)}",
             style = MaterialTheme.typography.labelSmall,
         )
+        if (item.dueDate != null || item.confidence != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            val dueText = item.dueDate?.let { "예상 일정: ${TimeFormatter.format(it)}" }
+            val confidenceText = item.confidence?.let { "신뢰도 ${(it * 100).coerceIn(0.0, 100.0).roundToInt()}%" }
+            val summary = listOfNotNull(dueText, confidenceText).joinToString(separator = " · ")
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }

@@ -61,6 +61,41 @@ class MainViewModel(
         }
     }
 
+    fun onGoogleLoginStarted() {
+        loginState.update {
+            it.copy(
+                isGoogleLoginInProgress = true,
+                statusMessage = null,
+            )
+        }
+    }
+
+    fun onGoogleLoginSucceeded(accessToken: String, scope: String = DEFAULT_GMAIL_SCOPE, expiresAt: Long? = null) {
+        viewModelScope.launch {
+            authRepository.upsertGoogleToken(
+                accessToken = accessToken,
+                refreshToken = null,
+                scope = scope,
+                expiresAt = expiresAt,
+            )
+            loginState.update {
+                it.copy(
+                    isGoogleLoginInProgress = false,
+                    statusMessage = "Google 로그인에 성공했습니다.",
+                )
+            }
+        }
+    }
+
+    fun onGoogleLoginFailed(message: String) {
+        loginState.update {
+            it.copy(
+                isGoogleLoginInProgress = false,
+                statusMessage = message,
+            )
+        }
+    }
+
     fun updateAccessToken(value: String) {
         loginState.update { it.copy(accessTokenInput = value) }
     }
@@ -99,6 +134,7 @@ class MainViewModel(
                     expiresAtInput = expiresAt?.toString() ?: "",
                     scopeInput = it.scopeInput.ifEmpty { DEFAULT_GMAIL_SCOPE },
                     statusMessage = "토큰이 저장되었습니다.",
+                    isGoogleLoginInProgress = false,
                 )
             }
         }
@@ -110,6 +146,7 @@ class MainViewModel(
             loginState.update {
                 it.copy(
                     statusMessage = "저장된 토큰 정보를 삭제했습니다.",
+                    isGoogleLoginInProgress = false,
                 )
             }
         }
@@ -177,6 +214,7 @@ data class LoginUiState(
     val storedScope: String? = null,
     val storedExpiresAt: Long? = null,
     val statusMessage: String? = null,
+    val isGoogleLoginInProgress: Boolean = false,
 )
 
 data class SyncState(
