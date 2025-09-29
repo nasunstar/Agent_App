@@ -1,6 +1,4 @@
-
-
-
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -11,6 +9,17 @@ plugins {
 }
 
 apply(plugin = "org.jetbrains.kotlin.plugin.serialization")
+
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.exists()) {
+        propertiesFile.inputStream().use { load(it) }
+    }
+}
+val googleWebClientId = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")?.trim().orEmpty().ifBlank { "YOUR_GOOGLE_WEB_CLIENT_ID" }
+val openAiApiKey = localProperties.getProperty("OPENAI_API_KEY")?.trim().orEmpty()
+val escapedGoogleClientId = googleWebClientId.replace("\"", "\\"")
+val escapedOpenAiApiKey = openAiApiKey.replace("\"", "\\"")
 
 android {
     namespace = "com.example.agent_app"
@@ -25,6 +34,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$escapedGoogleClientId\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"$escapedOpenAiApiKey\"")
     }
 
     buildTypes {
@@ -84,6 +95,7 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.google.play.services.auth)
 
     ksp(libs.androidx.room.compiler)
 

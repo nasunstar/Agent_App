@@ -1,5 +1,12 @@
 # AI Personal Assistant (Android)
 
+## Configuration
+
+Before running the app configure the following entries in `local.properties`:
+
+- `GOOGLE_WEB_CLIENT_ID`: optional Web client ID used when requesting a server auth code from Google Sign-In. Leave as the default placeholder if you only need on-device token retrieval.
+- `OPENAI_API_KEY`: stored locally and exposed to the app via `BuildConfig.OPENAI_API_KEY` for future OpenAI integrations.
+
 ## Local Database Schema
 
 ```
@@ -42,14 +49,25 @@ type_name (unique)    user_id (FK)             event_id (FK→events.id)
 
 ## Gmail Ingestion (Phase 3)
 
-Phase 3 introduces a Jetpack Compose driven home screen and a Gmail ingestion client powered by Retrofit + Kotlinx Serialization. To exercise the flow:
+The home screen now includes a Google Sign-In button that requests the `gmail.readonly` scope and fetches an access token directly on device using Play Services. When the sign-in flow completes successfully the token is persisted through `AuthRepository` and can be reused for Gmail synchronization. Manual token entry fields remain available as a fallback for development.
 
-1. Complete the Google OAuth authorization code flow separately and obtain an access token with the `https://www.googleapis.com/auth/gmail.readonly` scope. A refresh token is optional but can be stored for future automation.
-2. Launch the Android app. The Compose home screen contains two cards: **Google 로그인 설정** for credential storage and **Gmail 수집함** for inbox monitoring. Enter the access token (and optional refresh token, scope, or expiry) and press **토큰 저장**. The token metadata is persisted in Room for reuse.
-3. Press **최근 20개 동기화** within the **Gmail 수집함** card. The app calls the Gmail REST API, retrieves the most recent 20 messages, and upserts them into the `ingest_items` table using the Gmail message ID as the primary key.
-4. Stored messages render immediately in the Compose list with subject, snippet, and received timestamp. If Gmail returns `401 Unauthorized`, the UI surfaces a snackbar prompting the user to refresh credentials.
+To sync messages:
 
-> ⚠️ **Security note:** Real deployments must exchange the Google server auth code server-side and load tokens into the app's encrypted storage. The manual token entry workflow above is provided strictly for local development.
+1. Tap **Google 계정으로 로그인** inside the **Google 로그인 설정** card and complete the consent dialog. The access token is stored automatically.
+2. (Optional) Provide a manually issued access token/refresh token and press **토큰 저장** if you need to test with external credentials.
+3. Press **최근 20개 동기화** within the **Gmail 수집함** card. The Gmail REST API retrieves the newest 20 messages and upserts them into `ingest_items` using the Gmail message ID as the primary key.
+4. The Compose list renders the subject, snippet, received timestamp, parsed due date (if present), and confidence score. 401 responses trigger a snackbar that prompts the user to reauthenticate.
+
+
+## Natural Language Parsing (Phase 4)
+
+Phase 4 introduces a lightweight intent and date parser that enriches each `ingest_items` record:
+
+- `TimeResolver` converts phrases such as "내일 오전 10시", "다음 주 금요일", `9/30 14:00`, and Korean date formats into Asia/Seoul epoch milliseconds.
+- `IngestItemParser` combines detected timestamps with intent keywords (회의, 마감, deadline, 등) to populate `dueDate` and a heuristic `confidence` score before persisting to Room.
+- The Gmail list renders the derived due date and confidence so upcoming action items stand out immediately after ingestion.
+
+The parser intentionally favours deterministic rules so it can run offline; it can be extended with additional patterns as new data sources are introduced.
 
 ## Testing
 
