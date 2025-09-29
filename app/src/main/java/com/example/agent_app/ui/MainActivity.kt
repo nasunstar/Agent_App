@@ -15,6 +15,7 @@ import com.example.agent_app.ui.theme.AgentAppTheme
 
 class MainActivity : ComponentActivity() {
 
+
     private val database: AppDatabase by lazy { AppDatabase.build(applicationContext) }
     private val authRepository: AuthRepository by lazy { AuthRepository(database.authTokenDao()) }
     private val ingestRepository: IngestRepository by lazy { IngestRepository(database.ingestItemDao()) }

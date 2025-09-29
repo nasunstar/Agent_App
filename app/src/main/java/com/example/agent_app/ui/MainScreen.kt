@@ -35,8 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -173,7 +171,6 @@ private fun LoginCard(
                 label = { Text("Access Token") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             )
             OutlinedTextField(
                 value = loginState.refreshTokenInput,
@@ -181,7 +178,6 @@ private fun LoginCard(
                 label = { Text("Refresh Token (선택)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             )
             OutlinedTextField(
                 value = loginState.scopeInput,
@@ -196,7 +192,6 @@ private fun LoginCard(
                 label = { Text("만료 시각 (epoch ms, 선택)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             )
             if (loginState.hasStoredToken) {
                 Divider(modifier = Modifier.padding(top = 8.dp))

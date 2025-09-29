@@ -1,6 +1,7 @@
 package com.example.agent_app.data.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -15,6 +16,9 @@ interface AuthTokenDao {
 
     @Update
     suspend fun update(token: AuthToken)
+
+    @Delete
+    suspend fun delete(token: AuthToken)
 
     @Query("SELECT * FROM auth_tokens WHERE provider = :provider")
     suspend fun getByProvider(provider: String): AuthToken?
