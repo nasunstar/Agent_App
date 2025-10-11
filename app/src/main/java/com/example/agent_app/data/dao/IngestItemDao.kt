@@ -31,9 +31,31 @@ interface IngestItemDao {
     
     @Query("SELECT * FROM ingest_items WHERE source = :source ORDER BY timestamp DESC")
     suspend fun getBySource(source: String): List<IngestItem>
-    
+
     @Query("SELECT * FROM ingest_items WHERE source = :source AND type = :type ORDER BY timestamp DESC")
     suspend fun getBySourceAndType(source: String, type: String): List<IngestItem>
+
+    @Query(
+        "SELECT * FROM ingest_items WHERE (" +
+            ":start IS NULL OR timestamp >= :start) " +
+            "AND (:end IS NULL OR timestamp <= :end) " +
+            "AND (:source IS NULL OR source = :source) " +
+            "ORDER BY timestamp DESC LIMIT :limit"
+    )
+    suspend fun filterForSearch(
+        start: Long?,
+        end: Long?,
+        source: String?,
+        limit: Int,
+    ): List<IngestItem>
+
+    @Query(
+        "SELECT * FROM ingest_items WHERE rowid IN (" +
+            "SELECT rowid FROM ingest_items_fts " +
+            "WHERE ingest_items_fts MATCH :query LIMIT :limit" +
+            ")"
+    )
+    suspend fun searchByFullText(query: String, limit: Int): List<IngestItem>
 
     @Query(
         "SELECT * FROM ingest_items WHERE (:start IS NULL OR timestamp >= :start) " +

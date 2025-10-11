@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -20,6 +20,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -32,7 +34,10 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -46,31 +51,40 @@ import com.example.agent_app.data.entity.Contact
 import com.example.agent_app.data.entity.Event
 import com.example.agent_app.data.entity.Note
 import com.example.agent_app.util.TimeFormatter
+import com.example.agent_app.ui.chat.ChatScreen
+import com.example.agent_app.ui.chat.ChatViewModel
 
 @Composable
-fun AssistantApp(viewModel: MainViewModel) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+fun AssistantApp(
+    mainViewModel: MainViewModel,
+    chatViewModel: ChatViewModel,
+) {
+    val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var selectedTab by rememberSaveable { mutableStateOf(AssistantTab.Overview) }
 
     LaunchedEffect(uiState.loginState.statusMessage, uiState.syncMessage) {
         val messages = listOfNotNull(uiState.loginState.statusMessage, uiState.syncMessage)
         if (messages.isNotEmpty()) {
             messages.forEach { snackbarHostState.showSnackbar(it) }
-            viewModel.consumeStatusMessage()
+            mainViewModel.consumeStatusMessage()
         }
     }
 
     AssistantScaffold(
         uiState = uiState,
         snackbarHostState = snackbarHostState,
-        onAccessTokenChange = viewModel::updateAccessToken,
-        onRefreshTokenChange = viewModel::updateRefreshToken,
-        onScopeChange = viewModel::updateScope,
-        onExpiresAtChange = viewModel::updateExpiresAt,
-        onSaveToken = viewModel::saveToken,
-        onClearToken = viewModel::clearToken,
-        onSync = viewModel::syncGmail,
-        onResetDatabase = viewModel::resetDatabase,
+        selectedTab = selectedTab,
+        onTabSelected = { selectedTab = it },
+        chatViewModel = chatViewModel,
+        onAccessTokenChange = mainViewModel::updateAccessToken,
+        onRefreshTokenChange = mainViewModel::updateRefreshToken,
+        onScopeChange = mainViewModel::updateScope,
+        onExpiresAtChange = mainViewModel::updateExpiresAt,
+        onSaveToken = mainViewModel::saveToken,
+        onClearToken = mainViewModel::clearToken,
+        onSync = mainViewModel::syncGmail,
+        onResetDatabase = mainViewModel::resetDatabase,
     )
 }
 
@@ -79,6 +93,9 @@ fun AssistantApp(viewModel: MainViewModel) {
 private fun AssistantScaffold(
     uiState: AssistantUiState,
     snackbarHostState: SnackbarHostState,
+    selectedTab: AssistantTab,
+    onTabSelected: (AssistantTab) -> Unit,
+    chatViewModel: ChatViewModel,
     onAccessTokenChange: (String) -> Unit,
     onRefreshTokenChange: (String) -> Unit,
     onScopeChange: (String) -> Unit,
@@ -96,19 +113,38 @@ private fun AssistantScaffold(
             )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
+            NavigationBar {
+                AssistantTab.values().forEach { tab ->
+                    NavigationBarItem(
+                        selected = tab == selectedTab,
+                        onClick = { onTabSelected(tab) },
+                        label = { Text(tab.label) },
+                        icon = { Spacer(modifier = Modifier.size(0.dp)) },
+                    )
+                }
+            }
+        },
     ) { paddingValues ->
-        AssistantContent(
-            uiState = uiState,
-            contentPadding = paddingValues,
-            onAccessTokenChange = onAccessTokenChange,
-            onRefreshTokenChange = onRefreshTokenChange,
-            onScopeChange = onScopeChange,
-            onExpiresAtChange = onExpiresAtChange,
-            onSaveToken = onSaveToken,
-            onClearToken = onClearToken,
-            onSync = onSync,
-            onResetDatabase = onResetDatabase,
-        )
+        when (selectedTab) {
+            AssistantTab.Overview -> AssistantContent(
+                uiState = uiState,
+                contentPadding = paddingValues,
+                onAccessTokenChange = onAccessTokenChange,
+                onRefreshTokenChange = onRefreshTokenChange,
+                onScopeChange = onScopeChange,
+                onExpiresAtChange = onExpiresAtChange,
+                onSaveToken = onSaveToken,
+                onClearToken = onClearToken,
+                onSync = onSync,
+                onResetDatabase = onResetDatabase,
+            )
+
+            AssistantTab.Chat -> ChatScreen(
+                viewModel = chatViewModel,
+                modifier = Modifier.padding(paddingValues),
+            )
+        }
     }
 }
 
@@ -154,6 +190,11 @@ private fun AssistantContent(
                    notes = uiState.notes,
                )
     }
+}
+
+private enum class AssistantTab(val label: String) {
+    Overview("요약"),
+    Chat("챗봇"),
 }
 
 @Composable
