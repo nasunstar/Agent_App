@@ -44,8 +44,8 @@ type_name (unique)    user_id (FK)             event_id (FK→events.id)
 ```
 
 - `ingest_items` includes indices on `timestamp` and `due_date` to support time based queries.
-- Full-text search tables are intentionally omitted in this iteration per project direction.
-- Database version 1 ships without migrations; a dedicated container is in place for future upgrades.
+- `ingest_items_fts` mirrors `ingest_items` via Room FTS4 to enable MATCH-based keyword queries, and `ingest_item_embeddings` persists hashed float vectors for semantic search.
+- Database version 2 ships with a migration that back-fills the FTS table and provisions the embedding store without dropping existing data.
 
 ## Gmail Ingestion (Phase 3)
 
@@ -69,6 +69,17 @@ Phase 4 introduces a lightweight intent and date parser that enriches each `inge
 
 The parser intentionally favours deterministic rules so it can run offline; it can be extended with additional patterns as new data sources are introduced.
 
+## Context-Aware Chat (Phase 5)
+
+The bottom navigation now exposes a dedicated **챗봇** screen built with a clean architecture stack (domain use cases + data gateway + presentation ViewModel):
+
+- `ProcessUserQueryUseCase` parses each user question to extract time windows, candidate keywords, and optional source filters using `TimeResolver`.
+- `HybridSearchEngine` executes a three-stage ranking pipeline (structured filters → FTS MATCH → vector cosine similarity) over `ingest_items`, backed by the new FTS and embedding tables.
+- `PromptBuilderImpl` assembles a concise system instruction plus a formatted context block so OpenAI completions stay grounded.
+- `ExecuteChatUseCase` orchestrates the pipeline through `ChatGatewayImpl` and returns a `ChatResult` consumed by `ChatViewModel` and `ChatScreen`.
+
+Each chat response highlights the context snippets (with relevance scores) that informed the answer so users always understand the provenance of a reply. When no OpenAI API key is configured the assistant still surfaces the ranked context and returns a fallback response.
+
 ## Testing
 
 Run the full unit test suite (includes Gmail repository coverage):
@@ -76,3 +87,5 @@ Run the full unit test suite (includes Gmail repository coverage):
 ```bash
 ./gradlew test
 ```
+
+> **Note:** The test task requires an Android SDK (`sdk.dir` or `ANDROID_HOME`). In CI-less local runs configure the SDK path before executing the command.

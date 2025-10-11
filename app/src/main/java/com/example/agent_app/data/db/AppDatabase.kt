@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.agent_app.data.dao.AuthTokenDao
 import com.example.agent_app.data.dao.ContactDao
+import com.example.agent_app.data.dao.EmbeddingDao
 import com.example.agent_app.data.dao.EventDao
 import com.example.agent_app.data.dao.EventTypeDao
 import com.example.agent_app.data.dao.IngestItemDao
@@ -19,6 +20,8 @@ import com.example.agent_app.data.entity.EventDetail
 import com.example.agent_app.data.entity.EventNotification
 import com.example.agent_app.data.entity.EventType
 import com.example.agent_app.data.entity.IngestItem
+import com.example.agent_app.data.entity.IngestItemEmbedding
+import com.example.agent_app.data.entity.IngestItemFts
 import com.example.agent_app.data.entity.Note
 import com.example.agent_app.data.entity.User
 
@@ -33,8 +36,10 @@ import com.example.agent_app.data.entity.User
         EventNotification::class,
         AuthToken::class,
         IngestItem::class,
+        IngestItemFts::class,
+        IngestItemEmbedding::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun authTokenDao(): AuthTokenDao
     abstract fun ingestItemDao(): IngestItemDao
+    abstract fun embeddingDao(): EmbeddingDao
 
     companion object {
         private const val DATABASE_NAME = "assistant.db"

@@ -5,7 +5,6 @@ import com.example.agent_app.ai.OpenAIClassifier
 import com.example.agent_app.data.dao.ContactDao
 import com.example.agent_app.data.dao.EventDao
 import com.example.agent_app.data.dao.EventTypeDao
-import com.example.agent_app.data.dao.IngestItemDao
 import com.example.agent_app.data.dao.NoteDao
 import com.example.agent_app.data.entity.Contact
 import com.example.agent_app.data.entity.Event
@@ -22,7 +21,7 @@ class ClassifiedDataRepository(
     private val eventDao: EventDao,
     private val eventTypeDao: EventTypeDao,
     private val noteDao: NoteDao,
-    private val ingestItemDao: IngestItemDao,
+    private val ingestRepository: IngestRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     
@@ -60,7 +59,9 @@ class ClassifiedDataRepository(
                 storeAsNote(classification, subject, body, originalId, timestamp)
             }
         }
-        
+
+        storeAsIngestItem(subject, body, source, originalId, timestamp, classification)
+
         android.util.Log.d("ClassifiedDataRepository", "이메일 저장 완료 - ID: $originalId")
         classification
     }
@@ -82,9 +83,11 @@ class ClassifiedDataRepository(
             "contact" -> storeAsContact(classification, title, body, originalId, timestamp)
             "event" -> storeAsEvent(classification, title, body, originalId, timestamp)
             "note" -> storeAsNote(classification, title, body, originalId, timestamp)
-            else -> storeAsIngestItem(title, body, source, originalId, timestamp)
+            else -> Unit
         }
-        
+
+        storeAsIngestItem(title, body, source, originalId, timestamp, classification)
+
         classification
     }
     
@@ -175,26 +178,31 @@ class ClassifiedDataRepository(
         body: String?,
         source: String,
         originalId: String,
-        timestamp: Long?
+        timestamp: Long?,
+        classification: ClassificationResult,
     ) {
         val ingestItem = IngestItem(
             id = originalId,
             source = source,
-            type = "email",
+            type = classification.type,
             title = subject,
             body = body,
-            timestamp = timestamp ?: System.currentTimeMillis(), // 원본 timestamp 사용
-            dueDate = null,
-            confidence = null,
+            timestamp = timestamp ?: System.currentTimeMillis(),
+            dueDate = classification.extractedData["startAt"]?.toLongOrNull(),
+            confidence = classification.confidence,
             metaJson = buildString {
                 append("{")
                 append("\"originalId\":\"$originalId\",")
+                append("\"classification\":\"${classification.type}\",")
                 append("\"rawData\":{\"subject\":\"$subject\",\"body\":\"$body\"}")
                 append("}")
             }
         )
-        ingestItemDao.upsert(ingestItem)
-        android.util.Log.d("ClassifiedDataRepository", "IngestItem 저장 완료 - ID: $originalId, Title: $subject")
+        ingestRepository.upsert(ingestItem)
+        android.util.Log.d(
+            "ClassifiedDataRepository",
+            "IngestItem 저장 완료 - ID: $originalId, Title: $subject, Type: ${classification.type}"
+        )
     }
     
     // 분류된 데이터 조회 메서드들
