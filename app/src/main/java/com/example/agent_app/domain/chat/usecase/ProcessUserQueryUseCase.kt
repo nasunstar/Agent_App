@@ -26,8 +26,9 @@ class ProcessUserQueryUseCase(
     }
 
     private fun windowFor(center: Long): Pair<Long, Long> {
-        val twelveHours = 12 * 60 * 60 * 1000L
-        return (center - twelveHours) to (center + twelveHours)
+        // "10월 이후" 같은 표현의 경우 더 넓은 윈도우 사용
+        val windowSize = 30 * 24 * 60 * 60 * 1000L // 30일
+        return center to (center + windowSize) // 시작점부터 미래로
     }
 
     private fun extractKeywords(text: String): List<String> {

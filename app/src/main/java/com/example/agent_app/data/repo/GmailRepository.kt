@@ -169,7 +169,7 @@ private fun GmailMessage.toIngestItem(): IngestItem {
     )
 }
 
-private fun parseInternalDate(internalDate: String?, dateHeader: String?): Instant {
+fun parseInternalDate(internalDate: String?, dateHeader: String?): Instant {
     internalDate?.toLongOrNull()?.let { return Instant.ofEpochMilli(it) }
     if (!dateHeader.isNullOrBlank()) {
         try {

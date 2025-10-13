@@ -102,6 +102,17 @@ object TimeResolver {
             base.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
         }
         when {
+            // 월별 상대적 표현 처리 (일반화된 패턴)
+            lower.contains("월 이후") || lower.contains("월부터") -> {
+                val monthPattern = Regex("""(\d{1,2})월\s*(이후|부터)""")
+                monthPattern.find(lower)?.let { match ->
+                    val month = match.groupValues[1].toIntOrNull()
+                    if (month != null && month in 1..12) {
+                        val monthStart = now.withMonth(month).withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)
+                        return Resolution(monthStart.toInstant().toEpochMilli(), 0.7)
+                    }
+                }
+            }
             lower.contains("내일") || lower.contains("tomorrow") -> {
                 val base = now.plusDays(1)
                 return Resolution(targetTime(base).toInstant().toEpochMilli(), 0.65)

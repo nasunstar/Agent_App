@@ -58,7 +58,7 @@ class HybridSearchEngine(
             }
             val vectorScore = cosineSimilarity(queryEmbedding, itemEmbedding)
             val recency = recencyBoost(item, filters)
-            val finalScore = keywordScore * 0.5 + vectorScore * 0.4 + recency * 0.1
+            val finalScore = keywordScore * 0.3 + vectorScore * 0.3 + recency * 0.4
             Pair(item, finalScore)
         }
 
@@ -102,18 +102,23 @@ class HybridSearchEngine(
     private fun recencyBoost(item: IngestItem, filters: QueryFilters): Double {
         val targetStart = filters.startTimeMillis ?: return 0.2
         val targetEnd = filters.endTimeMillis ?: return 0.2
+        
+        // 시간 범위 내에 있는 경우 높은 점수
         if (item.timestamp in targetStart..targetEnd) {
-            return 0.6
+            return 0.8 // 더 높은 점수로 시간 필터링 강화
         }
+        
+        // 시간 범위 밖의 경우 거리에 따른 점수
         val distance = min(
             kotlin.math.abs(item.timestamp - targetStart),
             kotlin.math.abs(item.timestamp - targetEnd)
         )
         return when {
-            distance < DAY_MILLIS -> 0.45
-            distance < 3 * DAY_MILLIS -> 0.35
-            distance < 7 * DAY_MILLIS -> 0.2
-            else -> 0.05
+            distance < DAY_MILLIS -> 0.6
+            distance < 3 * DAY_MILLIS -> 0.4
+            distance < 7 * DAY_MILLIS -> 0.3
+            distance < 30 * DAY_MILLIS -> 0.1 // 30일 이내는 낮은 점수
+            else -> 0.0 // 30일 이후는 거의 0점
         }
     }
 
