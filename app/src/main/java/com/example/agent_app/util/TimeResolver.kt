@@ -26,10 +26,19 @@ object TimeResolver {
         Regex("""(\d{1,2})월\s*(\d{1,2})일(?:\s*(오전|오후|AM|PM|am|pm)?\s*(\d{1,2})시(?:\s*(\d{1,2})분)?)?""")
     private val timeOnlyPattern =
         Regex("""(오전|오후|AM|PM|am|pm)?\s*(\d{1,2})(?:[:시]\s*(\d{1,2}))?""")
-    private val nextWeekPattern =
-        Regex("""다음\s*주\s*(월|화|수|목|금|토|일)?요일?""")
-    private val thisWeekPattern =
-        Regex("""이번\s*주\s*(월|화|수|목|금|토|일)?요일?""")
+    // 일반화된 주간 패턴 매칭 - 더 유연한 패턴 지원
+    private val weekPattern =
+        Regex("""(다음|이번|지난)\s*주(?:\s*(월|화|수|목|금|토|일)요일?)?""")
+    
+    // 추가 패턴들
+    private val dayPattern =
+        Regex("""(내일|모레|오늘|어제|그저께)""")
+    
+    private val relativeDayPattern =
+        Regex("""(\d+)\s*일\s*(후|전|뒤|앞)""")
+    
+    private val monthPattern =
+        Regex("""(다음|이번|지난)\s*달""")
 
     private val weekdayMap = mapOf(
         "월" to DayOfWeek.MONDAY,
@@ -101,40 +110,74 @@ object TimeResolver {
             val minute = timePair?.second ?: 0
             base.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
         }
-        when {
-            // 월별 상대적 표현 처리 (일반화된 패턴)
-            lower.contains("월 이후") || lower.contains("월부터") -> {
-                val monthPattern = Regex("""(\d{1,2})월\s*(이후|부터)""")
-                monthPattern.find(lower)?.let { match ->
-                    val month = match.groupValues[1].toIntOrNull()
-                    if (month != null && month in 1..12) {
-                        val monthStart = now.withMonth(month).withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)
-                        return Resolution(monthStart.toInstant().toEpochMilli(), 0.7)
-                    }
+        // 일반화된 주간 패턴 매칭
+        weekPattern.find(text)?.let { match ->
+            val weekType = match.groupValues[1] // "다음", "이번", "지난"
+            val weekdayToken = match.groupValues.getOrNull(2) // "월", "화", "수", etc.
+            
+            val offsetWeeks = when (weekType) {
+                "다음" -> 1
+                "이번" -> 0
+                "지난" -> -1
+                else -> 0
+            }
+            
+            val target = resolveWeekday(now, offsetWeeks, weekdayToken)
+            val resolved = targetTime(target)
+            return Resolution(resolved.toInstant().toEpochMilli(), 0.7)
+        }
+        
+        // 다음달, 이번달, 지난달 패턴 매칭
+        monthPattern.find(text)?.let { match ->
+            val monthType = match.groupValues[1] // "다음", "이번", "지난"
+            val base = when (monthType) {
+                "다음" -> now.plusMonths(1).withDayOfMonth(1)
+                "이번" -> now.withDayOfMonth(1)
+                "지난" -> now.minusMonths(1).withDayOfMonth(1)
+                else -> now
+            }
+            val resolved = base.withHour(0).withMinute(0).withSecond(0).withNano(0)
+            return Resolution(resolved.toInstant().toEpochMilli(), 0.7)
+        }
+        
+        // 월별 상대적 표현 처리 (일반화된 패턴)
+        if (lower.contains("월 이후") || lower.contains("월부터")) {
+            val monthPattern = Regex("""(\d{1,2})월\s*(이후|부터)""")
+            monthPattern.find(lower)?.let { match ->
+                val month = match.groupValues[1].toIntOrNull()
+                if (month != null && month in 1..12) {
+                    val monthStart = now.withMonth(month).withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)
+                    return Resolution(monthStart.toInstant().toEpochMilli(), 0.7)
                 }
             }
-            lower.contains("내일") || lower.contains("tomorrow") -> {
-                val base = now.plusDays(1)
-                return Resolution(targetTime(base).toInstant().toEpochMilli(), 0.65)
-            }
-            lower.contains("모레") -> {
-                val base = now.plusDays(2)
-                return Resolution(targetTime(base).toInstant().toEpochMilli(), 0.6)
-            }
-            lower.contains("오늘") || lower.contains("today") -> {
-                return Resolution(targetTime(now).toInstant().toEpochMilli(), 0.55)
-            }
         }
-        nextWeekPattern.find(text)?.let { match ->
-            val target = resolveWeekday(now, offsetWeeks = 1, weekdayToken = match.groupValues.getOrNull(1))
-            val resolved = targetTime(target)
-            return Resolution(resolved.toInstant().toEpochMilli(), 0.6)
+        // 일반화된 날짜 패턴 매칭
+        dayPattern.find(text)?.let { match ->
+            val dayType = match.groupValues[1]
+            val base = when (dayType) {
+                "내일", "tomorrow" -> now.plusDays(1)
+                "모레" -> now.plusDays(2)
+                "오늘", "today" -> now
+                "어제" -> now.minusDays(1)
+                "그저께" -> now.minusDays(2)
+                else -> now
+            }
+            return Resolution(targetTime(base).toInstant().toEpochMilli(), 0.65)
         }
-        thisWeekPattern.find(text)?.let { match ->
-            val target = resolveWeekday(now, offsetWeeks = 0, weekdayToken = match.groupValues.getOrNull(1))
-            val resolved = targetTime(target)
-            return Resolution(resolved.toInstant().toEpochMilli(), 0.55)
+        
+        // 상대적 일수 패턴 매칭 (예: "3일 후", "5일 전")
+        relativeDayPattern.find(text)?.let { match ->
+            val days = match.groupValues[1].toIntOrNull() ?: return@let
+            val direction = match.groupValues[2]
+            val base = when (direction) {
+                "후", "뒤" -> now.plusDays(days.toLong())
+                "전", "앞" -> now.minusDays(days.toLong())
+                else -> now
+            }
+            return Resolution(targetTime(base).toInstant().toEpochMilli(), 0.6)
         }
+        
+        // 영어 패턴 매칭
         if (lower.contains("next week")) {
             val target = resolveWeekday(now, offsetWeeks = 1, weekdayToken = null)
             val resolved = targetTime(target)
@@ -144,18 +187,44 @@ object TimeResolver {
     }
 
     private fun resolveWeekday(now: ZonedDateTime, offsetWeeks: Int, weekdayToken: String?): ZonedDateTime {
-        val base = now.plusWeeks(offsetWeeks.toLong())
         val weekday = weekdayToken?.takeIf { it.isNotBlank() }
             ?.let { token ->
                 val trimmed = token.take(1)
                 weekdayMap[trimmed]
             }
         val targetDay = weekday ?: DayOfWeek.MONDAY
-        var result = base
-        while (result.dayOfWeek != targetDay) {
-            result = result.plusDays(1)
+        
+        return when (offsetWeeks) {
+            1 -> {
+                // 다음주: 현재 요일에서 다음주 같은 요일로
+                // 10월 13일(월요일) → 다음주 수요일 = 10월 22일 (9일 후)
+                // 공식: 다음주이므로 무조건 7일 이상 더해야 함
+                val daysUntilTarget = (targetDay.value - now.dayOfWeek.value + 7) % 7
+                val daysToAdd = if (daysUntilTarget == 0) 7 else daysUntilTarget + 7
+                now.plusDays(daysToAdd.toLong())
+            }
+            0 -> {
+                // 이번주: 현재 요일에서 이번주 같은 요일로
+                val daysUntilTarget = (targetDay.value - now.dayOfWeek.value + 7) % 7
+                val daysToAdd = if (daysUntilTarget == 0) 0 else daysUntilTarget
+                now.plusDays(daysToAdd.toLong())
+            }
+            -1 -> {
+                // 지난주: 현재 요일에서 지난주 같은 요일로
+                val daysUntilTarget = (targetDay.value - now.dayOfWeek.value + 7) % 7
+                val daysToAdd = if (daysUntilTarget == 0) -7 else daysUntilTarget - 7
+                now.plusDays(daysToAdd.toLong())
+            }
+            else -> {
+                // 기타: 기존 로직 사용
+                val base = now.plusWeeks(offsetWeeks.toLong())
+                var result = base
+                while (result.dayOfWeek != targetDay) {
+                    result = result.plusDays(1)
+                }
+                result
+            }
         }
-        return result
     }
 
     private fun extractTime(hourGroup: String?, minuteGroup: String?, fullText: String, ampmHint: String? = null): Pair<Int, Int> {

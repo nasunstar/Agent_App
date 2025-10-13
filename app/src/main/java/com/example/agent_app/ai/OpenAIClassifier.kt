@@ -3,10 +3,14 @@ package com.example.agent_app.ai
 import com.example.agent_app.BuildConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.example.agent_app.util.JsonCleaner
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
@@ -38,7 +42,7 @@ data class OpenAIChoice(
 data class ClassificationResult(
     val type: String, // "contact", "event", "note", "ingest"
     val confidence: Double,
-    val extractedData: Map<String, String?> = emptyMap()
+    val extractedData: Map<String, JsonElement?> = emptyMap()
 )
 
 class OpenAIClassifier {
@@ -58,11 +62,13 @@ class OpenAIClassifier {
             append("📞 CONTACT (연락처):\n")
             append("- 새로운 사람과의 연락 (소개, 인사, 연락처 교환)\n")
             append("- 비즈니스 연락 (영업, 협업 제안, 파트너십)\n")
-            append("- 개인 연락 (친구, 가족, 지인과의 소통)\n\n")
+            append("- 연락처 정보 교환 (전화번호, 이메일 주소 등)\n")
+            append("- 단순한 인사나 안부 문의 (약속이나 일정이 없는 경우)\n\n")
             append("📅 EVENT (일정/이벤트):\n")
             append("- 회의, 미팅, 약속 (시간과 장소가 명시된 경우)\n")
             append("- 이벤트 초대 (생일파티, 결혼식, 회식 등)\n")
-            append("- 일정 관련 알림 (리마인더, 스케줄 변경)\n\n")
+            append("- 일정 관련 알림 (리마인더, 스케줄 변경)\n")
+            append("- 만나자, 만날까, 약속, 미팅 등의 표현이 포함된 경우\n\n")
             append("📝 NOTE (노트/메모):\n")
             append("- 중요한 정보나 알림 (계정 보안, 결제, 업데이트)\n")
             append("- 할 일이나 작업 관련 내용\n")
@@ -73,6 +79,7 @@ class OpenAIClassifier {
             append("제목: ${subject ?: "없음"}\n")
             append("내용: ${body ?: "없음"}\n\n")
             append("⚠️ 중요: 가능한 한 구체적으로 분류하고, null 대신 실제 내용을 추출해주세요.\n")
+            append("🚨 특히 주의: '만나자', '약속', '미팅', '회의' 등의 표현이 있으면 반드시 EVENT로 분류하세요!\n")
             append("JSON 형태로 응답해주세요:\n")
             append("{\n")
             append("  \"type\": \"분류결과\",\n")
@@ -82,13 +89,14 @@ class OpenAIClassifier {
             append("    \"email\": \"이메일 (contact인 경우, 없으면 null)\",\n")
             append("    \"phone\": \"전화번호 (contact인 경우, 없으면 null)\",\n")
             append("    \"title\": \"제목 (event/note인 경우, 없으면 null)\",\n")
-            append("    \"startAt\": \"시작시간 epoch ms (event인 경우, 없으면 null)\",\n")
-            append("    \"endAt\": \"종료시간 epoch ms (event인 경우, 없으면 null)\",\n")
+            append("    \"startAt\": \"시작시간 epoch ms (event인 경우, 없으면 null) - 주석 없이 숫자만 입력\",\n")
+            append("    \"endAt\": \"종료시간 epoch ms (event인 경우, 없으면 null) - 주석 없이 숫자만 입력\",\n")
             append("    \"location\": \"장소 (event인 경우, 없으면 null)\",\n")
             append("    \"type\": \"이벤트 타입 (event인 경우, 없으면 null)\",\n")
             append("    \"body\": \"내용 (note인 경우, 핵심 내용 추출)\"\n")
             append("  }\n")
-            append("}")
+            append("}\n")
+            append("\n⚠️ 중요: JSON 응답에 주석(//)이나 설명을 포함하지 마세요. 순수한 JSON만 반환하세요.")
         }
 
         val request = OpenAIRequest(
@@ -126,11 +134,8 @@ class OpenAIClassifier {
 
             // JSON 파싱 시도
             try {
-                // ```json``` 코드 블록 제거
-                val cleanJson = aiResponse
-                    .replace("```json", "")
-                    .replace("```", "")
-                    .trim()
+                // JSON 정리 (주석 제거 포함)
+                val cleanJson = JsonCleaner.cleanJson(aiResponse)
                 
                 println("Cleaned JSON: $cleanJson") // 디버깅용 로그
                 json.decodeFromString(ClassificationResult.serializer(), cleanJson)
@@ -140,7 +145,7 @@ class OpenAIClassifier {
                 ClassificationResult(
                     type = "ingest",
                     confidence = 0.5,
-                    extractedData = mapOf("raw_response" to aiResponse)
+                    extractedData = mapOf("raw_response" to JsonPrimitive(aiResponse))
                 )
             }
         } catch (e: Exception) {
@@ -148,7 +153,7 @@ class OpenAIClassifier {
             ClassificationResult(
                 type = "ingest",
                 confidence = 0.0,
-                extractedData = mapOf("error" to (e.message ?: "Unknown error"))
+                extractedData = mapOf("error" to JsonPrimitive(e.message ?: "Unknown error"))
             )
         }
     }
@@ -216,11 +221,8 @@ class OpenAIClassifier {
 
             // JSON 파싱 시도
             try {
-                // ```json``` 코드 블록 제거
-                val cleanJson = aiResponse
-                    .replace("```json", "")
-                    .replace("```", "")
-                    .trim()
+                // JSON 정리 (주석 제거 포함)
+                val cleanJson = JsonCleaner.cleanJson(aiResponse)
                 
                 println("Cleaned JSON: $cleanJson") // 디버깅용 로그
                 json.decodeFromString(ClassificationResult.serializer(), cleanJson)
@@ -230,7 +232,7 @@ class OpenAIClassifier {
                 ClassificationResult(
                     type = "ingest",
                     confidence = 0.5,
-                    extractedData = mapOf("raw_response" to aiResponse)
+                    extractedData = mapOf("raw_response" to JsonPrimitive(aiResponse))
                 )
             }
         } catch (e: Exception) {
@@ -238,7 +240,7 @@ class OpenAIClassifier {
             ClassificationResult(
                 type = "ingest",
                 confidence = 0.0,
-                extractedData = mapOf("error" to (e.message ?: "Unknown error"))
+                extractedData = mapOf("error" to JsonPrimitive(e.message ?: "Unknown error"))
             )
         }
     }

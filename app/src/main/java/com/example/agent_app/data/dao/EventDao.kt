@@ -58,4 +58,19 @@ interface EventDao {
     
     @Query("SELECT * FROM events ORDER BY start_at ASC")
     suspend fun getAll(): List<Event>
+    
+    @Query("SELECT * FROM events ORDER BY start_at ASC")
+    suspend fun getAllEvents(): List<Event>
+    
+    @Query(
+        "SELECT * FROM events WHERE " +
+            "(:startTime IS NULL OR start_at >= :startTime) " +
+            "AND (:endTime IS NULL OR start_at <= :endTime) " +
+            "ORDER BY start_at ASC LIMIT :limit"
+    )
+    suspend fun searchByTimeRange(
+        startTime: Long?,
+        endTime: Long?,
+        limit: Int = 50
+    ): List<Event>
 }

@@ -17,6 +17,13 @@ class ProcessUserQueryUseCase(
         val (start, end) = resolution?.let { windowFor(it.timestampMillis) } ?: (null to null)
         val keywords = extractKeywords(trimmed)
         val source = detectSource(trimmed)
+        
+        android.util.Log.d("ProcessUserQueryUseCase", "질문: $trimmed")
+        android.util.Log.d("ProcessUserQueryUseCase", "TimeResolver 결과: $resolution")
+        android.util.Log.d("ProcessUserQueryUseCase", "시간 범위: start=$start, end=$end")
+        android.util.Log.d("ProcessUserQueryUseCase", "키워드: $keywords")
+        android.util.Log.d("ProcessUserQueryUseCase", "소스: $source")
+        
         return QueryFilters(
             startTimeMillis = start,
             endTimeMillis = end,
@@ -26,48 +33,45 @@ class ProcessUserQueryUseCase(
     }
 
     private fun windowFor(center: Long): Pair<Long, Long> {
-        // "10월 이후" 같은 표현의 경우 더 넓은 윈도우 사용
-        val windowSize = 30 * 24 * 60 * 60 * 1000L // 30일
-        return center to (center + windowSize) // 시작점부터 미래로
+        // 여유 있는 윈도우(미래 60일)로 관련 데이터 포함
+        val windowSize = 60 * 24 * 60 * 60 * 1000L // 60일
+        return center to (center + windowSize)
     }
 
     private fun extractKeywords(text: String): List<String> {
         val lower = text.lowercase()
         val keywords = mutableListOf<String>()
-        
-        // 한국어 구문 패턴 매칭
+
+        // 도메인 힌트
         if (lower.contains("google") && (lower.contains("메일") || lower.contains("이메일"))) {
             keywords.add("gmail")
         }
-        if (lower.contains("github")) {
-            keywords.add("github")
+        if (lower.contains("github")) keywords.add("github")
+        if (lower.contains("steam")) keywords.add("steam")
+        if (lower.contains("openai")) keywords.add("openai")
+        if (lower.contains("이메일") || lower.contains("메일")) keywords.add("email")
+        if (lower.contains("약속") || lower.contains("만나") || lower.contains("미팅") || lower.contains("appointment")) {
+            keywords.add("meeting")
         }
-        if (lower.contains("steam")) {
-            keywords.add("steam")
-        }
-        if (lower.contains("openai")) {
-            keywords.add("openai")
-        }
-        if (lower.contains("이메일") || lower.contains("메일")) {
-            keywords.add("email")
-        }
-        
-        // 기존 토큰 기반 추출
+
+        // 기본 토큰화
         val tokens = lower
-            .split(" ", "\n", "\t", ",", ".", "?", "!", ":", ";", "에서", "온", "이", "가", "을", "를", "에", "의", "뭐야", "뭔지")
+            .split(" ", "\n", "\t", ",", ".", "?", "!", ":", ";", "에서", "으로", "에게", "가", "은", "는", "을", "를")
             .mapNotNull { token ->
                 val trimmed = token.trim()
                 trimmed.takeIf { it.length >= 2 && it !in STOPWORDS }
             }
-        
         keywords.addAll(tokens)
-        return keywords.distinct().take(8)
+
+        // 날짜/시간성 토큰 제거는 항상 수행 (TimeResolver 성공 여부와 무관)
+        val sanitized = sanitizeDateTimeTokens(keywords)
+        return sanitized.distinct().take(8)
     }
 
     private fun detectSource(text: String): String? {
         val lower = text.lowercase()
         return when {
-            lower.contains("gmail") || lower.contains("email") || 
+            lower.contains("gmail") || lower.contains("email") ||
             lower.contains("이메일") || lower.contains("메일") ||
             (lower.contains("google") && (lower.contains("메일") || lower.contains("이메일"))) -> "gmail"
             lower.contains("sms") -> "sms"
@@ -87,7 +91,36 @@ class ProcessUserQueryUseCase(
     companion object {
         private val STOPWORDS = setOf(
             "the", "is", "are", "and", "or", "a", "an", "what", "when", "where", "who", "how",
-            "me", "please", "show", "tell", "about", "최근", "문의", "알려줘", "줘"
+            "me", "please", "show", "tell", "about",
+            // 한국어 일반 불용어/질문형 표현
+            "있어", "있니", "있나요", "있습니까", "해줘", "해줘요", "줘", "좀",
+            // 시간 관련 표현 (추가로 별도 제거 로직도 적용됨)
+            "이후", "이전", "오늘", "내일", "모레", "이번주", "다음주"
         )
+
+        private val DATE_TIME_REGEXES = listOf(
+            // 10월 / 17일 / 2024년 / 9시 / 30분
+            Regex("\\b\\d{1,2}\\s*(월|일|시|분)\\b"),
+            Regex("\\b\\d{4}\\s*년?\\b"),
+            // 10/17, 10-17
+            Regex("\\b\\d{1,2}[/-]\\d{1,2}\\b"),
+        )
+
+        private val DATE_TIME_WORDS = setOf(
+            "이후", "이전", "오늘", "내일", "모레", "이번주", "다음주", "이번달", "다음달", "지난달",
+            "월", "일", "시", "분"
+        )
+
+        private fun sanitizeDateTimeTokens(candidates: List<String>): List<String> {
+            val result = candidates.filter { token ->
+                if (token.isBlank()) return@filter false
+                if (token.all { it.isDigit() }) return@filter false
+                if (DATE_TIME_WORDS.any { token.contains(it) }) return@filter false
+                if (DATE_TIME_REGEXES.any { it.containsMatchIn(token) }) return@filter false
+                true
+            }
+            return result
+        }
     }
 }
+

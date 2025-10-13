@@ -14,6 +14,13 @@ import com.example.agent_app.data.entity.Note
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+
+// JsonElement 확장 함수
+private fun JsonElement?.asString(): String? = this?.jsonPrimitive?.content
+private fun JsonElement?.asLong(): Long? = this?.jsonPrimitive?.longOrNull
 
 class ClassifiedDataRepository(
     private val openAIClassifier: OpenAIClassifier,
@@ -41,7 +48,7 @@ class ClassifiedDataRepository(
         android.util.Log.d("ClassifiedDataRepository", "AI 분류 결과 - Type: ${classification.type}, Confidence: ${classification.confidence}")
         
         // 분류 결과에 따라 적절한 테이블에 저장
-        when (classification.type) {
+        when (classification.type.lowercase()) {
             "contact" -> {
                 android.util.Log.d("ClassifiedDataRepository", "Contact 테이블에 저장")
                 storeAsContact(classification, subject, body, originalId, timestamp)
@@ -79,7 +86,7 @@ class ClassifiedDataRepository(
         val classification = openAIClassifier.classifyPushNotification(title, body)
         
         // 분류 결과에 따라 적절한 테이블에 저장
-        when (classification.type) {
+        when (classification.type.lowercase()) {
             "contact" -> storeAsContact(classification, title, body, originalId, timestamp)
             "event" -> storeAsEvent(classification, title, body, originalId, timestamp)
             "note" -> storeAsNote(classification, title, body, originalId, timestamp)
@@ -100,9 +107,9 @@ class ClassifiedDataRepository(
     ) {
         val extractedData = classification.extractedData
         val contact = Contact(
-            name = extractedData["name"] ?: subject ?: "Unknown",
-            email = extractedData["email"] ?: null,
-            phone = extractedData["phone"] ?: null,
+            name = extractedData["name"].asString() ?: subject ?: "Unknown",
+            email = extractedData["email"].asString(),
+            phone = extractedData["phone"].asString(),
             metaJson = buildString {
                 append("{")
                 append("\"originalId\":\"$originalId\",")
@@ -127,16 +134,50 @@ class ClassifiedDataRepository(
         val extractedData = classification.extractedData
         
         // 이벤트 타입 생성 또는 가져오기
-        val eventTypeName = extractedData["type"] ?: "일반"
+        val eventTypeName = extractedData["type"].asString() ?: "일반"
         val eventType = getOrCreateEventType(eventTypeName)
+        
+        val aiExtractedStartAt = extractedData["startAt"].asLong()
+        
+        // AI가 시간을 추출했더라도 TimeResolver로 재검증
+        val timeText = "${subject ?: ""} ${body ?: ""}"
+        val timeResolution = com.example.agent_app.util.TimeResolver.resolve(timeText)
+        val timeResolverStartAt = timeResolution?.timestampMillis
+        
+        // AI 추출 시간과 TimeResolver 결과를 비교하여 더 적절한 시간 선택
+        val finalStartAt = when {
+            // TimeResolver가 시간을 해석했고, AI 시간과 다르면 TimeResolver 우선
+            timeResolverStartAt != null && aiExtractedStartAt != null && 
+            timeResolverStartAt != aiExtractedStartAt -> {
+                android.util.Log.d("ClassifiedDataRepository", "시간 불일치 - AI: $aiExtractedStartAt, TimeResolver: $timeResolverStartAt, TimeResolver 우선")
+                timeResolverStartAt
+            }
+            // TimeResolver가 시간을 해석했으면 사용
+            timeResolverStartAt != null -> timeResolverStartAt
+            // AI가 시간을 추출했으면 사용
+            aiExtractedStartAt != null -> aiExtractedStartAt
+            // 둘 다 없으면 원본 timestamp
+            else -> timestamp
+        }
+        
+        // 디버깅 로그 추가
+        android.util.Log.d("ClassifiedDataRepository", "Event 저장 - 제목: ${subject}")
+        android.util.Log.d("ClassifiedDataRepository", "AI 추출 시간: $aiExtractedStartAt")
+        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 시간: $timeResolverStartAt")
+        android.util.Log.d("ClassifiedDataRepository", "원본 timestamp: $timestamp")
+        android.util.Log.d("ClassifiedDataRepository", "최종 startAt: $finalStartAt")
+        android.util.Log.d("ClassifiedDataRepository", "AI 추출 데이터: $extractedData")
+        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 시도 - 텍스트: $timeText")
+        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 결과: $timeResolution")
         
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
             typeId = eventType.id,
-            title = extractedData["title"] ?: subject ?: "Unknown Event",
-            startAt = extractedData["startAt"]?.toLongOrNull() ?: timestamp, // AI가 추출한 시간이 없으면 원본 timestamp 사용
-            endAt = extractedData["endAt"]?.toLongOrNull(),
-            location = extractedData["location"] ?: null,
+            title = extractedData["title"].asString() ?: subject ?: "Unknown Event",
+            body = body,
+            startAt = finalStartAt,
+            endAt = extractedData["endAt"].asLong(),
+            location = extractedData["location"].asString(),
             status = "pending"
         )
         eventDao.insert(event)
@@ -165,8 +206,8 @@ class ClassifiedDataRepository(
         val extractedData = classification.extractedData
         val note = Note(
             userId = 1L, // 기본 사용자 ID
-            title = extractedData["title"] ?: subject ?: "Note",
-            body = extractedData["body"] ?: body ?: "",
+            title = extractedData["title"].asString() ?: subject ?: "Note",
+            body = extractedData["body"].asString() ?: body ?: "",
             createdAt = timestamp ?: System.currentTimeMillis(), // 원본 timestamp 사용
             updatedAt = System.currentTimeMillis()
         )
@@ -188,7 +229,7 @@ class ClassifiedDataRepository(
             title = subject,
             body = body,
             timestamp = timestamp ?: System.currentTimeMillis(),
-            dueDate = classification.extractedData["startAt"]?.toLongOrNull(),
+            dueDate = classification.extractedData["startAt"].asLong(),
             confidence = classification.confidence,
             metaJson = buildString {
                 append("{")

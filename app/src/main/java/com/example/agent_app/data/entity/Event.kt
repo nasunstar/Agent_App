@@ -37,6 +37,7 @@ data class Event(
     @ColumnInfo(name = "type_id")
     val typeId: Long?,
     val title: String,
+    val body: String?,
     @ColumnInfo(name = "start_at")
     val startAt: Long?,
     @ColumnInfo(name = "end_at")

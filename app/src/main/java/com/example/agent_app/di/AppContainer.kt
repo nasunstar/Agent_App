@@ -56,6 +56,7 @@ class AppContainer(context: Context) {
 
     private val hybridSearchEngine = HybridSearchEngine(
         ingestItemDao = database.ingestItemDao(),
+        eventDao = database.eventDao(),
         embeddingStore = embeddingStore,
         embeddingGenerator = embeddingGenerator,
     )

@@ -22,5 +22,12 @@ object DatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Event 테이블에 body 컬럼 추가
+            database.execSQL("ALTER TABLE events ADD COLUMN body TEXT")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }
