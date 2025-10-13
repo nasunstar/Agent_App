@@ -30,20 +30,45 @@ class ProcessUserQueryUseCase(
         return (center - twelveHours) to (center + twelveHours)
     }
 
-    private fun extractKeywords(text: String): List<String> = text
-        .lowercase()
-        .split(" ", "\n", "\t", ",", ".", "?", "!", ":", ";")
-        .mapNotNull { token ->
-            val trimmed = token.trim()
-            trimmed.takeIf { it.length >= 2 && it !in STOPWORDS }
+    private fun extractKeywords(text: String): List<String> {
+        val lower = text.lowercase()
+        val keywords = mutableListOf<String>()
+        
+        // 한국어 구문 패턴 매칭
+        if (lower.contains("google") && (lower.contains("메일") || lower.contains("이메일"))) {
+            keywords.add("gmail")
         }
-        .distinct()
-        .take(8)
+        if (lower.contains("github")) {
+            keywords.add("github")
+        }
+        if (lower.contains("steam")) {
+            keywords.add("steam")
+        }
+        if (lower.contains("openai")) {
+            keywords.add("openai")
+        }
+        if (lower.contains("이메일") || lower.contains("메일")) {
+            keywords.add("email")
+        }
+        
+        // 기존 토큰 기반 추출
+        val tokens = lower
+            .split(" ", "\n", "\t", ",", ".", "?", "!", ":", ";", "에서", "온", "이", "가", "을", "를", "에", "의", "뭐야", "뭔지")
+            .mapNotNull { token ->
+                val trimmed = token.trim()
+                trimmed.takeIf { it.length >= 2 && it !in STOPWORDS }
+            }
+        
+        keywords.addAll(tokens)
+        return keywords.distinct().take(8)
+    }
 
     private fun detectSource(text: String): String? {
         val lower = text.lowercase()
         return when {
-            lower.contains("gmail") || lower.contains("email") -> "gmail"
+            lower.contains("gmail") || lower.contains("email") || 
+            lower.contains("이메일") || lower.contains("메일") ||
+            (lower.contains("google") && (lower.contains("메일") || lower.contains("이메일"))) -> "gmail"
             lower.contains("sms") -> "sms"
             lower.contains("ocr") -> "ocr"
             else -> null

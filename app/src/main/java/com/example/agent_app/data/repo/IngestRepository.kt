@@ -3,6 +3,7 @@ package com.example.agent_app.data.repo
 import com.example.agent_app.data.dao.IngestItemDao
 import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.data.search.EmbeddingGenerator
+import com.example.agent_app.data.search.EmbeddingGeneratorInterface
 import com.example.agent_app.data.search.EmbeddingStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +14,7 @@ class IngestRepository(
     private val dao: IngestItemDao,
     private val parser: IngestItemParser = IngestItemParser(),
     private val embeddingStore: EmbeddingStore? = null,
-    private val embeddingGenerator: EmbeddingGenerator = EmbeddingGenerator(),
+    private val embeddingGenerator: EmbeddingGeneratorInterface = EmbeddingGenerator(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun upsert(item: IngestItem) = withContext(dispatcher) {

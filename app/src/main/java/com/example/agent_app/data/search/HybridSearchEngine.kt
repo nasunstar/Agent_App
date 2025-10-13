@@ -14,7 +14,7 @@ import kotlin.math.min
 class HybridSearchEngine(
     private val ingestItemDao: IngestItemDao,
     private val embeddingStore: EmbeddingStore,
-    private val embeddingGenerator: EmbeddingGenerator,
+    private val embeddingGenerator: EmbeddingGeneratorInterface,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun search(

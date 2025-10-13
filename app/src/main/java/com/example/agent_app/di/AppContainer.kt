@@ -10,8 +10,10 @@ import com.example.agent_app.data.repo.GmailRepository
 import com.example.agent_app.data.repo.IngestItemParser
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.search.EmbeddingGenerator
+import com.example.agent_app.data.search.EmbeddingGeneratorInterface
 import com.example.agent_app.data.search.EmbeddingStore
 import com.example.agent_app.data.search.HybridSearchEngine
+import com.example.agent_app.data.search.OpenAIEmbeddingGenerator
 import com.example.agent_app.domain.chat.gateway.ChatGateway
 import com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase
 import com.example.agent_app.domain.chat.usecase.ProcessUserQueryUseCase
@@ -24,7 +26,8 @@ class AppContainer(context: Context) {
     val database: AppDatabase = AppDatabase.build(context)
 
     private val embeddingStore = EmbeddingStore(database.embeddingDao())
-    private val embeddingGenerator = EmbeddingGenerator()
+    // OpenAI Embeddings API를 사용한 한국어 최적화 임베딩 생성기
+    private val embeddingGenerator: EmbeddingGeneratorInterface = OpenAIEmbeddingGenerator()
 
     val authRepository: AuthRepository = AuthRepository(database.authTokenDao())
     val ingestRepository: IngestRepository = IngestRepository(
