@@ -9,8 +9,10 @@ import com.example.agent_app.data.entity.Note
 import com.example.agent_app.data.repo.AuthRepository
 import com.example.agent_app.data.repo.GmailRepository
 import com.example.agent_app.data.repo.GmailSyncResult
+import com.example.agent_app.data.repo.GmailSyncManager
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.repo.ClassifiedDataRepository
+import com.example.agent_app.service.GmailSyncService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
