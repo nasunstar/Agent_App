@@ -44,14 +44,6 @@ class HybridSearchEngine(
 
         // Event 테이블에서 시간 범위 검색
         val eventCandidates = runCatching {
-            // 먼저 모든 Event 조회 (디버깅용)
-            val allEvents = eventDao.getAllEvents()
-            android.util.Log.d("HybridSearchEngine", "=== Event 디버그 ===")
-            android.util.Log.d("HybridSearchEngine", "전체 Event 개수: ${allEvents.size}")
-            allEvents.forEach { event ->
-                android.util.Log.d("HybridSearchEngine", "전체 Event: id=${event.id}, title=${event.title}, startAt=${event.startAt}")
-            }
-            
             val events = eventDao.searchByTimeRange(
                 startTime = filters.startTimeMillis,
                 endTime = filters.endTimeMillis,
@@ -59,9 +51,6 @@ class HybridSearchEngine(
             )
             android.util.Log.d("HybridSearchEngine", "Event 검색 - 시작: ${filters.startTimeMillis}, 끝: ${filters.endTimeMillis}")
             android.util.Log.d("HybridSearchEngine", "Event 검색 결과: ${events.size}개")
-            events.forEach { event ->
-                android.util.Log.d("HybridSearchEngine", "검색된 Event: ${event.title}, startAt: ${event.startAt}")
-            }
             events
         }.getOrDefault(emptyList())
 
@@ -70,34 +59,13 @@ class HybridSearchEngine(
             .values
             .toList()
             
-        // Event 결과를 ChatContextItem으로 변환
-        val eventContextItems = eventCandidates.map { event ->
-            ChatContextItem(
-                itemId = "event_${event.id}",
-                title = event.title,
-                body = buildString {
-                    if (event.location != null) append("장소: ${event.location}\n")
-                    if (event.startAt != null) {
-                        val startTime = java.time.Instant.ofEpochMilli(event.startAt)
-                            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                        append("시간: $startTime")
-                    }
-                },
-                source = "event",
-                timestamp = event.startAt ?: 0L,
-                relevance = 1.0, // Event는 높은 관련성
-                position = 0
-            )
-        }
-        
-        val allResults = combined + eventContextItems
-        if (allResults.isEmpty()) {
+        if (combined.isEmpty() && eventCandidates.isEmpty()) {
             return@withContext emptyList()
         }
 
         val queryEmbedding = embeddingGenerator.generateEmbedding(sanitizedQuestion)
         val cachedEmbeddings = embeddingStore.getEmbeddings(combined.map(IngestItem::id))
+        val cachedEventEmbeddings = embeddingStore.getEmbeddings(eventCandidates.map { "event_${it.id}" })
 
         // IngestItem 결과 점수 계산
         val scoredIngestItems = combined.mapIndexed { index, item ->
@@ -120,11 +88,42 @@ class HybridSearchEngine(
             )
         }
 
+        // Event 결과 점수 계산 (Contextual Retrieval + Hybrid Search 적용)
+        val scoredEventItems = eventCandidates.mapIndexed { index, event ->
+            val keywords = filters.keywords.ifEmpty { extractKeywords(sanitizedQuestion) }
+            val keywordScore = keywordRelevanceForEvent(event, keywords, index)
+            val eventEmbedding = cachedEventEmbeddings["event_${event.id}"] ?: buildEmbeddingForEvent(event).also {
+                embeddingStore.saveEmbedding("event_${event.id}", it)
+            }
+            val vectorScore = cosineSimilarity(queryEmbedding, eventEmbedding)
+            val recency = recencyBoostForEvent(event, filters)
+            val finalScore = keywordScore * 0.3 + vectorScore * 0.3 + recency * 0.4
+            
+            ChatContextItem(
+                itemId = "event_${event.id}",
+                title = event.title,
+                body = buildString {
+                    event.body?.let { appendLine(it) }
+                    if (event.location != null) append("장소: ${event.location}\n")
+                    if (event.startAt != null) {
+                        val startTime = java.time.Instant.ofEpochMilli(event.startAt)
+                            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                        append("시간: $startTime")
+                    }
+                },
+                source = "event",
+                timestamp = event.startAt ?: 0L,
+                relevance = finalScore,
+                position = 0
+            )
+        }
+
         // Event 결과와 IngestItem 결과 통합 및 정렬
-        val allScoredResults = scoredIngestItems + eventContextItems
+        val allScoredResults = scoredIngestItems + scoredEventItems
         
         android.util.Log.d("HybridSearchEngine", "IngestItem 결과: ${scoredIngestItems.size}개")
-        android.util.Log.d("HybridSearchEngine", "Event 컨텍스트: ${eventContextItems.size}개")
+        android.util.Log.d("HybridSearchEngine", "Event 결과: ${scoredEventItems.size}개")
         android.util.Log.d("HybridSearchEngine", "전체 결과: ${allScoredResults.size}개")
         allScoredResults.forEach { item ->
             android.util.Log.d("HybridSearchEngine", "결과: ${item.title}, relevance: ${item.relevance}, source: ${item.source}")
@@ -139,13 +138,63 @@ class HybridSearchEngine(
     }
 
     private suspend fun buildEmbeddingFor(item: IngestItem): FloatArray = withContext(dispatcher) {
-        val text = listOfNotNull(item.title, item.body).joinToString("\n").trim()
-        embeddingGenerator.generateEmbedding(text)
+        // Contextual Retrieval: 메타데이터를 포함한 맥락 정보 추가
+        val contextualText = buildString {
+            // 메타데이터 컨텍스트
+            append("[출처: ${item.source}")
+            item.timestamp.let { ts ->
+                val date = java.time.Instant.ofEpochMilli(ts)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                append(", 시간: $date")
+            }
+            appendLine("]")
+            // 실제 콘텐츠
+            item.title?.let { appendLine(it) }
+            item.body?.let { appendLine(it) }
+        }.trim()
+        embeddingGenerator.generateEmbedding(contextualText)
+    }
+    
+    private suspend fun buildEmbeddingForEvent(event: Event): FloatArray = withContext(dispatcher) {
+        // Event를 위한 Contextual Retrieval
+        val contextualText = buildString {
+            // 메타데이터 컨텍스트
+            append("[이벤트")
+            event.startAt?.let { ts ->
+                val date = java.time.Instant.ofEpochMilli(ts)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                append(", 시간: $date")
+            }
+            event.location?.let { append(", 장소: $it") }
+            appendLine("]")
+            // 실제 콘텐츠
+            appendLine(event.title)
+            event.body?.let { appendLine(it) }
+        }.trim()
+        embeddingGenerator.generateEmbedding(contextualText)
     }
 
     private fun keywordRelevance(item: IngestItem, keywords: List<String>, index: Int): Double {
         if (keywords.isEmpty()) return 0.2
         val haystack = listOfNotNull(item.title, item.body)
+            .joinToString(" ")
+            .lowercase()
+        var matches = 0
+        keywords.forEach { keyword ->
+            if (haystack.contains(keyword.lowercase())) {
+                matches += 1
+            }
+        }
+        if (matches == 0) return max(0.1, 0.5 - index * 0.05)
+        val ratio = matches.toDouble() / keywords.size
+        return min(1.0, 0.5 + ratio * 0.5)
+    }
+    
+    private fun keywordRelevanceForEvent(event: Event, keywords: List<String>, index: Int): Double {
+        if (keywords.isEmpty()) return 0.2
+        val haystack = listOfNotNull(event.title, event.body, event.location)
             .joinToString(" ")
             .lowercase()
         var matches = 0
@@ -179,6 +228,30 @@ class HybridSearchEngine(
             distance < 7 * DAY_MILLIS -> 0.3
             distance < 30 * DAY_MILLIS -> 0.1 // 30일 이내는 낮은 점수
             else -> 0.0 // 30일 이후는 거의 0점
+        }
+    }
+    
+    private fun recencyBoostForEvent(event: Event, filters: QueryFilters): Double {
+        val timestamp = event.startAt ?: return 0.2
+        val targetStart = filters.startTimeMillis ?: return 0.2
+        val targetEnd = filters.endTimeMillis ?: return 0.2
+        
+        // 시간 범위 내에 있는 경우 높은 점수
+        if (timestamp in targetStart..targetEnd) {
+            return 0.8
+        }
+        
+        // 시간 범위 밖의 경우 거리에 따른 점수
+        val distance = min(
+            kotlin.math.abs(timestamp - targetStart),
+            kotlin.math.abs(timestamp - targetEnd)
+        )
+        return when {
+            distance < DAY_MILLIS -> 0.6
+            distance < 3 * DAY_MILLIS -> 0.4
+            distance < 7 * DAY_MILLIS -> 0.3
+            distance < 30 * DAY_MILLIS -> 0.1
+            else -> 0.0
         }
     }
 
