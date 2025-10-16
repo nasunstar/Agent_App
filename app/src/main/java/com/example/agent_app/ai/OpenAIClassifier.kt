@@ -1,6 +1,7 @@
 package com.example.agent_app.ai
 
 import com.example.agent_app.BuildConfig
+import com.example.agent_app.util.JsonCleaner
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -10,7 +11,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import com.example.agent_app.util.JsonCleaner
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
@@ -113,52 +113,9 @@ class OpenAIClassifier {
             )
         )
 
-        val requestJson = json.encodeToString(OpenAIRequest.serializer(), request)
-        println("OpenAI Request JSON: $requestJson") // 디버깅용 로그
-        val requestBody = requestJson.toRequestBody("application/json".toMediaType())
-
-        val httpRequest = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer ${BuildConfig.OPENAI_API_KEY}")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody)
-            .build()
-
-        return try {
-            val response = client.newCall(httpRequest).execute()
-            val responseBody = response.body?.string() ?: throw Exception("Empty response")
-            
-            val openAIResponse = json.decodeFromString(OpenAIResponse.serializer(), responseBody)
-            val aiResponse = openAIResponse.choices.firstOrNull()?.message?.content
-                ?: throw Exception("No response from AI")
-
-            // JSON 파싱 시도
-            try {
-                // JSON 정리 (주석 제거 포함)
-                val cleanJson = JsonCleaner.cleanJson(aiResponse)
-                
-                println("Cleaned JSON: $cleanJson") // 디버깅용 로그
-                json.decodeFromString(ClassificationResult.serializer(), cleanJson)
-            } catch (e: Exception) {
-                println("JSON parsing failed: ${e.message}") // 디버깅용 로그
-                // JSON 파싱 실패 시 기본값 반환
-                ClassificationResult(
-                    type = "ingest",
-                    confidence = 0.5,
-                    extractedData = mapOf("raw_response" to JsonPrimitive(aiResponse))
-                )
-            }
-        } catch (e: Exception) {
-            // API 호출 실패 시 기본값 반환
-            ClassificationResult(
-                type = "ingest",
-                confidence = 0.0,
-                extractedData = mapOf("error" to JsonPrimitive(e.message ?: "Unknown error"))
-            )
-        }
+        return executeClassification(request)
     }
-    
-    // 푸시 알림 분류 메서드 추가
+
     suspend fun classifyPushNotification(title: String?, body: String?): ClassificationResult {
         val content = buildString {
             append("푸시 알림을 분석해서 다음 카테고리 중 하나로 분류해주세요:\n")
@@ -200,8 +157,53 @@ class OpenAIClassifier {
             )
         )
 
+        return executeClassification(request)
+    }
+
+    suspend fun parseScheduleFromText(rawText: String): ClassificationResult {
+        val content = buildString {
+            append("다음은 사용자가 다른 앱에서 공유한 이미지에서 OCR로 추출한 텍스트입니다.\n")
+            append("텍스트 안에서 일정 제목, 시작 시간, 종료 시간, 장소, 추가 메모를 구조화된 데이터로 추출해주세요.\n")
+            append("가능하다면 Asia/Seoul (UTC+9) 기준으로 시간을 해석하여 epoch millisecond 값으로 제공하고, 정보가 없다면 null을 사용하세요.\n")
+            append("날짜와 시간이 범위로 주어지면 시작과 종료를 모두 추정하고, 하나만 있으면 나머지는 null로 둡니다.\n")
+            append("텍스트:\n")
+            append(rawText.ifBlank { "(내용 없음)" })
+            append("\n\nJSON 형태로만 응답하고, 아래 형식을 반드시 지켜주세요:\n")
+            append("{\n")
+            append("  \"type\": \"event\",\n")
+            append("  \"confidence\": 0.0-1.0,\n")
+            append("  \"extractedData\": {\n")
+            append("    \"title\": \"일정 제목 또는 핵심 문구\",\n")
+            append("    \"startAt\": \"시작 시간 epoch ms (없으면 null)\",\n")
+            append("    \"endAt\": \"종료 시간 epoch ms (없으면 null)\",\n")
+            append("    \"location\": \"장소 (없으면 null)\",\n")
+            append("    \"type\": \"이벤트 타입 또는 카테고리 (없으면 null)\",\n")
+            append("    \"body\": \"추가 메모나 설명 (없으면 null)\"\n")
+            append("  }\n")
+            append("}\n")
+            append("⚠️ 중요: 출력에는 설명이나 주석을 포함하지 말고, 모든 문자열은 따옴표로 감싸세요.")
+        }
+
+        val request = OpenAIRequest(
+            model = "gpt-4o-mini",
+            messages = listOf(
+                OpenAIMessage(
+                    role = "system",
+                    content = "당신은 일정 추출 비서입니다. OCR로 얻은 자유 형식의 텍스트에서 회의나 약속 정보를 찾아 구조화된 JSON으로 반환하세요."
+                ),
+                OpenAIMessage(
+                    role = "user",
+                    content = content
+                )
+            )
+        )
+
+        return executeClassification(request)
+    }
+
+    private suspend fun executeClassification(request: OpenAIRequest): ClassificationResult {
         val requestJson = json.encodeToString(OpenAIRequest.serializer(), request)
-        println("OpenAI Request JSON: $requestJson") // 디버깅용 로그
+        println("OpenAI Request JSON: $requestJson")
         val requestBody = requestJson.toRequestBody("application/json".toMediaType())
 
         val httpRequest = Request.Builder()
@@ -214,21 +216,17 @@ class OpenAIClassifier {
         return try {
             val response = client.newCall(httpRequest).execute()
             val responseBody = response.body?.string() ?: throw Exception("Empty response")
-            
+
             val openAIResponse = json.decodeFromString(OpenAIResponse.serializer(), responseBody)
             val aiResponse = openAIResponse.choices.firstOrNull()?.message?.content
                 ?: throw Exception("No response from AI")
 
-            // JSON 파싱 시도
             try {
-                // JSON 정리 (주석 제거 포함)
                 val cleanJson = JsonCleaner.cleanJson(aiResponse)
-                
-                println("Cleaned JSON: $cleanJson") // 디버깅용 로그
+                println("Cleaned JSON: $cleanJson")
                 json.decodeFromString(ClassificationResult.serializer(), cleanJson)
             } catch (e: Exception) {
-                println("JSON parsing failed: ${e.message}") // 디버깅용 로그
-                // JSON 파싱 실패 시 기본값 반환
+                println("JSON parsing failed: ${e.message}")
                 ClassificationResult(
                     type = "ingest",
                     confidence = 0.5,
@@ -236,7 +234,6 @@ class OpenAIClassifier {
                 )
             }
         } catch (e: Exception) {
-            // API 호출 실패 시 기본값 반환
             ClassificationResult(
                 type = "ingest",
                 confidence = 0.0,

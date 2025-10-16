@@ -97,6 +97,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.security.crypto)
     implementation(libs.google.play.services.auth)
+    implementation("com.google.mlkit:text-recognition:16.0.0")
 
     ksp(libs.androidx.room.compiler)
 
