@@ -16,6 +16,7 @@ object TimeResolver {
     data class Resolution(
         val timestampMillis: Long,
         val confidence: Double,
+        val endTimeMillis: Long? = null, // 범위 검색을 위한 종료 시간 (주/월 단위)
     )
 
     private val fullDatePattern =
@@ -122,6 +123,20 @@ object TimeResolver {
                 else -> 0
             }
             
+            // 요일이 지정되지 않은 경우 (예: "다음주") 주 전체 범위 반환
+            if (weekdayToken.isNullOrBlank()) {
+                val weekStart = resolveWeekday(now, offsetWeeks, "월") // 월요일 시작
+                val weekEnd = resolveWeekday(now, offsetWeeks, "일") // 일요일 끝
+                val startResolved = weekStart.withHour(0).withMinute(0).withSecond(0).withNano(0)
+                val endResolved = weekEnd.withHour(23).withMinute(59).withSecond(59).withNano(0)
+                return Resolution(
+                    timestampMillis = startResolved.toInstant().toEpochMilli(),
+                    confidence = 0.7,
+                    endTimeMillis = endResolved.toInstant().toEpochMilli()
+                )
+            }
+            
+            // 요일이 지정된 경우 (예: "다음주 수요일") 특정 날짜 반환
             val target = resolveWeekday(now, offsetWeeks, weekdayToken)
             val resolved = targetTime(target)
             return Resolution(resolved.toInstant().toEpochMilli(), 0.7)
@@ -130,14 +145,20 @@ object TimeResolver {
         // 다음달, 이번달, 지난달 패턴 매칭
         monthPattern.find(text)?.let { match ->
             val monthType = match.groupValues[1] // "다음", "이번", "지난"
-            val base = when (monthType) {
-                "다음" -> now.plusMonths(1).withDayOfMonth(1)
-                "이번" -> now.withDayOfMonth(1)
-                "지난" -> now.minusMonths(1).withDayOfMonth(1)
+            val targetMonth = when (monthType) {
+                "다음" -> now.plusMonths(1)
+                "이번" -> now
+                "지난" -> now.minusMonths(1)
                 else -> now
             }
-            val resolved = base.withHour(0).withMinute(0).withSecond(0).withNano(0)
-            return Resolution(resolved.toInstant().toEpochMilli(), 0.7)
+            val monthStart = targetMonth.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0)
+            val monthEnd = targetMonth.withDayOfMonth(targetMonth.toLocalDate().lengthOfMonth())
+                .withHour(23).withMinute(59).withSecond(59).withNano(0)
+            return Resolution(
+                timestampMillis = monthStart.toInstant().toEpochMilli(),
+                confidence = 0.7,
+                endTimeMillis = monthEnd.toInstant().toEpochMilli()
+            )
         }
         
         // 월별 상대적 표현 처리 (일반화된 패턴)

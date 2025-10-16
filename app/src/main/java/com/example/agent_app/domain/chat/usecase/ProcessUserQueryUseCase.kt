@@ -14,7 +14,13 @@ class ProcessUserQueryUseCase(
             return QueryFilters()
         }
         val resolution = timeResolver.resolve(trimmed)
-        val (start, end) = resolution?.let { windowFor(it.timestampMillis) } ?: (null to null)
+        val (start, end) = when {
+            resolution == null -> null to null
+            // 범위가 명시된 경우 (예: "다음주", "이번달") 그대로 사용
+            resolution.endTimeMillis != null -> resolution.timestampMillis to resolution.endTimeMillis
+            // 단일 시점인 경우 (예: "10월 17일 이후") 60일 윈도우 생성
+            else -> windowFor(resolution.timestampMillis)
+        }
         val keywords = extractKeywords(trimmed)
         val source = detectSource(trimmed)
         

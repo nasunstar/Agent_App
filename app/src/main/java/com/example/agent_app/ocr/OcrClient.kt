@@ -4,14 +4,15 @@ import android.content.Context
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class OcrClient(context: Context) {
 
-    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    // 한글 인식을 위해 KoreanTextRecognizerOptions 사용
+    private val textRecognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
     private val appContext = context.applicationContext
 
     suspend fun recognizeTextFromUri(uri: Uri): String = suspendCancellableCoroutine { continuation ->
