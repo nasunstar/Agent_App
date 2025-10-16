@@ -17,10 +17,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.util.UUID
 
 // JsonElement 확장 함수
 private fun JsonElement?.asString(): String? = this?.jsonPrimitive?.content
 private fun JsonElement?.asLong(): Long? = this?.jsonPrimitive?.longOrNull
+
+data class OcrEventProcessingResult(
+    val event: Event,
+    val classification: ClassificationResult,
+    val originalId: String,
+)
 
 class ClassifiedDataRepository(
     private val openAIClassifier: OpenAIClassifier,
@@ -129,25 +136,25 @@ class ClassifiedDataRepository(
         subject: String?,
         body: String?,
         originalId: String,
-        timestamp: Long?
-    ) {
+        timestamp: Long?,
+    ): Event {
         val extractedData = classification.extractedData
-        
+
         // 이벤트 타입 생성 또는 가져오기
         val eventTypeName = extractedData["type"].asString() ?: "일반"
         val eventType = getOrCreateEventType(eventTypeName)
-        
+
         val aiExtractedStartAt = extractedData["startAt"].asLong()
-        
+
         // AI가 시간을 추출했더라도 TimeResolver로 재검증
         val timeText = "${subject ?: ""} ${body ?: ""}"
         val timeResolution = com.example.agent_app.util.TimeResolver.resolve(timeText)
         val timeResolverStartAt = timeResolution?.timestampMillis
-        
+
         // AI 추출 시간과 TimeResolver 결과를 비교하여 더 적절한 시간 선택
         val finalStartAt = when {
             // TimeResolver가 시간을 해석했고, AI 시간과 다르면 TimeResolver 우선
-            timeResolverStartAt != null && aiExtractedStartAt != null && 
+            timeResolverStartAt != null && aiExtractedStartAt != null &&
             timeResolverStartAt != aiExtractedStartAt -> {
                 android.util.Log.d("ClassifiedDataRepository", "시간 불일치 - AI: $aiExtractedStartAt, TimeResolver: $timeResolverStartAt, TimeResolver 우선")
                 timeResolverStartAt
@@ -159,7 +166,7 @@ class ClassifiedDataRepository(
             // 둘 다 없으면 원본 timestamp
             else -> timestamp
         }
-        
+
         // 디버깅 로그 추가
         android.util.Log.d("ClassifiedDataRepository", "Event 저장 - 제목: ${subject}")
         android.util.Log.d("ClassifiedDataRepository", "AI 추출 시간: $aiExtractedStartAt")
@@ -169,7 +176,7 @@ class ClassifiedDataRepository(
         android.util.Log.d("ClassifiedDataRepository", "AI 추출 데이터: $extractedData")
         android.util.Log.d("ClassifiedDataRepository", "TimeResolver 시도 - 텍스트: $timeText")
         android.util.Log.d("ClassifiedDataRepository", "TimeResolver 결과: $timeResolution")
-        
+
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
             typeId = eventType.id,
@@ -180,9 +187,53 @@ class ClassifiedDataRepository(
             location = extractedData["location"].asString(),
             status = "pending"
         )
-        eventDao.insert(event)
+        val eventId = eventDao.upsert(event)
+        val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+        android.util.Log.d("ClassifiedDataRepository", "Event 저장 완료 - ID: ${savedEvent.id}, Title: ${savedEvent.title}")
+        return savedEvent
     }
-    
+
+    suspend fun processAndStoreTextFromOcr(
+        recognizedText: String,
+        source: String = "ocr_share",
+        originalId: String = "ocr-${UUID.randomUUID()}",
+    ): OcrEventProcessingResult = withContext(dispatcher) {
+        require(recognizedText.isNotBlank()) { "인식된 텍스트가 비어 있습니다." }
+
+        android.util.Log.d("ClassifiedDataRepository", "OCR 텍스트 처리 시작 - ID: $originalId")
+
+        val classification = openAIClassifier.parseScheduleFromText(recognizedText)
+        val subject = classification.extractedData["title"].asString()
+            ?: recognizedText.lineSequence().firstOrNull()?.take(60)
+            ?: "OCR Event"
+        val timestamp = classification.extractedData["startAt"].asLong()
+
+        val event = storeAsEvent(
+            classification = classification,
+            subject = subject,
+            body = recognizedText,
+            originalId = originalId,
+            timestamp = timestamp,
+        )
+
+        storeAsIngestItem(
+            subject = event.title,
+            body = recognizedText,
+            source = source,
+            originalId = originalId,
+            timestamp = event.startAt ?: timestamp,
+            classification = classification,
+        )
+
+        android.util.Log.d("ClassifiedDataRepository", "OCR 텍스트 저장 완료 - Event ID: ${event.id}")
+
+        OcrEventProcessingResult(
+            event = event,
+            classification = classification,
+            originalId = originalId,
+        )
+    }
+
     private suspend fun getOrCreateEventType(typeName: String): EventType {
         // 기존 타입 찾기
         val existingType = eventTypeDao.getByName(typeName)
