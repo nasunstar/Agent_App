@@ -2,6 +2,7 @@ package com.example.agent_app.data.repo
 
 import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.gmail.GmailApi
+import com.example.agent_app.gmail.GmailBodyExtractor
 import com.example.agent_app.gmail.GmailMessage
 import java.io.IOException
 import java.time.Instant
@@ -73,8 +74,8 @@ class GmailRepository(
                     
                     android.util.Log.d("GmailRepository", "메시지 정보 - 제목: $subject, 발신자: $from")
                     
-                    // 이메일 내용 (snippet 사용)
-                    val body = message.snippet ?: ""
+                    // 이메일 전체 본문 추출 (snippet 대신 전체 내용)
+                    val body = GmailBodyExtractor.extractBody(message)
                     
                     // 발신자 정보를 포함한 전체 내용으로 분류
                     val fullContent = buildString {
@@ -152,6 +153,10 @@ private fun GmailMessage.toIngestItem(): IngestItem {
     val subject = payload?.headers?.firstOrNull { it.name.equals("Subject", ignoreCase = true) }?.value
     val dateHeader = payload?.headers?.firstOrNull { it.name.equals("Date", ignoreCase = true) }?.value
     val timestamp = parseInternalDate(internalDate, dateHeader)
+    
+    // 전체 이메일 본문 추출 (snippet 대신)
+    val fullBody = GmailBodyExtractor.extractBody(this)
+    
     val metadata = JSONObject().apply {
         put("threadId", threadId)
         put("labelIds", JSONArray(labelIds ?: emptyList<String>()))
@@ -161,7 +166,7 @@ private fun GmailMessage.toIngestItem(): IngestItem {
         source = SOURCE_GMAIL,
         type = TYPE_EMAIL,
         title = subject ?: snippet,
-        body = snippet,
+        body = fullBody,  // 전체 본문 저장
         timestamp = timestamp.toEpochMilli(),
         dueDate = null,
         confidence = null,

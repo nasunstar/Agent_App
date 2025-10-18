@@ -27,6 +27,7 @@ import androidx.room.PrimaryKey
         Index(value = ["type_id"]),
         Index(value = ["start_at"]),
         Index(value = ["end_at"]),
+        Index(value = ["source_id"]),
     ]
 )
 data class Event(
@@ -44,4 +45,11 @@ data class Event(
     val endAt: Long?,
     val location: String?,
     val status: String?,
+    
+    // 일정의 출처 정보
+    @ColumnInfo(name = "source_type")
+    val sourceType: String? = null,  // "gmail", "ocr", "manual" 등
+    
+    @ColumnInfo(name = "source_id")
+    val sourceId: String? = null,  // ingest_items의 id (원본 데이터 참조용)
 )

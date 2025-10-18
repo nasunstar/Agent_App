@@ -133,6 +133,7 @@ class AppDatabaseTest {
                 userId = userId,
                 typeId = typeId,
                 title = "Strategy Sync",
+                body = "Strategy meeting details",
                 startAt = 1727450000000L,
                 endAt = 1727453600000L,
                 location = "Conference Room",

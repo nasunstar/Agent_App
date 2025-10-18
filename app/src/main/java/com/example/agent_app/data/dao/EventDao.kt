@@ -73,4 +73,10 @@ interface EventDao {
         endTime: Long?,
         limit: Int = 50
     ): List<Event>
+    
+    @Query("SELECT * FROM events WHERE source_id = :sourceId")
+    suspend fun getBySourceId(sourceId: String): List<Event>
+    
+    @Query("SELECT * FROM events WHERE source_type = :sourceType ORDER BY start_at ASC")
+    suspend fun getBySourceType(sourceType: String): List<Event>
 }

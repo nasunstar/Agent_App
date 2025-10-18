@@ -39,7 +39,7 @@ import com.example.agent_app.data.entity.User
         IngestItemFts::class,
         IngestItemEmbedding::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

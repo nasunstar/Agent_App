@@ -185,11 +185,67 @@ class ClassifiedDataRepository(
             startAt = finalStartAt,
             endAt = extractedData["endAt"].asLong(),
             location = extractedData["location"].asString(),
-            status = "pending"
+            status = "pending",
+            sourceType = "gmail",  // 출처 타입 설정
+            sourceId = originalId   // 원본 데이터 ID 참조
         )
         val eventId = eventDao.upsert(event)
         val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
         android.util.Log.d("ClassifiedDataRepository", "Event 저장 완료 - ID: ${savedEvent.id}, Title: ${savedEvent.title}")
+        return savedEvent
+    }
+    
+    private suspend fun storeAsEventFromOcr(
+        classification: ClassificationResult,
+        subject: String?,
+        body: String?,
+        originalId: String,
+        timestamp: Long?,
+    ): Event {
+        val extractedData = classification.extractedData
+
+        // 이벤트 타입 생성 또는 가져오기
+        val eventTypeName = extractedData["type"].asString() ?: "일반"
+        val eventType = getOrCreateEventType(eventTypeName)
+
+        val aiExtractedStartAt = extractedData["startAt"].asLong()
+
+        // AI가 시간을 추출했더라도 TimeResolver로 재검증
+        val timeText = "${subject ?: ""} ${body ?: ""}"
+        val timeResolution = com.example.agent_app.util.TimeResolver.resolve(timeText)
+        val timeResolverStartAt = timeResolution?.timestampMillis
+
+        // AI 추출 시간과 TimeResolver 결과를 비교하여 더 적절한 시간 선택
+        val finalStartAt = when {
+            // TimeResolver가 시간을 해석했고, AI 시간과 다르면 TimeResolver 우선
+            timeResolverStartAt != null && aiExtractedStartAt != null &&
+            timeResolverStartAt != aiExtractedStartAt -> {
+                android.util.Log.d("ClassifiedDataRepository", "시간 불일치 - AI: $aiExtractedStartAt, TimeResolver: $timeResolverStartAt, TimeResolver 우선")
+                timeResolverStartAt
+            }
+            // TimeResolver가 시간을 해석했으면 사용
+            timeResolverStartAt != null -> timeResolverStartAt
+            // AI가 시간을 추출했으면 사용
+            aiExtractedStartAt != null -> aiExtractedStartAt
+            // 둘 다 없으면 원본 timestamp
+            else -> timestamp
+        }
+
+        val event = Event(
+            userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
+            typeId = eventType.id,
+            title = extractedData["title"].asString() ?: subject ?: "Unknown Event",
+            body = body,
+            startAt = finalStartAt,
+            endAt = extractedData["endAt"].asLong(),
+            location = extractedData["location"].asString(),
+            status = "pending",
+            sourceType = "ocr",  // OCR 출처 설정
+            sourceId = originalId   // 원본 데이터 ID 참조
+        )
+        val eventId = eventDao.upsert(event)
+        val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+        android.util.Log.d("ClassifiedDataRepository", "OCR Event 저장 완료 - ID: ${savedEvent.id}, Title: ${savedEvent.title}")
         return savedEvent
     }
 
@@ -208,7 +264,8 @@ class ClassifiedDataRepository(
             ?: "OCR Event"
         val timestamp = classification.extractedData["startAt"].asLong()
 
-        val event = storeAsEvent(
+        // OCR 이벤트 저장 (sourceType을 "ocr"로 설정)
+        val event = storeAsEventFromOcr(
             classification = classification,
             subject = subject,
             body = recognizedText,

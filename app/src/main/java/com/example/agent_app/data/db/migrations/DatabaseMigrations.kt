@@ -29,5 +29,16 @@ object DatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Event 테이블에 출처 정보 필드 추가 (Gmail, OCR, 수동 입력 구분)
+            database.execSQL("ALTER TABLE events ADD COLUMN source_type TEXT")
+            database.execSQL("ALTER TABLE events ADD COLUMN source_id TEXT")
+            
+            // source_id 인덱스 생성 (빠른 원본 데이터 조회용)
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_events_source_id` ON `events` (`source_id`)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

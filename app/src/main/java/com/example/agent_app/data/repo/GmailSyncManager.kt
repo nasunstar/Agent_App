@@ -179,7 +179,8 @@ class GmailSyncManager(
             
             val emailTimestamp = parseGmailDate(message.internalDate, dateHeader).toEpochMilli()
             
-            val body = message.snippet ?: ""
+            // 전체 이메일 본문 추출 (snippet 대신)
+            val body = com.example.agent_app.gmail.GmailBodyExtractor.extractBody(message)
             val fullContent = buildString {
                 if (from != null) append("발신자: $from\n")
                 if (to != null) append("수신자: $to\n")
@@ -239,12 +240,15 @@ class GmailSyncManager(
         }?.value
         val timestamp = parseGmailDate(message.internalDate, dateHeader)
         
+        // 전체 이메일 본문 추출 (snippet 대신)
+        val fullBody = com.example.agent_app.gmail.GmailBodyExtractor.extractBody(message)
+        
         return IngestItem(
             id = message.id,
             source = "gmail",
             type = "email",
             title = subject ?: message.snippet,
-            body = message.snippet ?: "",
+            body = fullBody,  // 전체 본문 저장
             timestamp = timestamp.toEpochMilli(),
             dueDate = null,
             confidence = null,
