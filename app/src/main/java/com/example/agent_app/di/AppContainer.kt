@@ -1,14 +1,16 @@
 package com.example.agent_app.di
 
 import android.content.Context
+import com.example.agent_app.ai.HuenDongMinAiAgent
 import com.example.agent_app.ai.OpenAIClassifier
-import com.example.agent_app.data.chat.ChatGatewayImpl
+import com.example.agent_app.data.chat.HuenDongMinChatGatewayImpl
 import com.example.agent_app.data.db.AppDatabase
 import com.example.agent_app.data.repo.AuthRepository
 import com.example.agent_app.data.repo.ClassifiedDataRepository
-import com.example.agent_app.data.repo.GmailRepository
+import com.example.agent_app.data.repo.GmailRepositoryWithAi
 import com.example.agent_app.data.repo.IngestItemParser
 import com.example.agent_app.data.repo.IngestRepository
+import com.example.agent_app.data.repo.OcrRepositoryWithAi
 import com.example.agent_app.data.search.EmbeddingGenerator
 import com.example.agent_app.data.search.EmbeddingGeneratorInterface
 import com.example.agent_app.data.search.EmbeddingStore
@@ -16,10 +18,8 @@ import com.example.agent_app.data.search.HybridSearchEngine
 import com.example.agent_app.data.search.OpenAIEmbeddingGenerator
 import com.example.agent_app.domain.chat.gateway.ChatGateway
 import com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase
-import com.example.agent_app.domain.chat.usecase.ProcessUserQueryUseCase
 import com.example.agent_app.domain.chat.usecase.PromptBuilder
 import com.example.agent_app.gmail.GmailServiceFactory
-import com.example.agent_app.openai.OpenAiClient
 import com.example.agent_app.openai.PromptBuilderImpl
 
 class AppContainer(context: Context) {
@@ -47,11 +47,23 @@ class AppContainer(context: Context) {
         noteDao = database.noteDao(),
         ingestRepository = ingestRepository,
     )
-
-    val gmailRepository: GmailRepository = GmailRepository(
-        api = GmailServiceFactory.create(),
+    
+    // AI 에이전트 "HuenDongMin" - Gmail/OCR 자동 처리
+    private val huenDongMinAiAgent = HuenDongMinAiAgent(
+        eventDao = database.eventDao(),
+        eventTypeDao = database.eventTypeDao(),
         ingestRepository = ingestRepository,
-        classifiedDataRepository = classifiedDataRepository,
+    )
+
+    // Gmail AI 자동 처리 Repository
+    val gmailRepository: GmailRepositoryWithAi = GmailRepositoryWithAi(
+        api = GmailServiceFactory.create(),
+        huenDongMinAiAgent = huenDongMinAiAgent,
+    )
+    
+    // OCR AI 자동 처리 Repository
+    val ocrRepository: OcrRepositoryWithAi = OcrRepositoryWithAi(
+        huenDongMinAiAgent = huenDongMinAiAgent,
     )
 
     private val hybridSearchEngine = HybridSearchEngine(
@@ -62,15 +74,13 @@ class AppContainer(context: Context) {
     )
 
     private val promptBuilder: PromptBuilder = PromptBuilderImpl()
-    private val chatGateway: ChatGateway = ChatGatewayImpl(
+    
+    // AI 에이전트 "HuenDongMin" 기반 ChatGateway (TimeResolver 제거)
+    private val chatGateway: ChatGateway = HuenDongMinChatGatewayImpl(
         hybridSearchEngine = hybridSearchEngine,
-        openAiClient = OpenAiClient(),
     )
 
-    private val processUserQueryUseCase = ProcessUserQueryUseCase()
-
     val executeChatUseCase: ExecuteChatUseCase = ExecuteChatUseCase(
-        processUserQueryUseCase = processUserQueryUseCase,
         chatGateway = chatGateway,
         promptBuilder = promptBuilder,
     )

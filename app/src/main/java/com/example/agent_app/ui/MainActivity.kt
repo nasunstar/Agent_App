@@ -8,7 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.agent_app.data.repo.AuthRepository
 import com.example.agent_app.data.repo.ClassifiedDataRepository
-import com.example.agent_app.data.repo.GmailRepository
+import com.example.agent_app.data.repo.GmailRepositoryWithAi
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.entity.User
 import com.example.agent_app.di.AppContainer
@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
 private class MainViewModelFactory(
     private val authRepository: AuthRepository,
     private val ingestRepository: IngestRepository,
-    private val gmailRepository: GmailRepository,
+    private val gmailRepository: GmailRepositoryWithAi,
     private val classifiedDataRepository: ClassifiedDataRepository,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

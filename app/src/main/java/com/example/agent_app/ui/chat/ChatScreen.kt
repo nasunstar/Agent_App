@@ -24,8 +24,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,6 +37,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun ChatScreen(
@@ -43,9 +48,21 @@ fun ChatScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
+    
+    // 현재 시간 (매 초마다 업데이트)
+    var currentTime by remember { mutableStateOf(LocalDateTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTime = LocalDateTime.now()
+            delay(1000) // 1초마다 업데이트
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // 상단 시간 표시
+            CurrentTimeHeader(currentTime)
+            
             ChatHistory(state.entries, modifier = Modifier.weight(1f))
             ChatInput(
                 value = input,
@@ -188,6 +205,64 @@ private fun ChatInput(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CurrentTimeHeader(currentTime: LocalDateTime) {
+    // 요일을 한글로 변환
+    val dayOfWeekKorean = when (currentTime.dayOfWeek.toString()) {
+        "MONDAY" -> "월요일"
+        "TUESDAY" -> "화요일"
+        "WEDNESDAY" -> "수요일"
+        "THURSDAY" -> "목요일"
+        "FRIDAY" -> "금요일"
+        "SATURDAY" -> "토요일"
+        "SUNDAY" -> "일요일"
+        else -> currentTime.dayOfWeek.toString()
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "📅 현재 시간 (한국 시간 KST)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // 날짜 + 요일
+            Text(
+                text = "${currentTime.format(DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))} ($dayOfWeekKorean)",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            // 시간
+            Text(
+                text = currentTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

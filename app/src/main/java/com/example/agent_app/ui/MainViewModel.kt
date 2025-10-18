@@ -7,7 +7,7 @@ import com.example.agent_app.data.entity.Contact
 import com.example.agent_app.data.entity.Event
 import com.example.agent_app.data.entity.Note
 import com.example.agent_app.data.repo.AuthRepository
-import com.example.agent_app.data.repo.GmailRepository
+import com.example.agent_app.data.repo.GmailRepositoryWithAi
 import com.example.agent_app.data.repo.GmailSyncResult
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.repo.ClassifiedDataRepository
@@ -24,7 +24,7 @@ private const val DEFAULT_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.r
 class MainViewModel(
     private val authRepository: AuthRepository,
     private val ingestRepository: IngestRepository,
-    private val gmailRepository: GmailRepository,
+    private val gmailRepository: GmailRepositoryWithAi,
     private val classifiedDataRepository: ClassifiedDataRepository? = null,
 ) : ViewModel() {
 

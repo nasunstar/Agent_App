@@ -7,21 +7,23 @@ import com.example.agent_app.domain.chat.model.ChatResult
 import com.example.agent_app.domain.chat.model.QueryFilters
 
 class ExecuteChatUseCase(
-    private val processUserQueryUseCase: ProcessUserQueryUseCase,
     private val chatGateway: ChatGateway,
     private val promptBuilder: PromptBuilder,
 ) {
     suspend operator fun invoke(questionText: String): ChatResult {
         val question = ChatMessage(ChatMessage.Role.USER, questionText)
-        val filters = processUserQueryUseCase(questionText)
-        val context = chatGateway.fetchContext(questionText, filters)
+        
+        // AI가 내부적으로 필터를 생성하므로 빈 필터 전달
+        val emptyFilters = QueryFilters()
+        val context = chatGateway.fetchContext(questionText, emptyFilters)
         val messages = promptBuilder.buildMessages(question, context)
         val answer = chatGateway.requestChatCompletion(messages)
+        
         return ChatResult(
             question = question,
             answer = answer,
             contextItems = context,
-            filters = filters,
+            filters = emptyFilters, // AI가 생성한 필터는 내부적으로만 사용
         )
     }
 }

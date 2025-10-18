@@ -144,38 +144,14 @@ class ClassifiedDataRepository(
         val eventTypeName = extractedData["type"].asString() ?: "일반"
         val eventType = getOrCreateEventType(eventTypeName)
 
-        val aiExtractedStartAt = extractedData["startAt"].asLong()
+        // AI가 직접 계산한 시간 사용 (TimeResolver 제거)
+        val finalStartAt = extractedData["startAt"].asLong() ?: timestamp
 
-        // AI가 시간을 추출했더라도 TimeResolver로 재검증
-        val timeText = "${subject ?: ""} ${body ?: ""}"
-        val timeResolution = com.example.agent_app.util.TimeResolver.resolve(timeText)
-        val timeResolverStartAt = timeResolution?.timestampMillis
-
-        // AI 추출 시간과 TimeResolver 결과를 비교하여 더 적절한 시간 선택
-        val finalStartAt = when {
-            // TimeResolver가 시간을 해석했고, AI 시간과 다르면 TimeResolver 우선
-            timeResolverStartAt != null && aiExtractedStartAt != null &&
-            timeResolverStartAt != aiExtractedStartAt -> {
-                android.util.Log.d("ClassifiedDataRepository", "시간 불일치 - AI: $aiExtractedStartAt, TimeResolver: $timeResolverStartAt, TimeResolver 우선")
-                timeResolverStartAt
-            }
-            // TimeResolver가 시간을 해석했으면 사용
-            timeResolverStartAt != null -> timeResolverStartAt
-            // AI가 시간을 추출했으면 사용
-            aiExtractedStartAt != null -> aiExtractedStartAt
-            // 둘 다 없으면 원본 timestamp
-            else -> timestamp
-        }
-
-        // 디버깅 로그 추가
+        // 디버깅 로그
         android.util.Log.d("ClassifiedDataRepository", "Event 저장 - 제목: ${subject}")
-        android.util.Log.d("ClassifiedDataRepository", "AI 추출 시간: $aiExtractedStartAt")
-        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 시간: $timeResolverStartAt")
+        android.util.Log.d("ClassifiedDataRepository", "AI 추출 시간: $finalStartAt")
         android.util.Log.d("ClassifiedDataRepository", "원본 timestamp: $timestamp")
-        android.util.Log.d("ClassifiedDataRepository", "최종 startAt: $finalStartAt")
         android.util.Log.d("ClassifiedDataRepository", "AI 추출 데이터: $extractedData")
-        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 시도 - 텍스트: $timeText")
-        android.util.Log.d("ClassifiedDataRepository", "TimeResolver 결과: $timeResolution")
 
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
@@ -208,28 +184,8 @@ class ClassifiedDataRepository(
         val eventTypeName = extractedData["type"].asString() ?: "일반"
         val eventType = getOrCreateEventType(eventTypeName)
 
-        val aiExtractedStartAt = extractedData["startAt"].asLong()
-
-        // AI가 시간을 추출했더라도 TimeResolver로 재검증
-        val timeText = "${subject ?: ""} ${body ?: ""}"
-        val timeResolution = com.example.agent_app.util.TimeResolver.resolve(timeText)
-        val timeResolverStartAt = timeResolution?.timestampMillis
-
-        // AI 추출 시간과 TimeResolver 결과를 비교하여 더 적절한 시간 선택
-        val finalStartAt = when {
-            // TimeResolver가 시간을 해석했고, AI 시간과 다르면 TimeResolver 우선
-            timeResolverStartAt != null && aiExtractedStartAt != null &&
-            timeResolverStartAt != aiExtractedStartAt -> {
-                android.util.Log.d("ClassifiedDataRepository", "시간 불일치 - AI: $aiExtractedStartAt, TimeResolver: $timeResolverStartAt, TimeResolver 우선")
-                timeResolverStartAt
-            }
-            // TimeResolver가 시간을 해석했으면 사용
-            timeResolverStartAt != null -> timeResolverStartAt
-            // AI가 시간을 추출했으면 사용
-            aiExtractedStartAt != null -> aiExtractedStartAt
-            // 둘 다 없으면 원본 timestamp
-            else -> timestamp
-        }
+        // AI가 직접 계산한 시간 사용 (TimeResolver 제거)
+        val finalStartAt = extractedData["startAt"].asLong() ?: timestamp
 
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
