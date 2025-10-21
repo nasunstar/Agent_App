@@ -33,7 +33,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.example.agent_app.data.repo.ClassifiedDataRepository
+import com.example.agent_app.data.repo.OcrRepositoryWithAi
 import com.example.agent_app.di.AppContainer
 import com.example.agent_app.ui.theme.AgentAppTheme
 import com.example.agent_app.util.TimeFormatter
@@ -50,7 +50,7 @@ class OcrCaptureActivity : ComponentActivity() {
     private val viewModel: OcrCaptureViewModel by viewModels {
         OcrCaptureViewModelFactory(
             ocrClient = ocrClient,
-            classifiedDataRepository = appContainer.classifiedDataRepository,
+            ocrRepository = appContainer.ocrRepository,
         )
     }
 
@@ -99,20 +99,20 @@ class OcrCaptureActivity : ComponentActivity() {
 
 private class OcrCaptureViewModelFactory(
     private val ocrClient: OcrClient,
-    private val classifiedDataRepository: ClassifiedDataRepository,
+    private val ocrRepository: OcrRepositoryWithAi,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(OcrCaptureViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
-        return OcrCaptureViewModel(ocrClient, classifiedDataRepository) as T
+        return OcrCaptureViewModel(ocrClient, ocrRepository) as T
     }
 }
 
 private class OcrCaptureViewModel(
     private val ocrClient: OcrClient,
-    private val classifiedDataRepository: ClassifiedDataRepository,
+    private val ocrRepository: OcrRepositoryWithAi,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<OcrCaptureUiState>(OcrCaptureUiState.Loading)
@@ -144,16 +144,16 @@ private class OcrCaptureViewModel(
                     _uiState.value = OcrCaptureUiState.Error("이미지에서 텍스트를 인식하지 못했습니다.")
                     return@launch
                 }
-                val result = classifiedDataRepository.processAndStoreTextFromOcr(recognizedText)
+                val result = ocrRepository.processOcrText(recognizedText)
                 _uiState.value = OcrCaptureUiState.Success(
                     recognizedText = recognizedText,
-                    eventTitle = result.event.title,
-                    startAt = result.event.startAt,
-                    endAt = result.event.endAt,
-                    location = result.event.location,
-                    confidence = result.classification.confidence,
-                    classificationType = result.classification.type,
-                    eventId = result.event.id,
+                    eventTitle = result.eventTitle ?: "제목 없음",
+                    startAt = result.startAt,
+                    endAt = result.endAt,
+                    location = result.location,
+                    confidence = result.confidence,
+                    classificationType = result.eventType,
+                    eventId = result.eventId ?: 0L,
                 )
             } catch (t: Throwable) {
                 _uiState.value = OcrCaptureUiState.Error(

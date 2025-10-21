@@ -64,6 +64,7 @@ class AppContainer(context: Context) {
     // OCR AI 자동 처리 Repository
     val ocrRepository: OcrRepositoryWithAi = OcrRepositoryWithAi(
         huenDongMinAiAgent = huenDongMinAiAgent,
+        eventDao = database.eventDao(),
     )
 
     private val hybridSearchEngine = HybridSearchEngine(

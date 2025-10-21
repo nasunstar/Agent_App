@@ -1,6 +1,7 @@
 package com.example.agent_app.data.repo
 
 import com.example.agent_app.ai.HuenDongMinAiAgent
+import com.example.agent_app.data.dao.EventDao
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +14,7 @@ import java.util.UUID
  */
 class OcrRepositoryWithAi(
     private val huenDongMinAiAgent: HuenDongMinAiAgent,
+    private val eventDao: EventDao,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     
@@ -51,12 +53,27 @@ class OcrRepositoryWithAi(
         android.util.Log.d("OcrRepositoryWithAi", 
             "OCR 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}")
         
+        // 저장된 이벤트 조회
+        val savedEvent = if (result.type == "event") {
+            eventDao.getBySourceId(originalOcrId).firstOrNull()
+        } else {
+            null
+        }
+        
+        android.util.Log.d("OcrRepositoryWithAi", 
+            "저장된 이벤트 조회: ${savedEvent?.title} (ID: ${savedEvent?.id})")
+        
         OcrProcessingResult(
             success = true,
             eventType = result.type,
             confidence = result.confidence,
             ocrId = originalOcrId,
-            message = "OCR 텍스트가 성공적으로 처리되었습니다."
+            message = "OCR 텍스트가 성공적으로 처리되었습니다.",
+            eventId = savedEvent?.id,
+            eventTitle = savedEvent?.title,
+            startAt = savedEvent?.startAt,
+            endAt = savedEvent?.endAt,
+            location = savedEvent?.location
         )
     }
 }
@@ -69,6 +86,11 @@ data class OcrProcessingResult(
     val eventType: String,
     val confidence: Double,
     val ocrId: String,
-    val message: String
+    val message: String,
+    val eventId: Long? = null,
+    val eventTitle: String? = null,
+    val startAt: Long? = null,
+    val endAt: Long? = null,
+    val location: String? = null
 )
 

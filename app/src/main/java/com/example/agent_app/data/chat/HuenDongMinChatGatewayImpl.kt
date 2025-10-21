@@ -110,25 +110,85 @@ class HuenDongMinChatGatewayImpl(
         currentTimestamp: Long
     ): QueryFilters = withContext(Dispatchers.IO) {
         
+        val currentDate = java.time.Instant.ofEpochMilli(currentTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        // 요일 이름 가져오기 (한글)
+        val dayOfWeekKorean = when (currentDate.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "월요일"
+            java.time.DayOfWeek.TUESDAY -> "화요일"
+            java.time.DayOfWeek.WEDNESDAY -> "수요일"
+            java.time.DayOfWeek.THURSDAY -> "목요일"
+            java.time.DayOfWeek.FRIDAY -> "금요일"
+            java.time.DayOfWeek.SATURDAY -> "토요일"
+            java.time.DayOfWeek.SUNDAY -> "일요일"
+        }
+        
         val systemPrompt = """
             당신은 사용자 질문을 분석하여 검색 필터를 생성하는 AI "HuenDongMin"입니다.
             
-            현재 시간: ${java.time.Instant.ofEpochMilli(currentTimestamp)} (${currentTimestamp}ms)
+            ⚠️⚠️⚠️ 현재 시간 정보 (한국 시간 KST) ⚠️⚠️⚠️
+            - 현재 연도: ${currentDate.year}년
+            - 현재 월: ${currentDate.monthValue}월
+            - 현재 일: ${currentDate.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
+            - Epoch ms: ${currentTimestamp}ms
             
-            사용자 질문에서:
-            1. 시간 표현 추출: "내일", "이번 주", "10월 19일" → start_time_millis, end_time_millis
-            2. 키워드 추출: "김철수", "프로젝트", "회의" → keywords 배열
-            3. 소스 추출: "이메일에서", "문자 온 거" → source ("gmail", "ocr" 등)
+            📅 날짜 계산 규칙 (단계별 처리):
             
-            출력 형식:
+            1단계: 기준 시점 결정
+               ⚠️ 사용자 질문에서 명시적 날짜를 먼저 확인하세요:
+               - "10월 16일에 약속 잡았어", "10월 16일 다음주 수요일" 등
+               
+               기준 시점 결정:
+               - 질문에 특정 날짜가 **언급되었으면**: 그 날짜를 기준 시점으로 사용
+               - 질문에 특정 날짜가 **없으면**: 현재 시간(${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일 $dayOfWeekKorean)을 기준으로 사용
+            
+            2단계: 상대적 표현 계산
+               현재: ${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일 ($dayOfWeekKorean)
+               
+               A. 기본 표현 (기준 시점 기준):
+                  - "오늘": 기준 날짜 00:00 ~ 23:59
+                  - "내일": 기준 날짜 + 1일
+                  - "모레": 기준 날짜 + 2일
+               
+               B. 주(week) 관련 표현 (기준 시점 기준):
+                  ⚠️ 한국에서 "주"는 월요일~일요일을 기준으로 합니다.
+                  
+                  - "이번 주": 기준 시점이 속한 주의 월요일 00:00 ~ 일요일 23:59
+                  - "다음 주" 또는 "다음주": 기준 시점 기준 다음 주 월요일 00:00 ~ 일요일 23:59
+                  - "다음주 X요일": 기준 시점 기준 다음 주의 해당 요일
+                  
+                  🔍 예시:
+                  - 질문: "다음주 수요일 일정 찾아줘" (현재: 10월 21일 화요일)
+                    → 기준 시점: 현재 (10월 21일)
+                    → 다음주 수요일: 10월 29일(수) ✅
+                  
+                  - 질문: "10월 16일에 담주 수요일 약속 잡았어" (현재: 10월 21일 화요일)
+                    → 기준 시점: 10월 16일 (목요일)
+                    → 담주 수요일: 10월 16일 기준 다음주 수요일 = 10월 22일(수) ✅
+            
+            3. 키워드 추출:
+               - 사람 이름, 장소, 이벤트명 등 핵심 단어 추출
+               - 예: "김철수", "회의실", "프로젝트 발표"
+            
+            4. 소스 추출:
+               - "이메일에서" → "gmail"
+               - "문자" 또는 "카톡" → "ocr"
+               - 명시되지 않으면 null
+            
+            출력 형식 (순수 JSON만):
             {
-              "start_time_millis": epoch_milliseconds | null,
-              "end_time_millis": epoch_milliseconds | null,
-              "keywords": ["키워드1", "키워드2"] | [],
-              "source": "gmail" | "ocr" | null
+              "start_time_millis": 1234567890123,
+              "end_time_millis": 1234567890123,
+              "keywords": ["키워드1", "키워드2"],
+              "source": "gmail"
             }
             
-            ⚠️ 순수 JSON만 반환하세요. 추가 설명 없이 JSON만 출력하세요.
+            ⚠️ 중요:
+            1. 모든 시간은 반드시 계산된 epoch milliseconds 숫자로 반환!
+            2. 수식이나 계산식 포함 금지!
+            3. 순수 JSON만 반환, 추가 설명 금지!
         """.trimIndent()
         
         val messages = listOf(

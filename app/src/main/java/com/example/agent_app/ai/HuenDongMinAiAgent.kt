@@ -43,7 +43,7 @@ class HuenDongMinAiAgent(
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC  // BODY → BASIC으로 변경
         })
         .build()
     
@@ -67,6 +67,17 @@ class HuenDongMinAiAgent(
         val currentDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
             .atZone(java.time.ZoneId.of("Asia/Seoul"))
         
+        // 요일 이름 가져오기 (한글)
+        val dayOfWeekKorean = when (currentDate.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "월요일"
+            java.time.DayOfWeek.TUESDAY -> "화요일"
+            java.time.DayOfWeek.WEDNESDAY -> "수요일"
+            java.time.DayOfWeek.THURSDAY -> "목요일"
+            java.time.DayOfWeek.FRIDAY -> "금요일"
+            java.time.DayOfWeek.SATURDAY -> "토요일"
+            java.time.DayOfWeek.SUNDAY -> "일요일"
+        }
+        
         val systemPrompt = """
             당신은 사용자의 개인 데이터를 지능적으로 관리하는 AI 비서 "HuenDongMin"입니다.
             
@@ -74,20 +85,31 @@ class HuenDongMinAiAgent(
             - 현재 연도: ${currentDate.year}년
             - 현재 월: ${currentDate.monthValue}월
             - 현재 일: ${currentDate.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
             - 전체 시간: $currentDate
             - Epoch ms: ${receivedTimestamp}ms
             
             핵심 원칙:
-            1. 시간 인식: 위에 제공된 현재 시간(${receivedTimestamp}ms)을 기준으로 모든 상대 시간을 절대 시간(Epoch ms)으로 변환
-            2. 데이터 이원화: 원본은 IngestItem에, 구조화된 정보는 Event에 저장
-            3. 명확한 근거: 입력 텍스트에 명확한 근거가 있어야 함
-            4. ⚠️ 연도 추론 규칙:
-               - 연도가 명시되지 않은 날짜를 만나면:
-                 * 해당 월이 현재 월(${currentDate.monthValue})보다 작으면 → 현재 연도(${currentDate.year}) + 1
-                 * 해당 월이 현재 월(${currentDate.monthValue})보다 크거나 같으면 → 현재 연도(${currentDate.year})
-               - 상대적 표현("내일", "다음 주")은 항상 현재 시간(${receivedTimestamp}ms)을 기준으로 계산
+            1. 데이터 이원화: 원본은 IngestItem에, 구조화된 정보는 Event에 저장
+            2. 명확한 근거: 입력 텍스트에 명확한 근거가 있어야 함
             
-            ⚠️ 반드시 현재 연도(${currentDate.year})를 기준으로 판단하세요. 과거 연도를 반환하지 마세요!
+            3. ⚠️⚠️⚠️ 시간 계산의 기준 시점 결정 (매우 중요!) ⚠️⚠️⚠️
+               
+               A. 먼저 메일 본문 내에서 명시적 날짜를 찾기:
+                  - "2025년 10월 16일", "10월 16일 목요일", "2025.10.16" 등
+               
+               B. 기준 시점 결정:
+                  - 메일 본문에 날짜가 **명시되어 있으면**: 그 날짜를 기준 시점으로 사용
+                  - 메일 본문에 날짜가 **없으면**: 현재 시간(${receivedTimestamp}ms)을 기준으로 사용
+               
+               C. 상대적 표현 계산:
+                  - "내일", "모레", "다음주", "이번 주" 등은 기준 시점을 기준으로 계산
+                  - 예시 1: 메일 본문에 "10월 16일(목)" + "다음주 수요일" → 10월 16일 기준 다음주 수요일 = 10월 22일
+                  - 예시 2: 메일 본문에 날짜 없음 + "내일" → 현재 시간 기준 내일
+            
+            4. ⚠️ 연도 추론 규칙:
+               - 연도가 명시되지 않은 날짜는 현재 연도(${currentDate.year})를 사용
+               - 과거 날짜가 나오면 다음 해로 조정
         """.trimIndent()
         
         val userPrompt = """
@@ -102,27 +124,54 @@ class HuenDongMinAiAgent(
             - 연도: ${currentDate.year}년
             - 월: ${currentDate.monthValue}월
             - 일: ${currentDate.dayOfMonth}일
+            - 요일: $dayOfWeekKorean
             - Epoch ms: ${receivedTimestamp}ms
             
-            ⚠️ 처리 규칙:
-            1. 메일 내용에서 날짜/시간을 추출하여 위의 현재 시간을 기준으로 절대 시간(epoch milliseconds)으로 변환
-            2. 연도가 없는 날짜는 현재 연도(${currentDate.year})와 현재 월(${currentDate.monthValue})을 기준으로 판단
-            3. 상대적 표현("내일", "다음 주")은 현재 날짜(${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일)를 기준으로 계산
-            4. 반드시 현재 시간(${receivedTimestamp}ms)보다 미래 시간으로 변환하세요
+            ⚠️⚠️⚠️ 처리 규칙 (단계별로 따르세요):
+            
+            1단계: 기준 시점 결정
+               - 메일 본문에서 명시적 날짜를 먼저 찾으세요 (예: "2025년 10월 16일", "10월 16일 목요일")
+               - 명시적 날짜가 **있으면**: 그 날짜를 기준 시점으로 사용
+               - 명시적 날짜가 **없으면**: 현재 시간(${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일 $dayOfWeekKorean)을 기준으로 사용
+            
+            2단계: 상대적 표현 계산
+               - "내일", "모레", "다음주", "이번 주" 등은 1단계에서 결정한 기준 시점을 기준으로 계산
+               - "다음주 X요일": 기준 시점 기준 다음 주의 해당 요일
+               
+               🔍 구체적 예시:
+               - 메일: "10월 16일(목) ... 다음주 수요일"
+                 → 기준 시점: 10월 16일 (목)
+                 → 다음주 수요일: 10월 16일 기준 다음주 수요일 = 10월 22일 (수) ✅
+               
+               - 메일: "내일 오후 3시" (날짜 없음)
+                 → 기준 시점: 현재 시간 (${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일)
+                 → 내일: ${currentDate.dayOfMonth + 1}일 ✅
+            
+            3단계: epoch milliseconds 변환
+               - 2단계에서 계산한 날짜/시간을 epoch milliseconds로 변환
             
             출력 형식 (순수 JSON만):
             {
-              "type": "event" | "contact" | "note",
-              "confidence": 0.0 ~ 1.0,
+              "type": "event",
+              "confidence": 0.9,
               "extractedData": {
                 "title": "일정 제목",
-                "startAt": epoch_milliseconds (Long),
-                "endAt": epoch_milliseconds | null,
-                "location": "장소" | null,
-                "type": "이벤트 타입" | null,
-                "body": "요약"
+                "startAt": 1234567890123,
+                "endAt": 1234567890123,
+                "location": "장소",
+                "type": "이벤트",
+                "body": "메일 내용 요약"
               }
             }
+            
+            ⚠️⚠️⚠️ 중요 규칙:
+            1. startAt과 endAt은 반드시 계산된 숫자여야 합니다!
+               ❌ 나쁜 예: "startAt": 1761050295871 + (7 * 24 * 60 * 60 * 1000)
+               ✅ 좋은 예: "startAt": 1761655895871
+            
+            2. body는 줄바꿈 없이 한 줄로 작성하세요!
+               ❌ 나쁜 예: "body": "첫줄\두번째줄\세번째줄"
+               ✅ 좋은 예: "body": "메일 내용 요약 - 회의 일정 공지"
         """.trimIndent()
         
         val messages = listOf(
@@ -131,10 +180,16 @@ class HuenDongMinAiAgent(
         )
         
         val response = callOpenAi(messages)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== Gmail AI 원본 응답 ===")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        android.util.Log.d("HuenDongMinAiAgent", "=====================================")
+        
         val result = parseAiResponse(response)
         
-        android.util.Log.d("HuenDongMinAiAgent", "=== AI 응답 분석 ===")
+        android.util.Log.d("HuenDongMinAiAgent", "=== Gmail AI 응답 분석 ===")
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
+        android.util.Log.d("HuenDongMinAiAgent", "추출된 데이터: ${result.extractedData}")
         
         // IngestItem 저장 (원본 보관)
         val ingestItem = IngestItem(
@@ -183,9 +238,21 @@ class HuenDongMinAiAgent(
         val currentDate = java.time.Instant.ofEpochMilli(currentTimestamp)
             .atZone(java.time.ZoneId.of("Asia/Seoul"))
         
+        // 요일 이름 가져오기 (한글)
+        val dayOfWeekKorean = when (currentDate.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "월요일"
+            java.time.DayOfWeek.TUESDAY -> "화요일"
+            java.time.DayOfWeek.WEDNESDAY -> "수요일"
+            java.time.DayOfWeek.THURSDAY -> "목요일"
+            java.time.DayOfWeek.FRIDAY -> "금요일"
+            java.time.DayOfWeek.SATURDAY -> "토요일"
+            java.time.DayOfWeek.SUNDAY -> "일요일"
+        }
+        
         android.util.Log.d("HuenDongMinAiAgent", "📱 현재 시간(ms): $currentTimestamp")
-        android.util.Log.d("HuenDongMinAiAgent", "📅 현재 날짜: ${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일")
+        android.util.Log.d("HuenDongMinAiAgent", "📅 현재 날짜: ${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일 $dayOfWeekKorean")
         android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI에게 전달: ${currentDate.year}년 ${currentDate.monthValue}월을 기준으로 해석하라고 명령!")
+        android.util.Log.d("HuenDongMinAiAgent", "🕐 전체 날짜 정보: $currentDate")
         
         val systemPrompt = """
             당신은 이미지에서 일정을 추출하는 AI 비서 "HuenDongMin"입니다.
@@ -194,20 +261,32 @@ class HuenDongMinAiAgent(
             - 현재 연도: ${currentDate.year}년
             - 현재 월: ${currentDate.monthValue}월
             - 현재 일: ${currentDate.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
             - 전체 시간: $currentDate
             - Epoch ms: ${currentTimestamp}ms
             
             특별 지침:
-            1. 한글 OCR 오인식 대응: "모레 오 T 3 시" → "모레 오후 3시" 등 문맥으로 파악
-            2. 시간 변환: 위에 제공된 현재 시간(${currentTimestamp}ms)을 기준으로 상대 시간을 절대 시간(epoch milliseconds)으로 변환
-            3. 구조 인식: 표, 대화창, 일정표 등의 구조를 파악하여 정보 추출
-            4. ⚠️ 연도 추론 규칙:
-               - 연도가 명시되지 않은 날짜(예: "9월 30일")를 만나면:
-                 * 해당 월이 현재 월(${currentDate.monthValue})보다 작으면 → 현재 연도(${currentDate.year}) + 1
-                 * 해당 월이 현재 월(${currentDate.monthValue})보다 크거나 같으면 → 현재 연도(${currentDate.year})
-               - 상대적 표현("내일", "모레", "다음주")은 항상 현재 시간(${currentTimestamp}ms)을 기준으로 계산
+            1. 한글 OCR 오인식 대응: "모레 오 T 3 시" → "모레 오후 3시", "담주 수욜" → "다음주 수요일" 등
+            2. 구조 인식: 표, 대화창(카톡), 일정표 등의 구조를 파악하여 정보 추출
             
-            ⚠️ 반드시 현재 연도(${currentDate.year})를 기준으로 판단하세요. 과거 연도를 반환하지 마세요!
+            3. ⚠️⚠️⚠️ 시간 계산의 기준 시점 결정 (매우 중요!) ⚠️⚠️⚠️
+               
+               A. 먼저 OCR 텍스트 내에서 명시적 날짜를 찾기:
+                  - "2025년 10월 16일", "10월 16일 목요일", "2025.10.16" 등
+                  - 카톡 대화창의 경우 상단에 날짜가 표시됨
+               
+               B. 기준 시점 결정:
+                  - OCR 텍스트 내에 날짜가 **명시되어 있으면**: 그 날짜를 기준 시점으로 사용
+                  - OCR 텍스트 내에 날짜가 **없으면**: 현재 시간(${currentTimestamp}ms)을 기준으로 사용
+               
+               C. 상대적 표현 계산:
+                  - "내일", "모레", "다음주", "이번 주" 등은 기준 시점을 기준으로 계산
+                  - 예시 1: OCR에 "2025년 10월 16일(목)" + "담주 수욜" → 10월 16일 기준 다음주 수요일 = 10월 22일
+                  - 예시 2: OCR에 날짜 없음 + "내일" → 현재 시간 기준 내일
+            
+            4. ⚠️ 연도 추론 규칙:
+               - 연도가 명시되지 않은 날짜는 현재 연도(${currentDate.year})를 사용
+               - 과거 날짜가 나오면 다음 해로 조정
         """.trimIndent()
         
         val userPrompt = """
@@ -220,39 +299,89 @@ class HuenDongMinAiAgent(
             - 연도: ${currentDate.year}년
             - 월: ${currentDate.monthValue}월
             - 일: ${currentDate.dayOfMonth}일
+            - 요일: $dayOfWeekKorean
             - Epoch ms: ${currentTimestamp}ms
             
-            ⚠️ 처리 규칙:
-            1. 텍스트에서 날짜/시간을 추출하여 위의 현재 시간을 기준으로 절대 시간(epoch milliseconds)으로 변환
-            2. 연도가 없는 날짜는 현재 연도(${currentDate.year})와 현재 월(${currentDate.monthValue})을 기준으로 판단
-            3. 상대적 표현("내일", "모레")은 현재 날짜(${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일)를 기준으로 계산
-            4. 반드시 현재 시간(${currentTimestamp}ms)보다 미래 시간으로 변환하세요
+            ⚠️⚠️⚠️ 처리 규칙 (단계별로 따르세요):
+            
+            1단계: 기준 시점 결정
+               - OCR 텍스트에서 명시적 날짜를 먼저 찾으세요 (예: "2025년 10월 16일", "10월 16일 목요일")
+               - 명시적 날짜가 **있으면**: 그 날짜를 기준 시점으로 사용
+               - 명시적 날짜가 **없으면**: 현재 시간(${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일 $dayOfWeekKorean)을 기준으로 사용
+            
+            2단계: 상대적 표현 계산
+               - "내일", "모레", "다음주", "담주", "이번 주" 등은 1단계에서 결정한 기준 시점을 기준으로 계산
+               - "다음주 X요일": 기준 시점 기준 다음 주의 해당 요일
+               
+               🔍 구체적 예시:
+               - OCR: "2025년 10월 16일 목요일 ... 담주 수욜"
+                 → 기준 시점: 10월 16일 (목)
+                 → 담주 수욜: 10월 16일 기준 다음주 수요일 = 10월 22일 (수) ✅
+               
+               - OCR: "내일 오후 3시" (날짜 없음)
+                 → 기준 시점: 현재 시간 (${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일)
+                 → 내일: ${currentDate.dayOfMonth + 1}일 ✅
+            
+            3단계: epoch milliseconds 변환
+               - 2단계에서 계산한 날짜/시간을 epoch milliseconds로 변환
             
             출력 형식 (순수 JSON만):
             {
               "type": "event",
-              "confidence": 0.0 ~ 1.0,
+              "confidence": 0.9,
               "extractedData": {
                 "title": "일정 제목",
-                "startAt": epoch_milliseconds (Long),
-                "endAt": epoch_milliseconds | null,
-                "location": "장소" | null,
-                "type": "이벤트 타입" | null,
-                "body": "원본 OCR 텍스트 전체"
+                "startAt": 1234567890123,
+                "endAt": 1234567890123,
+                "location": "장소",
+                "type": "이벤트",
+                "body": "원본 OCR 텍스트를 한 줄로 요약"
               }
             }
+            
+            ⚠️⚠️⚠️ 중요 규칙:
+            1. startAt과 endAt은 반드시 계산된 숫자여야 합니다!
+               ❌ 나쁜 예: "startAt": 1761050295871 + (7 * 24 * 60 * 60 * 1000)
+               ✅ 좋은 예: "startAt": 1761655895871
+            
+            2. body는 줄바꿈 없이 한 줄로 작성하세요!
+               ❌ 나쁜 예: "body": "첫줄\두번째줄\세번째줄"
+               ✅ 좋은 예: "body": "OCR 텍스트 요약 - 이유섭형과 강흔이의 대화"
         """.trimIndent()
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== AI에게 전송할 프롬프트 ===")
+        android.util.Log.d("HuenDongMinAiAgent", "System Prompt (일부):")
+        android.util.Log.d("HuenDongMinAiAgent", systemPrompt.take(500))
+        android.util.Log.d("HuenDongMinAiAgent", "User Prompt (일부):")
+        android.util.Log.d("HuenDongMinAiAgent", userPrompt.take(500))
+        android.util.Log.d("HuenDongMinAiAgent", "=====================================")
         
         val messages = listOf(
             AiMessage(role = "system", content = systemPrompt),
             AiMessage(role = "user", content = userPrompt)
         )
         
-        val response = callOpenAi(messages)
+        android.util.Log.d("HuenDongMinAiAgent", "🚀 callOpenAi 호출 직전")
+        android.util.Log.d("HuenDongMinAiAgent", "📊 Messages 개수: ${messages.size}")
+        android.util.Log.d("HuenDongMinAiAgent", "📊 System Prompt 길이: ${messages[0].content.length}자")
+        android.util.Log.d("HuenDongMinAiAgent", "📊 User Prompt 길이: ${messages[1].content.length}자")
+        
+        val response = try {
+            callOpenAi(messages)
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "❌ callOpenAi 실패!", e)
+            throw e
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== OCR AI 원본 응답 ===")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        android.util.Log.d("HuenDongMinAiAgent", "=====================================")
+        
         val result = parseAiResponse(response)
         
         android.util.Log.d("HuenDongMinAiAgent", "=== OCR AI 응답 분석 ===")
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
+        android.util.Log.d("HuenDongMinAiAgent", "추출된 데이터: ${result.extractedData}")
         
         // IngestItem 저장
         val ingestItem = IngestItem(
@@ -324,37 +453,122 @@ class HuenDongMinAiAgent(
      * OpenAI API 호출
      */
     private suspend fun callOpenAi(messages: List<AiMessage>): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.OPENAI_API_KEY
-        require(apiKey.isNotBlank()) { "OpenAI API 키가 설정되지 않았습니다." }
+        android.util.Log.d("HuenDongMinAiAgent", "📡 callOpenAi 시작")
         
-        val request = OpenAiRequest(
-            model = "gpt-4o-mini",
-            messages = messages,
-            temperature = 0.3,
-            maxTokens = 1000
-        )
-        
-        val requestBody = json.encodeToString(OpenAiRequest.serializer(), request)
-            .toRequestBody("application/json".toMediaType())
-        
-        val httpRequest = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody)
-            .build()
-        
-        client.newCall(httpRequest).execute().use { response ->
-            val responseBody = response.body?.string() 
-                ?: throw Exception("Empty response from OpenAI")
+        try {
+            val apiKey = BuildConfig.OPENAI_API_KEY
+            android.util.Log.d("HuenDongMinAiAgent", "🔑 API Key 확인: ${if (apiKey.isNotBlank()) "존재 (${apiKey.length}자)" else "없음!"}")
+            require(apiKey.isNotBlank()) { "OpenAI API 키가 설정되지 않았습니다." }
             
-            if (!response.isSuccessful) {
-                throw Exception("OpenAI API 오류: ${response.code} - $responseBody")
+            android.util.Log.d("HuenDongMinAiAgent", "📦 요청 객체 생성 시작 (messages 개수: ${messages.size})")
+            android.util.Log.d("HuenDongMinAiAgent", "  - model: gpt-4o-mini")
+            android.util.Log.d("HuenDongMinAiAgent", "  - temperature: 0.3")
+            android.util.Log.d("HuenDongMinAiAgent", "  - maxTokens: 1000")
+            
+            // Serialization 우회: JSON을 직접 문자열로 생성
+            android.util.Log.d("HuenDongMinAiAgent", "📝 JSON 직접 생성 시작")
+            
+            // JSON 이스케이프 함수
+            fun String.escapeJson(): String = this
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+            
+            android.util.Log.d("HuenDongMinAiAgent", "  메시지 이스케이프 중...")
+            val systemContent = messages[0].content.escapeJson()
+            val userContent = messages[1].content.escapeJson()
+            android.util.Log.d("HuenDongMinAiAgent", "  이스케이프 완료")
+            
+            android.util.Log.d("HuenDongMinAiAgent", "  JSON 문자열 조합 중...")
+            val jsonString = """
+                {
+                  "model": "gpt-4o-mini",
+                  "messages": [
+                    {
+                      "role": "system",
+                      "content": "$systemContent"
+                    },
+                    {
+                      "role": "user",
+                      "content": "$userContent"
+                    }
+                  ],
+                  "temperature": 0.3,
+                  "max_tokens": 1000
+                }
+            """.trimIndent()
+            
+            android.util.Log.d("HuenDongMinAiAgent", "✅ JSON 생성 완료 (${jsonString.length}자)")
+            
+            val requestBody = jsonString.toRequestBody("application/json".toMediaType())
+            android.util.Log.d("HuenDongMinAiAgent", "✅ RequestBody 생성 완료")
+            
+            android.util.Log.d("HuenDongMinAiAgent", "🌐 HTTP 요청 생성")
+            val httpRequest = Request.Builder()
+                .url("https://api.openai.com/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody)
+                .build()
+            android.util.Log.d("HuenDongMinAiAgent", "✅ HTTP 요청 객체 생성 완료")
+            
+            android.util.Log.d("HuenDongMinAiAgent", "📤 HTTP 요청 전송 중...")
+            client.newCall(httpRequest).execute().use { response ->
+                android.util.Log.d("HuenDongMinAiAgent", "📥 응답 수신: ${response.code}")
+                
+                val responseBody = response.body?.string()
+                android.util.Log.d("HuenDongMinAiAgent", "📄 응답 본문 길이: ${responseBody?.length ?: 0}자")
+                
+                if (responseBody == null) {
+                    throw Exception("Empty response from OpenAI")
+                }
+                
+                if (!response.isSuccessful) {
+                    android.util.Log.e("HuenDongMinAiAgent", "❌ API 오류: ${response.code}")
+                    android.util.Log.e("HuenDongMinAiAgent", "응답 내용: ${responseBody.take(500)}")
+                    throw Exception("OpenAI API 오류: ${response.code} - ${responseBody.take(200)}")
+                }
+                
+                android.util.Log.d("HuenDongMinAiAgent", "🔄 응답 파싱 중 (정규식 사용)...")
+                android.util.Log.d("HuenDongMinAiAgent", "  응답 미리보기: ${responseBody.take(200)}")
+                
+                // Serialization 완전 우회: 정규식으로 직접 content 추출
+                // OpenAI 응답 형식: {"choices":[{"message":{"content":"..."}}]}
+                android.util.Log.d("HuenDongMinAiAgent", "  정규식으로 content 추출 시도...")
+                
+                // content 값을 추출하는 정규식 (escaped 문자 포함)
+                val contentRegex = """"content"\s*:\s*"((?:[^"\\]|\\.)*)"""".toRegex()
+                val matchResult = contentRegex.find(responseBody)
+                
+                if (matchResult == null) {
+                    android.util.Log.e("HuenDongMinAiAgent", "❌ content를 찾을 수 없습니다")
+                    android.util.Log.e("HuenDongMinAiAgent", "응답 전체: $responseBody")
+                    throw Exception("OpenAI 응답에서 content를 찾을 수 없습니다")
+                }
+                
+                android.util.Log.d("HuenDongMinAiAgent", "  content 매칭 성공!")
+                
+                // escaped 문자를 원래대로 복원
+                val content = matchResult.groupValues[1]
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\t", "\t")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                
+                android.util.Log.d("HuenDongMinAiAgent", "✅ AI 응답 성공 (${content.length}자)")
+                android.util.Log.d("HuenDongMinAiAgent", "  응답 내용 미리보기: ${content.take(100)}")
+                
+                content
             }
-            
-            val openAiResponse = json.decodeFromString(OpenAiResponse.serializer(), responseBody)
-            openAiResponse.choices.firstOrNull()?.message?.content 
-                ?: throw Exception("OpenAI 응답에 내용이 없습니다.")
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "❌❌❌ callOpenAi에서 예외 발생! ❌❌❌", e)
+            android.util.Log.e("HuenDongMinAiAgent", "예외 타입: ${e.javaClass.simpleName}")
+            android.util.Log.e("HuenDongMinAiAgent", "예외 메시지: ${e.message}")
+            e.printStackTrace()
+            throw e
         }
     }
     
@@ -392,7 +606,7 @@ class HuenDongMinAiAgent(
 // ===== 데이터 클래스 =====
 
 @Serializable
-data class OpenAiRequest(
+private data class OpenAiRequest(
     val model: String,
     val messages: List<AiMessage>,
     val temperature: Double,
@@ -401,18 +615,18 @@ data class OpenAiRequest(
 )
 
 @Serializable
-data class AiMessage(
+private data class AiMessage(
     val role: String,
     val content: String
 )
 
 @Serializable
-data class OpenAiResponse(
+private data class OpenAiResponse(
     val choices: List<OpenAiChoice>
 )
 
 @Serializable
-data class OpenAiChoice(
+private data class OpenAiChoice(
     val message: AiMessage
 )
 
