@@ -322,4 +322,13 @@ class ClassifiedDataRepository(
     suspend fun getAllNotes(): List<Note> = withContext(dispatcher) {
         noteDao.getAll()
     }
+    
+    /**
+     * 모든 분류된 데이터 삭제
+     */
+    suspend fun clearAll() = withContext(dispatcher) {
+        eventDao.clearAll()
+        contactDao.clearAll()
+        noteDao.clearAll()
+    }
 }

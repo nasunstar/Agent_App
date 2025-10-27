@@ -225,10 +225,15 @@ class MainViewModel(
     fun resetDatabase() {
         viewModelScope.launch {
             try {
+                android.util.Log.d("MainViewModel", "데이터베이스 초기화 시작")
+                
                 // 모든 테이블 초기화
                 ingestRepository.clearAll()
+                android.util.Log.d("MainViewModel", "IngestItem 테이블 초기화 완료")
+                
                 classifiedDataRepository?.let { repo ->
-                    // 분류된 데이터도 초기화 (필요시)
+                    repo.clearAll()
+                    android.util.Log.d("MainViewModel", "Event, Contact, Note 테이블 초기화 완료")
                 }
                 
                 // 상태 초기화
@@ -236,11 +241,14 @@ class MainViewModel(
                 eventsState.value = emptyList()
                 notesState.value = emptyList()
                 
+                android.util.Log.d("MainViewModel", "데이터베이스 초기화 완료!")
+                
                 syncState.value = SyncState(
                     isSyncing = false,
                     message = "데이터베이스가 초기화되었습니다."
                 )
             } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "데이터베이스 초기화 실패", e)
                 syncState.value = SyncState(
                     isSyncing = false,
                     message = "데이터베이스 초기화 중 오류가 발생했습니다: ${e.message}"

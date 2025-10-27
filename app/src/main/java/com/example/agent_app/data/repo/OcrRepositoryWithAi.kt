@@ -51,29 +51,47 @@ class OcrRepositoryWithAi(
         )
         
         android.util.Log.d("OcrRepositoryWithAi", 
-            "OCR 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}")
+            "OCR 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}, 이벤트 개수: ${result.events.size}개")
         
-        // 저장된 이벤트 조회
-        val savedEvent = if (result.type == "event") {
+        // 저장된 이벤트 조회 (첫 번째 이벤트)
+        val savedEvent = if (result.type == "event" && result.events.isNotEmpty()) {
             eventDao.getBySourceId(originalOcrId).firstOrNull()
         } else {
             null
         }
         
+        // 여러 이벤트가 있는 경우 모두 조회 (같은 sourceId로 저장됨)
+        val allSavedEvents = if (result.type == "event" && result.events.isNotEmpty()) {
+            eventDao.getBySourceId(originalOcrId)
+        } else {
+            emptyList()
+        }
+        
         android.util.Log.d("OcrRepositoryWithAi", 
-            "저장된 이벤트 조회: ${savedEvent?.title} (ID: ${savedEvent?.id})")
+            "저장된 이벤트 개수: ${allSavedEvents.size}개")
+        allSavedEvents.forEachIndexed { index, event ->
+            android.util.Log.d("OcrRepositoryWithAi", 
+                "이벤트 ${index + 1}: ${event.title} (ID: ${event.id})")
+        }
+        
+        val message = if (allSavedEvents.size > 1) {
+            "OCR 텍스트에서 ${allSavedEvents.size}개의 일정이 생성되었습니다."
+        } else {
+            "OCR 텍스트가 성공적으로 처리되었습니다."
+        }
         
         OcrProcessingResult(
             success = true,
             eventType = result.type,
             confidence = result.confidence,
             ocrId = originalOcrId,
-            message = "OCR 텍스트가 성공적으로 처리되었습니다.",
+            message = message,
             eventId = savedEvent?.id,
             eventTitle = savedEvent?.title,
             startAt = savedEvent?.startAt,
             endAt = savedEvent?.endAt,
-            location = savedEvent?.location
+            location = savedEvent?.location,
+            totalEventCount = allSavedEvents.size
         )
     }
 }
@@ -91,6 +109,7 @@ data class OcrProcessingResult(
     val eventTitle: String? = null,
     val startAt: Long? = null,
     val endAt: Long? = null,
-    val location: String? = null
+    val location: String? = null,
+    val totalEventCount: Int = 1  // 생성된 이벤트 개수
 )
 

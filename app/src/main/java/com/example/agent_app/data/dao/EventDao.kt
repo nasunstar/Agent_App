@@ -79,4 +79,7 @@ interface EventDao {
     
     @Query("SELECT * FROM events WHERE source_type = :sourceType ORDER BY start_at ASC")
     suspend fun getBySourceType(sourceType: String): List<Event>
+    
+    @Query("DELETE FROM events")
+    suspend fun clearAll()
 }

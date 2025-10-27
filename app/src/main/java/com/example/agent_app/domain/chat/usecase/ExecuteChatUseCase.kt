@@ -13,10 +13,13 @@ class ExecuteChatUseCase(
     suspend operator fun invoke(questionText: String): ChatResult {
         val question = ChatMessage(ChatMessage.Role.USER, questionText)
         
+        // 실시간 현재 시간 가져오기
+        val currentTimestamp = System.currentTimeMillis()
+        
         // AI가 내부적으로 필터를 생성하므로 빈 필터 전달
         val emptyFilters = QueryFilters()
         val context = chatGateway.fetchContext(questionText, emptyFilters)
-        val messages = promptBuilder.buildMessages(question, context)
+        val messages = promptBuilder.buildMessages(question, context, currentTimestamp)
         val answer = chatGateway.requestChatCompletion(messages)
         
         return ChatResult(
@@ -29,5 +32,5 @@ class ExecuteChatUseCase(
 }
 
 interface PromptBuilder {
-    fun buildMessages(question: ChatMessage, context: List<ChatContextItem>): List<ChatMessage>
+    fun buildMessages(question: ChatMessage, context: List<ChatContextItem>, currentTimestamp: Long): List<ChatMessage>
 }

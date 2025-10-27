@@ -154,6 +154,7 @@ private class OcrCaptureViewModel(
                     confidence = result.confidence,
                     classificationType = result.eventType,
                     eventId = result.eventId ?: 0L,
+                    totalEventCount = result.totalEventCount,
                 )
             } catch (t: Throwable) {
                 _uiState.value = OcrCaptureUiState.Error(
@@ -175,6 +176,7 @@ private sealed interface OcrCaptureUiState {
         val confidence: Double,
         val classificationType: String,
         val eventId: Long,
+        val totalEventCount: Int = 1,  // 생성된 이벤트 개수
     ) : OcrCaptureUiState
 
     data class Error(val message: String) : OcrCaptureUiState
@@ -224,11 +226,23 @@ private fun OcrSuccess(state: OcrCaptureUiState.Success, onClose: () -> Unit) {
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        val titleText = if (state.totalEventCount > 1) {
+            "${state.totalEventCount}개의 일정이 저장되었습니다"
+        } else {
+            "새 일정이 저장되었습니다"
+        }
         Text(
-            text = "새 일정이 저장되었습니다",
+            text = titleText,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
+        if (state.totalEventCount > 1) {
+            Text(
+                text = "※ 이미지에서 여러 일정을 발견했습니다. 아래는 첫 번째 일정입니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
         Text(
             text = "AI Confidence: ${"%.2f".format(state.confidence)} (${state.classificationType})",
             style = MaterialTheme.typography.bodyMedium,

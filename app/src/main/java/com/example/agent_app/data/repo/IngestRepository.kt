@@ -12,19 +12,17 @@ import kotlinx.coroutines.withContext
 
 class IngestRepository(
     private val dao: IngestItemDao,
-    private val parser: IngestItemParser = IngestItemParser(),
     private val embeddingStore: EmbeddingStore? = null,
     private val embeddingGenerator: EmbeddingGeneratorInterface = EmbeddingGenerator(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun upsert(item: IngestItem) = withContext(dispatcher) {
-        val enriched = parser.enrich(item)
-        dao.upsert(enriched)
+        dao.upsert(item)
         embeddingStore?.let { store ->
-            val text = listOfNotNull(enriched.title, enriched.body).joinToString("\n").trim()
+            val text = listOfNotNull(item.title, item.body).joinToString("\n").trim()
             if (text.isNotEmpty()) {
                 val embedding = embeddingGenerator.generateEmbedding(text)
-                store.saveEmbedding(enriched.id, embedding)
+                store.saveEmbedding(item.id, embedding)
             }
         }
     }

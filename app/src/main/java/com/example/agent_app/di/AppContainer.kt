@@ -8,7 +8,6 @@ import com.example.agent_app.data.db.AppDatabase
 import com.example.agent_app.data.repo.AuthRepository
 import com.example.agent_app.data.repo.ClassifiedDataRepository
 import com.example.agent_app.data.repo.GmailRepositoryWithAi
-import com.example.agent_app.data.repo.IngestItemParser
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.repo.OcrRepositoryWithAi
 import com.example.agent_app.data.search.EmbeddingGenerator
@@ -32,7 +31,6 @@ class AppContainer(context: Context) {
     val authRepository: AuthRepository = AuthRepository(database.authTokenDao())
     val ingestRepository: IngestRepository = IngestRepository(
         dao = database.ingestItemDao(),
-        parser = IngestItemParser(),
         embeddingStore = embeddingStore,
         embeddingGenerator = embeddingGenerator,
     )
@@ -50,6 +48,7 @@ class AppContainer(context: Context) {
     
     // AI 에이전트 "HuenDongMin" - Gmail/OCR 자동 처리
     private val huenDongMinAiAgent = HuenDongMinAiAgent(
+        context = context,
         eventDao = database.eventDao(),
         eventTypeDao = database.eventTypeDao(),
         ingestRepository = ingestRepository,

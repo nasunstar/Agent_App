@@ -31,4 +31,7 @@ interface ContactDao {
     
     @Query("SELECT * FROM contacts ORDER BY name ASC")
     suspend fun getAll(): List<Contact>
+    
+    @Query("DELETE FROM contacts")
+    suspend fun clearAll()
 }

@@ -31,4 +31,7 @@ interface NoteDao {
     
     @Query("SELECT * FROM notes ORDER BY updated_at DESC")
     suspend fun getAll(): List<Note>
+    
+    @Query("DELETE FROM notes")
+    suspend fun clearAll()
 }
