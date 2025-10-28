@@ -34,13 +34,16 @@ class AppContainer(context: Context) {
         embeddingStore = embeddingStore,
         embeddingGenerator = embeddingGenerator,
     )
+    
+    // EventDao를 외부에서 접근할 수 있도록 제공
+    val eventDao = database.eventDao()
 
     private val openAIClassifier = OpenAIClassifier()
 
     val classifiedDataRepository: ClassifiedDataRepository = ClassifiedDataRepository(
         openAIClassifier = openAIClassifier,
         contactDao = database.contactDao(),
-        eventDao = database.eventDao(),
+        eventDao = eventDao,
         eventTypeDao = database.eventTypeDao(),
         noteDao = database.noteDao(),
         ingestRepository = ingestRepository,
@@ -49,7 +52,7 @@ class AppContainer(context: Context) {
     // AI 에이전트 "HuenDongMin" - Gmail/OCR 자동 처리
     private val huenDongMinAiAgent = HuenDongMinAiAgent(
         context = context,
-        eventDao = database.eventDao(),
+        eventDao = eventDao,
         eventTypeDao = database.eventTypeDao(),
         ingestRepository = ingestRepository,
     )
@@ -63,12 +66,12 @@ class AppContainer(context: Context) {
     // OCR AI 자동 처리 Repository
     val ocrRepository: OcrRepositoryWithAi = OcrRepositoryWithAi(
         huenDongMinAiAgent = huenDongMinAiAgent,
-        eventDao = database.eventDao(),
+        eventDao = eventDao,
     )
 
     private val hybridSearchEngine = HybridSearchEngine(
         ingestItemDao = database.ingestItemDao(),
-        eventDao = database.eventDao(),
+        eventDao = eventDao,
         embeddingStore = embeddingStore,
         embeddingGenerator = embeddingGenerator,
     )

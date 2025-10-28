@@ -335,14 +335,43 @@ class HuenDongMinChatGatewayImpl(
                 .trim()
             
             val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
-            
+
+            // 1) 기본 파싱
+            var start = jsonObj["start_time_millis"]?.jsonPrimitive?.longOrNull
+            var end = jsonObj["end_time_millis"]?.jsonPrimitive?.longOrNull
+            val keywords = jsonObj["keywords"]?.jsonArray?.mapNotNull { 
+                it.jsonPrimitive.content 
+            } ?: emptyList()
+            val source = jsonObj["source"]?.jsonPrimitive?.content
+
+            // 2) KST(Asia/Seoul) 기준 하루 범위 보정
+            // AI가 UTC 기준으로 반환했을 가능성에 대비해,
+            // 동일한 KST 날짜의 00:00:00 ~ 23:59:59로 정규화
+            if (start != null && end != null) {
+                val zone = java.time.ZoneId.of("Asia/Seoul")
+                val startZdt = java.time.Instant.ofEpochMilli(start).atZone(zone)
+                val endZdt = java.time.Instant.ofEpochMilli(end).atZone(zone)
+
+                // 날짜만 유지하고 KST 자정/말초로 고정
+                val normalizedStart = startZdt
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0)
+                    .toInstant().toEpochMilli()
+                val normalizedEnd = endZdt
+                    .withHour(23).withMinute(59).withSecond(59).withNano(999_000_000)
+                    .toInstant().toEpochMilli()
+
+                // 역전 방지
+                if (normalizedEnd >= normalizedStart) {
+                    start = normalizedStart
+                    end = normalizedEnd
+                }
+            }
+
             QueryFilters(
-                startTimeMillis = jsonObj["start_time_millis"]?.jsonPrimitive?.longOrNull,
-                endTimeMillis = jsonObj["end_time_millis"]?.jsonPrimitive?.longOrNull,
-                keywords = jsonObj["keywords"]?.jsonArray?.mapNotNull { 
-                    it.jsonPrimitive.content 
-                } ?: emptyList(),
-                source = jsonObj["source"]?.jsonPrimitive?.content
+                startTimeMillis = start,
+                endTimeMillis = end,
+                keywords = keywords,
+                source = source
             )
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinChatGateway", "필터 파싱 실패", e)

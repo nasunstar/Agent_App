@@ -1,5 +1,6 @@
 package com.example.agent_app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -144,6 +146,12 @@ private fun AssistantScaffold(
                 viewModel = chatViewModel,
                 modifier = Modifier.padding(paddingValues),
             )
+
+            AssistantTab.DbCheck -> DbCheckContent(
+                ocrItems = uiState.ocrItems,
+                ocrEvents = uiState.ocrEvents,
+                contentPadding = paddingValues,
+            )
         }
     }
 }
@@ -195,6 +203,7 @@ private fun AssistantContent(
 private enum class AssistantTab(val label: String) {
     Overview("요약"),
     Chat("챗봇"),
+    DbCheck("DB확인"),
 }
 
 @Composable
@@ -476,6 +485,182 @@ private fun ClassifiedDataCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DbCheckContent(
+    ocrItems: List<IngestItem>,
+    ocrEvents: Map<String, List<Event>>,
+    contentPadding: PaddingValues,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(contentPadding)
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "OCR DB 확인",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "이미지에서 추출된 텍스트와 일정 내역",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                
+                if (ocrItems.isEmpty()) {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "저장된 OCR 데이터가 없습니다. 이미지를 공유하여 일정을 추출해 보세요.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    Text(
+                        text = "총 ${ocrItems.size}개의 OCR 데이터",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        ocrItems.forEachIndexed { index, item ->
+                            OcrItemCard(
+                                item = item,
+                                events = ocrEvents[item.id] ?: emptyList(),
+                            )
+                            if (index < ocrItems.lastIndex) {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OcrItemCard(
+    item: IngestItem,
+    events: List<Event>,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // OCR 텍스트 정보
+            Text(
+                text = "📷 OCR 텍스트",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            
+            Text(
+                text = "제목: ${item.title ?: "(제목 없음)"}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            
+            Text(
+                text = item.body.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+            )
+            
+            Text(
+                text = "추출 시간: ${TimeFormatter.format(item.timestamp)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            
+            if (item.confidence != null) {
+                Text(
+                    text = "신뢰도: ${(item.confidence * 100).coerceIn(0.0, 100.0).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            
+            // 연결된 이벤트 표시
+            if (events.isNotEmpty()) {
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                
+                Text(
+                    text = "📅 추출된 일정 (${events.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    events.forEach { event ->
+                        EventDetailRow(event)
+                    }
+                }
+            } else {
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "추출된 일정 없음",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventDetailRow(event: Event) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                RoundedCornerShape(8.dp)
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "• ${event.title}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        
+        if (event.startAt != null) {
+            Text(
+                text = "시작: ${TimeFormatter.format(event.startAt)}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        
+        if (event.endAt != null) {
+            Text(
+                text = "종료: ${TimeFormatter.format(event.endAt)}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        
+        if (event.location != null) {
+            Text(
+                text = "장소: ${event.location}",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

@@ -35,10 +35,16 @@ class MainViewModel(
         .observeBySource("gmail")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     
+    // OCR 데이터 상태
+    private val ocrItemsState = ingestRepository
+        .observeBySource("ocr")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    
     // 분류된 데이터 상태
     private val contactsState = MutableStateFlow<List<Contact>>(emptyList())
     private val eventsState = MutableStateFlow<List<Event>>(emptyList())
     private val notesState = MutableStateFlow<List<Note>>(emptyList())
+    private val ocrEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
 
     val uiState: StateFlow<AssistantUiState> = combine(
         loginState,
@@ -47,6 +53,8 @@ class MainViewModel(
         eventsState,
         notesState,
         syncState,
+        ocrItemsState,
+        ocrEventsState,
     ) { flows ->
         val login = flows[0] as LoginUiState
         val gmailItems = flows[1] as List<IngestItem>
@@ -54,6 +62,8 @@ class MainViewModel(
         val events = flows[3] as List<Event>
         val notes = flows[4] as List<Note>
         val sync = flows[5] as SyncState
+        val ocrItems = flows[6] as List<IngestItem>
+        val ocrEvents = flows[7] as Map<String, List<Event>>
         
         AssistantUiState(
             loginState = login,
@@ -63,6 +73,8 @@ class MainViewModel(
             notes = notes,
             isSyncing = sync.isSyncing,
             syncMessage = sync.message,
+            ocrItems = ocrItems,
+            ocrEvents = ocrEvents,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -90,6 +102,26 @@ class MainViewModel(
                 eventsState.value = repo.getAllEvents()
                 notesState.value = repo.getAllNotes()
             }
+        }
+        
+        // OCR 이벤트 로드
+        viewModelScope.launch {
+            ocrItemsState.collect { items ->
+                loadOcrEvents(items)
+            }
+        }
+    }
+    
+    private suspend fun loadOcrEvents(ocrItems: List<IngestItem>) {
+        classifiedDataRepository?.let { repo ->
+            val eventsMap = mutableMapOf<String, List<Event>>()
+            ocrItems.forEach { item ->
+                val events = repo.getAllEvents().filter { event ->
+                    event.sourceType == "ocr" && event.sourceId == item.id
+                }
+                eventsMap[item.id] = events
+            }
+            ocrEventsState.value = eventsMap
         }
     }
 
@@ -271,6 +303,8 @@ data class AssistantUiState(
     val notes: List<Note> = emptyList(),
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
+    val ocrItems: List<IngestItem> = emptyList(),
+    val ocrEvents: Map<String, List<Event>> = emptyMap(),
 )
 
 data class LoginUiState(

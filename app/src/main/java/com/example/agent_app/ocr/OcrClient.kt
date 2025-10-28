@@ -22,7 +22,21 @@ class OcrClient(context: Context) {
                 .process(image)
                 .addOnSuccessListener { result ->
                     if (continuation.isActive) {
-                        continuation.resume(result.text)
+                        // 텍스트 블록을 Y 좌표(위에서 아래) 기준으로 정렬
+                        val sortedText = result.textBlocks
+                            .sortedBy { block -> 
+                                // boundingBox의 top (Y 좌표)를 기준으로 정렬
+                                block.boundingBox?.top ?: 0
+                            }
+                            .flatMap { block ->
+                                // 각 블록 내의 줄도 Y 좌표로 정렬
+                                block.lines.sortedBy { line ->
+                                    line.boundingBox?.top ?: 0
+                                }
+                            }
+                            .joinToString("\n") { line -> line.text }
+                        
+                        continuation.resume(sortedText)
                     }
                 }
                 .addOnFailureListener { error ->

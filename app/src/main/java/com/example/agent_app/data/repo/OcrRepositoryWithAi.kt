@@ -91,7 +91,8 @@ class OcrRepositoryWithAi(
             startAt = savedEvent?.startAt,
             endAt = savedEvent?.endAt,
             location = savedEvent?.location,
-            totalEventCount = allSavedEvents.size
+            totalEventCount = allSavedEvents.size,
+            allEvents = allSavedEvents  // 모든 이벤트 추가
         )
     }
 }
@@ -110,6 +111,7 @@ data class OcrProcessingResult(
     val startAt: Long? = null,
     val endAt: Long? = null,
     val location: String? = null,
-    val totalEventCount: Int = 1  // 생성된 이벤트 개수
+    val totalEventCount: Int = 1,  // 생성된 이벤트 개수
+    val allEvents: List<com.example.agent_app.data.entity.Event> = emptyList()  // 모든 이벤트
 )
 
