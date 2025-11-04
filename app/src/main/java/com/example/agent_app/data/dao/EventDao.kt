@@ -82,4 +82,39 @@ interface EventDao {
     
     @Query("DELETE FROM events")
     suspend fun clearAll()
+    
+    /**
+     * 다가오는 일정 조회 (지금부터 특정 시간 이내의 일정)
+     */
+    @Query(
+        "SELECT * FROM events WHERE " +
+            "start_at IS NOT NULL " +
+            "AND start_at >= :startTime " +
+            "AND start_at <= :endTime " +
+            "ORDER BY start_at ASC LIMIT :limit"
+    )
+    suspend fun getUpcomingEvents(
+        startTime: Long,
+        endTime: Long,
+        limit: Int = 50
+    ): List<Event>
+    
+    /**
+     * 알림 시간이 지금부터 특정 시간 이내인 일정 조회
+     */
+    @Query(
+        "SELECT e.* FROM events e " +
+            "INNER JOIN event_notifications en ON e.id = en.event_id " +
+            "WHERE en.notify_at >= :startTime " +
+            "AND en.notify_at <= :endTime " +
+            "AND en.channel = :channel " +
+            "AND en.sent_at IS NULL " +
+            "ORDER BY en.notify_at ASC LIMIT :limit"
+    )
+    suspend fun getEventsWithNotificationsInRange(
+        startTime: Long,
+        endTime: Long,
+        channel: String = "push",
+        limit: Int = 50
+    ): List<Event>
 }

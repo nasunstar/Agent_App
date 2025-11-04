@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Agent_App"
 include(":app")
+include(":backend")
  

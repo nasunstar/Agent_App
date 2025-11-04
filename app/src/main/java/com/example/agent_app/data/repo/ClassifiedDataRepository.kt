@@ -168,6 +168,17 @@ class ClassifiedDataRepository(
         val eventId = eventDao.upsert(event)
         val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
         android.util.Log.d("ClassifiedDataRepository", "Event 저장 완료 - ID: ${savedEvent.id}, Title: ${savedEvent.title}")
+        
+        // 알림 스케줄링
+        try {
+            com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                event = savedEvent,
+                eventDao = eventDao
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("ClassifiedDataRepository", "알림 스케줄링 오류", e)
+        }
+        
         return savedEvent
     }
     
@@ -202,49 +213,30 @@ class ClassifiedDataRepository(
         val eventId = eventDao.upsert(event)
         val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
         android.util.Log.d("ClassifiedDataRepository", "OCR Event 저장 완료 - ID: ${savedEvent.id}, Title: ${savedEvent.title}")
+        
+        // 알림 스케줄링
+        try {
+            com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                event = savedEvent,
+                eventDao = eventDao
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("ClassifiedDataRepository", "알림 스케줄링 오류", e)
+        }
+        
         return savedEvent
     }
 
+    /**
+     * @deprecated 경로 2는 제거되었습니다. OcrRepositoryWithAi.processOcrText()를 사용하세요.
+     */
+    @Deprecated("경로 2는 제거되었습니다. OcrRepositoryWithAi.processOcrText()를 사용하세요.", ReplaceWith("OcrRepositoryWithAi.processOcrText()"))
     suspend fun processAndStoreTextFromOcr(
         recognizedText: String,
         source: String = "ocr_share",
         originalId: String = "ocr-${UUID.randomUUID()}",
     ): OcrEventProcessingResult = withContext(dispatcher) {
-        require(recognizedText.isNotBlank()) { "인식된 텍스트가 비어 있습니다." }
-
-        android.util.Log.d("ClassifiedDataRepository", "OCR 텍스트 처리 시작 - ID: $originalId")
-
-        val classification = openAIClassifier.parseScheduleFromText(recognizedText)
-        val subject = classification.extractedData["title"].asString()
-            ?: recognizedText.lineSequence().firstOrNull()?.take(60)
-            ?: "OCR Event"
-        val timestamp = classification.extractedData["startAt"].asLong()
-
-        // OCR 이벤트 저장 (sourceType을 "ocr"로 설정)
-        val event = storeAsEventFromOcr(
-            classification = classification,
-            subject = subject,
-            body = recognizedText,
-            originalId = originalId,
-            timestamp = timestamp,
-        )
-
-        storeAsIngestItem(
-            subject = event.title,
-            body = recognizedText,
-            source = source,
-            originalId = originalId,
-            timestamp = event.startAt ?: timestamp,
-            classification = classification,
-        )
-
-        android.util.Log.d("ClassifiedDataRepository", "OCR 텍스트 저장 완료 - Event ID: ${event.id}")
-
-        OcrEventProcessingResult(
-            event = event,
-            classification = classification,
-            originalId = originalId,
-        )
+        throw UnsupportedOperationException("경로 2는 제거되었습니다. OcrRepositoryWithAi.processOcrText()를 사용하세요.")
     }
 
     private suspend fun getOrCreateEventType(typeName: String): EventType {

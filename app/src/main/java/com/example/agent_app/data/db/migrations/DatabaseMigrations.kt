@@ -40,5 +40,31 @@ object DatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // EventNotification 테이블에 sent_at 컬럼 추가 (알림 발송 시간 추적)
+            database.execSQL("ALTER TABLE event_notifications ADD COLUMN sent_at INTEGER")
+        }
+    }
+
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // AuthToken 테이블에 email 컬럼 추가 및 복합 키로 변경 (여러 Google 계정 지원)
+            // 기존 테이블에는 email 컬럼이 없으므로 빈 문자열('')을 기본값으로 사용
+            
+            // 1. 임시 테이블 생성
+            database.execSQL("CREATE TABLE IF NOT EXISTS auth_tokens_new (provider TEXT NOT NULL, email TEXT NOT NULL DEFAULT '', access_token TEXT NOT NULL, refresh_token TEXT, scope TEXT, expires_at INTEGER, PRIMARY KEY(provider, email))")
+            
+            // 2. 기존 데이터 마이그레이션 (email 컬럼이 없으므로 빈 문자열('')을 기본값으로 사용)
+            database.execSQL("INSERT INTO auth_tokens_new (provider, email, access_token, refresh_token, scope, expires_at) SELECT provider, '' as email, access_token, refresh_token, scope, expires_at FROM auth_tokens")
+            
+            // 3. 기존 테이블 삭제
+            database.execSQL("DROP TABLE auth_tokens")
+            
+            // 4. 새 테이블 이름 변경
+            database.execSQL("ALTER TABLE auth_tokens_new RENAME TO auth_tokens")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

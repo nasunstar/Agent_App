@@ -10,6 +10,7 @@ import com.example.agent_app.data.repo.ClassifiedDataRepository
 import com.example.agent_app.data.repo.GmailRepositoryWithAi
 import com.example.agent_app.data.repo.IngestRepository
 import com.example.agent_app.data.repo.OcrRepositoryWithAi
+import com.example.agent_app.data.repo.WidgetRepository
 import com.example.agent_app.data.search.EmbeddingGenerator
 import com.example.agent_app.data.search.EmbeddingGeneratorInterface
 import com.example.agent_app.data.search.EmbeddingStore
@@ -28,7 +29,7 @@ class AppContainer(context: Context) {
     // OpenAI Embeddings API를 사용한 한국어 최적화 임베딩 생성기
     private val embeddingGenerator: EmbeddingGeneratorInterface = OpenAIEmbeddingGenerator()
 
-    val authRepository: AuthRepository = AuthRepository(database.authTokenDao())
+    val authRepository: AuthRepository = AuthRepository(database.authTokenDao(), context)
     val ingestRepository: IngestRepository = IngestRepository(
         dao = database.ingestItemDao(),
         embeddingStore = embeddingStore,
@@ -49,8 +50,8 @@ class AppContainer(context: Context) {
         ingestRepository = ingestRepository,
     )
     
-    // AI 에이전트 "HuenDongMin" - Gmail/OCR 자동 처리
-    private val huenDongMinAiAgent = HuenDongMinAiAgent(
+    // AI 에이전트 "HuenDongMin" - Gmail/OCR/SMS 자동 처리
+    val huenDongMinAiAgent = HuenDongMinAiAgent(
         context = context,
         eventDao = eventDao,
         eventTypeDao = database.eventTypeDao(),
@@ -61,6 +62,7 @@ class AppContainer(context: Context) {
     val gmailRepository: GmailRepositoryWithAi = GmailRepositoryWithAi(
         api = GmailServiceFactory.create(),
         huenDongMinAiAgent = huenDongMinAiAgent,
+        ingestRepository = ingestRepository,
     )
     
     // OCR AI 자동 처리 Repository
@@ -86,6 +88,12 @@ class AppContainer(context: Context) {
     val executeChatUseCase: ExecuteChatUseCase = ExecuteChatUseCase(
         chatGateway = chatGateway,
         promptBuilder = promptBuilder,
+    )
+    
+    // 위젯용 Repository
+    val widgetRepository: WidgetRepository = WidgetRepository(
+        eventDao = eventDao,
+        ingestItemDao = database.ingestItemDao(),
     )
 
     fun close() {

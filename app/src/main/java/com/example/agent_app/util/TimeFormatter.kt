@@ -16,4 +16,8 @@ object TimeFormatter {
         val now = Instant.now()
         return formatter.format(now)
     }
+    
+    fun formatTimestamp(timestampMillis: Long): String {
+        return format(timestampMillis)
+    }
 }

@@ -19,11 +19,15 @@ import java.io.IOException
 class GmailRepositoryWithAi(
     private val api: GmailApi,
     private val huenDongMinAiAgent: HuenDongMinAiAgent,
+    private val ingestRepository: com.example.agent_app.data.repo.IngestRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     
-    suspend fun syncRecentMessages(accessToken: String): GmailSyncResult = withContext(dispatcher) {
-        android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 시작")
+    suspend fun syncRecentMessages(
+        accessToken: String,
+        sinceTimestamp: Long = 0L,
+    ): GmailSyncResult = withContext(dispatcher) {
+        android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 시작 (sinceTimestamp: $sinceTimestamp)")
         
         if (accessToken.isBlank()) {
             android.util.Log.w("GmailRepositoryWithAi", "Access Token이 비어있음")
@@ -36,10 +40,23 @@ class GmailRepositoryWithAi(
             
             android.util.Log.d("GmailRepositoryWithAi", "Gmail API 호출 시작")
             
+            // 시간 범위 필터링을 위한 쿼리 생성
+            // Gmail API의 after: 쿼리는 날짜 형식(YYYY/MM/DD) 또는 Unix timestamp(초)를 받습니다
+            val query = if (sinceTimestamp > 0L) {
+                // Unix timestamp를 날짜 형식으로 변환
+                val date = java.time.Instant.ofEpochMilli(sinceTimestamp)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .toLocalDate()
+                "after:${date.year}/${date.monthValue}/${date.dayOfMonth}"
+            } else {
+                null
+            }
+            
             val listResponse = api.listMessages(
                 authorization = authorization,
                 userId = "me",
-                maxResults = 20,
+                maxResults = 50, // 시간 범위 지정 시 더 많은 메시지 조회 가능
+                query = query,
             )
             
             android.util.Log.d("GmailRepositoryWithAi", "Gmail 메시지 목록 조회 성공 - ${listResponse.messages.size}개")
@@ -50,6 +67,8 @@ class GmailRepositoryWithAi(
             }
             
             var processed = 0
+            var eventCount = 0
+            val startTimestamp = System.currentTimeMillis()
             
             listResponse.messages.forEach { reference ->
                 android.util.Log.d("GmailRepositoryWithAi", "메시지 조회 중 - ID: ${reference.id}")
@@ -62,18 +81,37 @@ class GmailRepositoryWithAi(
                     metadataHeaders = listOf("Subject", "Date", "From", "To")
                 )
                 
+                // 시간 필터링: internalDate가 sinceTimestamp 이후인지 확인
+                val messageTimestamp = message.internalDate?.toLongOrNull() ?: 0L
+                if (sinceTimestamp > 0L && messageTimestamp < sinceTimestamp) {
+                    android.util.Log.d("GmailRepositoryWithAi", "메시지가 시간 범위 밖: ${messageTimestamp} < ${sinceTimestamp}")
+                    return@forEach
+                }
+                
                 // AI Agent를 통한 처리
-                processMessageWithAi(message)
+                val hasEvent = processMessageWithAi(message)
+                if (hasEvent) {
+                    eventCount++
+                }
                 processed++
             }
             
-            android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 완료 - 처리: $processed")
-            GmailSyncResult.Success(processed)
+            val endTimestamp = System.currentTimeMillis()
+            android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 완료 - 처리: $processed, 일정: $eventCount")
+            GmailSyncResult.Success(
+                upsertedCount = processed,
+                eventCount = eventCount,
+                startTimestamp = startTimestamp,
+                endTimestamp = endTimestamp,
+            )
             
         } catch (exception: HttpException) {
             android.util.Log.e("GmailRepositoryWithAi", "Gmail API HTTP 오류", exception)
             when (exception.code()) {
-                401 -> GmailSyncResult.Unauthorized
+                401 -> {
+                    android.util.Log.w("GmailRepositoryWithAi", "Access Token이 만료되었거나 유효하지 않습니다 (401 Unauthorized)")
+                    GmailSyncResult.Unauthorized
+                }
                 403 -> GmailSyncResult.NetworkError("Gmail API 접근 권한이 없습니다.")
                 else -> GmailSyncResult.NetworkError(exception.message())
             }
@@ -88,8 +126,10 @@ class GmailRepositoryWithAi(
     
     /**
      * AI Agent를 통한 메시지 처리
+     * 모든 메시지를 IngestItem으로 저장하고, 일정이 있으면 Event도 저장
+     * @return 일정이 추출되었는지 여부
      */
-    private suspend fun processMessageWithAi(message: GmailMessage) {
+    private suspend fun processMessageWithAi(message: GmailMessage): Boolean {
         val subject = message.payload?.headers?.firstOrNull { 
             it.name.equals("Subject", ignoreCase = true) 
         }?.value
@@ -136,11 +176,22 @@ class GmailRepositoryWithAi(
         val result = huenDongMinAiAgent.processGmailForEvent(
             emailSubject = subject,
             emailBody = enrichedBody,
-            receivedTimestamp = currentTimestamp,  // 현재 시간 사용!
+            receivedTimestamp = originalReceivedTimestamp,  // 원본 수신 시간 사용
             originalEmailId = message.id
         )
         
         android.util.Log.d("GmailRepositoryWithAi", 
             "AI 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}")
+        
+        // 모든 메시지를 IngestItem으로 저장 (일정이 없어도 저장)
+        // HuenDongMinAiAgent.processGmailForEvent 내부에서 이미 IngestItem 저장을 처리하므로
+        // 여기서는 추가 저장이 필요 없음 (일정이 있는 경우에만 저장하는 로직이 이미 있음)
+        // 하지만 일정이 없는 경우에도 저장하도록 수정 필요
+        
+        // HuenDongMinAiAgent.processGmailForEvent에서 이미 모든 메시지를 IngestItem으로 저장하므로
+        // 여기서는 추가 작업이 필요 없음
+        
+        // 일정이 추출되었는지 확인
+        return result.events.isNotEmpty()
     }
 }

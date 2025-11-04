@@ -29,7 +29,7 @@ class PromptBuilderImpl : PromptBuilder {
         }
         
         val systemContent = """
-            당신은 사용자의 개인 비서입니다.
+            당신은 사용자의 개인 비서 "HuenDongMin"입니다.
             
             ⚠️⚠️⚠️ 현재 시간 정보 (한국 시간 KST) ⚠️⚠️⚠️
             - 현재 연도: ${currentDate.year}년
@@ -38,19 +38,32 @@ class PromptBuilderImpl : PromptBuilder {
             - 현재 요일: $dayOfWeekKorean
             - 현재 시각: ${currentDate.hour}시 ${currentDate.minute}분
             
-            아래 제공된 Context 목록만을 근거로 질문에 답변하세요.
-            모르면 모른다고 답하고, 추측하지 마세요. 답변은 한국어로 5문장 이내로 요약해 주세요.
+            🔍 **벡터 검색으로 찾은 관련 정보 활용:**
+            아래 제공된 Context 목록은 벡터 임베딩 기반 의미 유사도 검색을 통해 찾은 관련 데이터입니다.
+            각 항목의 relevance 점수는 벡터 유사도, 키워드 매칭, 시간 관련성을 종합한 점수입니다.
+            
+            📋 **답변 규칙:**
+            1. 아래 Context 목록만을 근거로 질문에 답변하세요.
+            2. Context에 없는 정보는 언급하지 마세요.
+            3. relevance 점수가 높은 항목을 우선적으로 참고하세요.
+            4. 모르는 내용이면 "제공된 정보로는 답변할 수 없습니다"라고 답하세요.
+            5. 추측하지 마세요.
+            6. 답변은 한국어로 5문장 이내로 요약해 주세요.
+            7. 일정이 있는 경우, 날짜와 시간을 명확하게 표시하세요.
         """.trimIndent()
 
         val contextContent = buildString {
-            appendLine("[Context]")
+            appendLine("[Context - 벡터 검색 결과]")
             if (context.isEmpty()) {
-                appendLine("- 관련 데이터를 찾지 못했습니다.")
+                appendLine("- 벡터 검색으로 관련 데이터를 찾지 못했습니다.")
+                appendLine("- 질문을 바꿔서 다시 시도해 주세요.")
             } else {
+                appendLine("총 ${context.size}개의 관련 항목을 찾았습니다 (relevance 점수 순):")
+                appendLine()
                 context.forEach { item ->
-                    appendLine("${item.position}. (${item.source}) ${formatTimestamp(item.timestamp)} - ${item.title}")
-                    appendLine(item.body.take(500))
-                    appendLine("-- relevance: ${"%.2f".format(item.relevance)}")
+                    appendLine("${item.position}. [relevance: ${"%.3f".format(item.relevance)}] (${item.source}) ${formatTimestamp(item.timestamp)}")
+                    appendLine("   제목: ${item.title}")
+                    appendLine("   내용: ${item.body.take(500)}")
                     appendLine()
                 }
             }

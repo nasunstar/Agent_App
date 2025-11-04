@@ -1,0 +1,9 @@
+build/
+.gradle/
+.idea/
+*.iml
+*.log
+local.properties
+admin_accounts_db.mv.db
+admin_accounts_db.trace.db
+

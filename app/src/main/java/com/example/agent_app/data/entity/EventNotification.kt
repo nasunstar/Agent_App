@@ -26,4 +26,6 @@ data class EventNotification(
     @ColumnInfo(name = "notify_at")
     val notifyAt: Long,
     val channel: String,
+    @ColumnInfo(name = "sent_at")
+    val sentAt: Long? = null,  // 알림 발송 시간 (null이면 아직 발송 안 함)
 )

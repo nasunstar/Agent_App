@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -49,11 +50,14 @@ fun ChatScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     
-    // 현재 시간 (매 초마다 업데이트)
-    var currentTime by remember { mutableStateOf(LocalDateTime.now()) }
+    // 현재 시간 (매 초마다 업데이트) - 한국 시간대(Asia/Seoul) 사용
+    val koreanZoneId = ZoneId.of("Asia/Seoul")
+    var currentTime by remember { 
+        mutableStateOf(LocalDateTime.now(koreanZoneId)) 
+    }
     LaunchedEffect(Unit) {
         while (true) {
-            currentTime = LocalDateTime.now()
+            currentTime = LocalDateTime.now(koreanZoneId)
             delay(1000) // 1초마다 업데이트
         }
     }

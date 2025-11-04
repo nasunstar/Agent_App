@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 4,
-    "identityHash": "3872f54614ab55cc1b1edbf1db5a7279",
+    "identityHash": "9784f0aadc62413e007cbfdf343c2f2b",
     "entities": [
       {
         "tableName": "contacts",
@@ -399,7 +399,7 @@
       },
       {
         "tableName": "event_notifications",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `event_id` INTEGER NOT NULL, `notify_at` INTEGER NOT NULL, `channel` TEXT NOT NULL, FOREIGN KEY(`event_id`) REFERENCES `events`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `event_id` INTEGER NOT NULL, `notify_at` INTEGER NOT NULL, `channel` TEXT NOT NULL, `sent_at` INTEGER, FOREIGN KEY(`event_id`) REFERENCES `events`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -424,6 +424,12 @@
             "columnName": "channel",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "sentAt",
+            "columnName": "sent_at",
+            "affinity": "INTEGER",
+            "notNull": false
           }
         ],
         "primaryKey": {
@@ -671,7 +677,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3872f54614ab55cc1b1edbf1db5a7279')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9784f0aadc62413e007cbfdf343c2f2b')"
     ]
   }
 }
