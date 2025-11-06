@@ -127,12 +127,18 @@ class MainViewModel(
         .observeBySource("sms")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     
+    // 푸시 알림 데이터 상태
+    private val pushNotificationItemsState = ingestRepository
+        .observeBySource("push_notification")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    
     // 분류된 데이터 상태
     private val contactsState = MutableStateFlow<List<Contact>>(emptyList())
     private val eventsState = MutableStateFlow<List<Event>>(emptyList())
     private val notesState = MutableStateFlow<List<Note>>(emptyList())
     private val ocrEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
     private val smsEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
+    private val pushNotificationEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
 
     val uiState: StateFlow<AssistantUiState> = combine(
         loginState,
@@ -145,6 +151,8 @@ class MainViewModel(
         ocrEventsState,
         smsItemsState,
         smsEventsState,
+        pushNotificationItemsState,
+        pushNotificationEventsState,
         smsScanState,
         gmailSyncState,
         callRecordScanState,
@@ -159,9 +167,11 @@ class MainViewModel(
         val ocrEvents = flows[7] as Map<String, List<Event>>
         val smsItems = flows[8] as List<IngestItem>
         val smsEvents = flows[9] as Map<String, List<Event>>
-        val smsScan = flows[10] as SmsScanState
-        val gmailSync = flows[11] as GmailSyncState
-        val callRecordScan = flows[12] as CallRecordScanState
+        val pushNotificationItems = flows[10] as List<IngestItem>
+        val pushNotificationEvents = flows[11] as Map<String, List<Event>>
+        val smsScan = flows[12] as SmsScanState
+        val gmailSync = flows[13] as GmailSyncState
+        val callRecordScan = flows[14] as CallRecordScanState
         
         AssistantUiState(
             loginState = login,
@@ -176,6 +186,8 @@ class MainViewModel(
             ocrEvents = ocrEvents,
             smsItems = smsItems,
             smsEvents = smsEvents,
+            pushNotificationItems = pushNotificationItems,
+            pushNotificationEvents = pushNotificationEvents,
             smsScanState = smsScan,
             gmailSyncState = gmailSync,
             callRecordScanState = callRecordScan,
@@ -234,6 +246,13 @@ class MainViewModel(
                 loadSmsEvents(items)
             }
         }
+        
+        // 푸시 알림 이벤트 로드
+        viewModelScope.launch {
+            pushNotificationItemsState.collect { items ->
+                loadPushNotificationEvents(items)
+            }
+        }
     }
     
     private suspend fun loadOcrEvents(ocrItems: List<IngestItem>) {
@@ -259,6 +278,19 @@ class MainViewModel(
                 eventsMap[item.id] = events
             }
             smsEventsState.value = eventsMap
+        }
+    }
+    
+    private suspend fun loadPushNotificationEvents(pushNotificationItems: List<IngestItem>) {
+        classifiedDataRepository?.let { repo ->
+            val eventsMap = mutableMapOf<String, List<Event>>()
+            pushNotificationItems.forEach { item ->
+                val events = repo.getAllEvents().filter { event ->
+                    event.sourceType == "push_notification" && event.sourceId == item.id
+                }
+                eventsMap[item.id] = events
+            }
+            pushNotificationEventsState.value = eventsMap
         }
     }
 
@@ -829,6 +861,70 @@ class MainViewModel(
         ) == PackageManager.PERMISSION_GRANTED
     }
     
+    /**
+     * NotificationListenerService 권한이 활성화되어 있는지 확인
+     */
+    fun checkNotificationListenerPermission(): Boolean {
+        val enabledNotificationListeners = android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            "enabled_notification_listeners"
+        )
+        
+        if (enabledNotificationListeners.isNullOrEmpty()) {
+            return false
+        }
+        
+        val packageName = context.packageName
+        return enabledNotificationListeners.contains(packageName)
+    }
+    
+    /**
+     * NotificationListenerService 설정 화면으로 이동
+     */
+    fun openNotificationListenerSettings() {
+        val intent = android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+        intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
+    }
+    
+    /**
+     * 푸시 알림 통계 조회
+     */
+    suspend fun getPushNotificationStats(startTime: Long? = null, endTime: Long? = null): PushNotificationStats {
+        return withContext(Dispatchers.IO) {
+            val database = com.example.agent_app.data.db.AppDatabase.build(context)
+            val dao = database.pushNotificationDao()
+            
+            val appStats = dao.getAppStatistics(startTime, endTime)
+            val hourlyStats = dao.getHourlyStatistics(startTime, endTime)
+            val totalCount = dao.getByTimestampRange(startTime, endTime).size
+            
+            PushNotificationStats(
+                totalCount = totalCount,
+                appStatistics = appStats.map { 
+                    AppStat(it.package_name, it.app_name ?: "알 수 없음", it.count) 
+                },
+                hourlyStatistics = hourlyStats.map { 
+                    HourlyStat(it.hour.toIntOrNull() ?: 0, it.count) 
+                }
+            )
+        }
+    }
+    
+    /**
+     * 특정 앱의 푸시 알림 목록 조회
+     */
+    suspend fun getPushNotificationsByPackage(
+        packageName: String,
+        limit: Int = 100
+    ): List<com.example.agent_app.data.entity.PushNotification> {
+        return withContext(Dispatchers.IO) {
+            val database = com.example.agent_app.data.db.AppDatabase.build(context)
+            val dao = database.pushNotificationDao()
+            dao.getByPackage(packageName).take(limit)
+        }
+    }
+    
     fun scanSmsMessages(sinceTimestamp: Long) {
         // 권한 확인 (서비스 시작 전에 확인)
         if (!checkSmsPermission()) {
@@ -1104,6 +1200,8 @@ data class AssistantUiState(
     val ocrEvents: Map<String, List<Event>> = emptyMap(),
     val smsItems: List<IngestItem> = emptyList(),
     val smsEvents: Map<String, List<Event>> = emptyMap(),
+    val pushNotificationItems: List<IngestItem> = emptyList(),
+    val pushNotificationEvents: Map<String, List<Event>> = emptyMap(),
     val smsScanState: SmsScanState = SmsScanState(),
     val gmailSyncState: GmailSyncState = GmailSyncState(),
     val callRecordScanState: CallRecordScanState = CallRecordScanState(),
@@ -1125,4 +1223,21 @@ data class LoginUiState(
 data class SyncState(
     val isSyncing: Boolean = false,
     val message: String? = null,
+)
+
+data class PushNotificationStats(
+    val totalCount: Int,
+    val appStatistics: List<AppStat>,
+    val hourlyStatistics: List<HourlyStat>,
+)
+
+data class AppStat(
+    val packageName: String,
+    val appName: String,
+    val count: Int,
+)
+
+data class HourlyStat(
+    val hour: Int,
+    val count: Int,
 )

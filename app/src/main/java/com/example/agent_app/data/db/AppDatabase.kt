@@ -11,6 +11,7 @@ import com.example.agent_app.data.dao.EventDao
 import com.example.agent_app.data.dao.EventTypeDao
 import com.example.agent_app.data.dao.IngestItemDao
 import com.example.agent_app.data.dao.NoteDao
+import com.example.agent_app.data.dao.PushNotificationDao
 import com.example.agent_app.data.dao.UserDao
 import com.example.agent_app.data.db.migrations.DatabaseMigrations
 import com.example.agent_app.data.entity.AuthToken
@@ -23,6 +24,7 @@ import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.data.entity.IngestItemEmbedding
 import com.example.agent_app.data.entity.IngestItemFts
 import com.example.agent_app.data.entity.Note
+import com.example.agent_app.data.entity.PushNotification
 import com.example.agent_app.data.entity.User
 
 @Database(
@@ -38,8 +40,9 @@ import com.example.agent_app.data.entity.User
         IngestItem::class,
         IngestItemFts::class,
         IngestItemEmbedding::class,
+        PushNotification::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -52,6 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun authTokenDao(): AuthTokenDao
     abstract fun ingestItemDao(): IngestItemDao
     abstract fun embeddingDao(): EmbeddingDao
+    abstract fun pushNotificationDao(): PushNotificationDao
 
     companion object {
         private const val DATABASE_NAME = "assistant.db"

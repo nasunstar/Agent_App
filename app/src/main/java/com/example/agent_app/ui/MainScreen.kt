@@ -118,6 +118,22 @@ fun AssistantApp(
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableStateOf(AssistantTab.Dashboard) }
     var selectedDrawerMenu by rememberSaveable { mutableStateOf(DrawerMenu.Menu) }
+    
+    // 푸시 알림 권한 안내 다이얼로그 상태
+    var showPushNotificationPermissionDialog by rememberSaveable { mutableStateOf(false) }
+    var hasCheckedPermission by rememberSaveable { mutableStateOf(false) }
+
+    // 앱 시작 시 푸시 알림 권한 확인
+    LaunchedEffect(Unit) {
+        if (!hasCheckedPermission) {
+            hasCheckedPermission = true
+            val hasPermission = mainViewModel.checkNotificationListenerPermission()
+            if (!hasPermission) {
+                // 권한이 없으면 다이얼로그 표시
+                showPushNotificationPermissionDialog = true
+            }
+        }
+    }
 
     LaunchedEffect(uiState.loginState.statusMessage, uiState.syncMessage) {
         val messages = listOfNotNull(uiState.loginState.statusMessage, uiState.syncMessage)
@@ -147,6 +163,46 @@ fun AssistantApp(
         onResetDatabase = mainViewModel::resetDatabase,
         googleSignInLauncher = googleSignInLauncher,
     )
+    
+    // 푸시 알림 권한 안내 다이얼로그
+    if (showPushNotificationPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPushNotificationPermissionDialog = false },
+            title = {
+                Text("푸시 알림 접근 권한 필요")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "푸시 알림을 수집하고 분석하려면 알림 접근 권한이 필요합니다.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "설정 화면에서 이 앱을 활성화해주세요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPushNotificationPermissionDialog = false
+                        mainViewModel.openNotificationListenerSettings()
+                    }
+                ) {
+                    Text("설정 열기")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showPushNotificationPermissionDialog = false }
+                ) {
+                    Text("나중에")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -258,6 +314,8 @@ private fun AssistantScaffold(
                             smsItems = uiState.smsItems,
                             smsEvents = uiState.smsEvents,
                             gmailItems = uiState.gmailItems,
+                            pushNotificationItems = uiState.pushNotificationItems,
+                            pushNotificationEvents = uiState.pushNotificationEvents,
                             contentPadding = paddingValues,
                             mainViewModel = mainViewModel,
                         )
@@ -421,6 +479,11 @@ internal fun DeveloperContent(
                     permissionLauncher.launch(Manifest.permission.READ_SMS)
                 }
             }
+        )
+        
+        // 푸시 알림 분석 카드
+        PushNotificationAnalysisCard(
+            mainViewModel = mainViewModel,
         )
         
         // 테스트 사용자 관리
@@ -1591,6 +1654,8 @@ private fun InboxContent(
     smsItems: List<IngestItem>,
     smsEvents: Map<String, List<Event>>,
     gmailItems: List<IngestItem>,
+    pushNotificationItems: List<IngestItem>,
+    pushNotificationEvents: Map<String, List<Event>>,
     contentPadding: PaddingValues,
     mainViewModel: MainViewModel,
 ) {
@@ -1640,7 +1705,7 @@ private fun InboxContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
                 // 기본 카테고리들
-                listOf(InboxCategory.All, InboxCategory.OCR, InboxCategory.SMS, InboxCategory.Email).forEach { category ->
+                listOf(InboxCategory.All, InboxCategory.OCR, InboxCategory.SMS, InboxCategory.Email, InboxCategory.PushNotification).forEach { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -1654,7 +1719,8 @@ private fun InboxContent(
             ocrCount = ocrItems.size,
             smsCount = smsItems.size,
             gmailCount = gmailItems.size,
-            totalCount = ocrItems.size + smsItems.size + gmailItems.size,
+            pushNotificationCount = pushNotificationItems.size,
+            totalCount = ocrItems.size + smsItems.size + gmailItems.size + pushNotificationItems.size,
         )
         
         // 카테고리별 컨텐츠
@@ -1712,6 +1778,26 @@ private fun InboxContent(
                                        events = gmailEvents,
                                        onUpdateEvent = { mainViewModel.updateEvent(it) },
                                        onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                   )
+                               }
+                           }
+                           // 푸시 알림 통합 표시
+                           if (pushNotificationItems.isNotEmpty()) {
+                               item {
+                                   CategorySection(
+                                       title = "푸시 알림",
+                                       items = pushNotificationItems,
+                                       events = pushNotificationEvents,
+                                       onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                       onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                       itemCard = { item, events, onUpdate, onDelete ->
+                                           PushNotificationItemCard(
+                                               item = item,
+                                               events = events,
+                                               onUpdateEvent = onUpdate,
+                                               onDeleteEvent = onDelete,
+                                           )
+                                       },
                                    )
                                }
                            }
@@ -1783,6 +1869,31 @@ private fun InboxContent(
                         }
                     }
                 }
+                InboxCategory.PushNotification -> {
+                    if (pushNotificationItems.isEmpty()) {
+                        item {
+                            EmptyStateCard(message = "푸시 알림 데이터가 없습니다.")
+                        }
+                    } else {
+                        item {
+                            CategorySection(
+                                title = "푸시 알림",
+                                items = pushNotificationItems,
+                                events = pushNotificationEvents,
+                                onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                itemCard = { item, events, onUpdate, onDelete ->
+                                    PushNotificationItemCard(
+                                        item = item,
+                                        events = events,
+                                        onUpdateEvent = onUpdate,
+                                        onDeleteEvent = onDelete,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
                 null -> {
                     item {
                         EmptyStateCard(message = "카테고리를 선택해주세요.")
@@ -1798,6 +1909,7 @@ private sealed class InboxCategory(val label: String) {
     object OCR : InboxCategory("OCR")
     object SMS : InboxCategory("SMS")
     object Email : InboxCategory("이메일")
+    object PushNotification : InboxCategory("푸시 알림")
 }
 
 // 이메일 주소 추출 헬퍼 함수
@@ -1826,6 +1938,7 @@ private fun InboxSummaryBlock(
     ocrCount: Int,
     smsCount: Int,
     gmailCount: Int,
+    pushNotificationCount: Int,
     totalCount: Int,
 ) {
         Card(
@@ -1859,6 +1972,11 @@ private fun InboxSummaryBlock(
                 icon = Icons.Filled.Email,
                 label = "이메일",
                 count = gmailCount,
+            )
+            SummaryItem(
+                icon = Icons.Filled.Info,
+                label = "푸시",
+                count = pushNotificationCount,
             )
         }
     }
@@ -2056,6 +2174,109 @@ private fun GmailItemCard(
         AlertDialog(
             onDismissRequest = { showTextDialog = false },
             title = { Text("이메일 내용") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = item.title ?: "(제목 없음)",
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(text = item.body ?: "")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTextDialog = false }) {
+                    Text("닫기")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PushNotificationItemCard(
+    item: IngestItem,
+    events: List<Event>,
+    onUpdateEvent: ((Event) -> Unit)? = null,
+    onDeleteEvent: ((Event) -> Unit)? = null,
+) {
+    var showTextDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 푸시 알림 정보
+            Text(
+                text = "🔔 푸시 알림",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            
+            Text(
+                text = "앱: ${item.title ?: "(알 수 없음)"}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            
+            Text(
+                text = item.body.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showTextDialog = true },
+            )
+            
+            Text(
+                text = "수신 시간: ${TimeFormatter.format(item.timestamp)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            
+            if (item.confidence != null) {
+                Text(
+                    text = "신뢰도: ${(item.confidence * 100).coerceIn(0.0, 100.0).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            
+            // 연결된 이벤트 표시
+            if (events.isNotEmpty()) {
+                Divider()
+                Text(
+                    text = "추출된 일정 (${events.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                events.forEach { event ->
+                    EventDetailRow(
+                        event = event,
+                        onUpdateEvent = onUpdateEvent,
+                        onDeleteEvent = onDeleteEvent,
+                    )
+                }
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { showTextDialog = true }) {
+                    Text("전체 보기")
+                }
+            }
+        }
+    }
+    
+    if (showTextDialog) {
+        AlertDialog(
+            onDismissRequest = { showTextDialog = false },
+            title = { Text("푸시 알림 내용") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -3342,6 +3563,192 @@ private fun ScrollablePicker(
             contentAlignment = Alignment.Center
         ) {
             // 중앙 선택 표시용 빈 Box
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PushNotificationAnalysisCard(
+    mainViewModel: MainViewModel,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var hasPermission by remember { mutableStateOf(mainViewModel.checkNotificationListenerPermission()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var stats by remember { mutableStateOf<PushNotificationStats?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000) // 7일 전 기본값
+    )
+    
+    // 권한 상태 확인 (앱이 포그라운드로 돌아올 때)
+    LaunchedEffect(Unit) {
+        hasPermission = mainViewModel.checkNotificationListenerPermission()
+        if (hasPermission) {
+            // 권한이 있으면 통계 로드
+            scope.launch {
+                isLoading = true
+                try {
+                    stats = mainViewModel.getPushNotificationStats()
+                } catch (e: Exception) {
+                    android.util.Log.e("PushNotificationAnalysis", "통계 로드 실패", e)
+                } finally {
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "푸시 알림 분석",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            
+            if (!hasPermission) {
+                Text(
+                    text = "푸시 알림을 수집하려면 알림 접근 권한이 필요합니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
+                Button(
+                    onClick = {
+                        mainViewModel.openNotificationListenerSettings()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("권한 설정 열기")
+                }
+            } else {
+                if (isLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else if (stats != null) {
+                    Text(
+                        text = "총 ${stats!!.totalCount}개의 푸시 알림",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    
+                    // 앱별 통계
+                    if (stats!!.appStatistics.isNotEmpty()) {
+                        Divider()
+                        Text(
+                            text = "앱별 알림 수",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        stats!!.appStatistics.take(10).forEach { appStat ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = appStat.appName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "${appStat.count}개",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                    
+                    // 시간대별 통계
+                    if (stats!!.hourlyStatistics.isNotEmpty()) {
+                        Divider()
+                        Text(
+                            text = "시간대별 알림 수",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        stats!!.hourlyStatistics.forEach { hourlyStat ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "${hourlyStat.hour}시",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "${hourlyStat.count}개",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                    
+                    Button(
+                        onClick = { showDatePicker = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("기간별 분석")
+                    }
+                } else {
+                    Text(
+                        text = "아직 수집된 푸시 알림이 없습니다.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
+                }
+            }
+        }
+    }
+    
+    // 날짜 선택 다이얼로그
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { startTime ->
+                            val endTime = System.currentTimeMillis()
+                            scope.launch {
+                                isLoading = true
+                                try {
+                                    stats = mainViewModel.getPushNotificationStats(startTime, endTime)
+                                } catch (e: Exception) {
+                                    android.util.Log.e("PushNotificationAnalysis", "통계 로드 실패", e)
+                                } finally {
+                                    isLoading = false
+                                }
+                            }
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("확인")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("취소")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
         }
     }
 }

@@ -792,6 +792,251 @@ class HuenDongMinAiAgent(
     }
     
     /**
+     * 푸시 알림에서 일정 추출 (Tool: processPushNotificationForEvent)
+     */
+    suspend fun processPushNotificationForEvent(
+        appName: String?,
+        notificationTitle: String?,
+        notificationText: String?,
+        notificationSubText: String?,
+        receivedTimestamp: Long,
+        originalNotificationId: String
+    ): AiProcessingResult = withContext(dispatcher) {
+        
+        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 처리 시작 - ID: $originalNotificationId")
+        
+        // 실제 현재 시간 (한국시간)
+        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        // 알림 수신 시간 (한국시간)
+        val notificationReceivedDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        // 요일 이름 가져오기 (한글) - 현재 시간 기준
+        val dayOfWeekKorean = when (now.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "월요일"
+            java.time.DayOfWeek.TUESDAY -> "화요일"
+            java.time.DayOfWeek.WEDNESDAY -> "수요일"
+            java.time.DayOfWeek.THURSDAY -> "목요일"
+            java.time.DayOfWeek.FRIDAY -> "금요일"
+            java.time.DayOfWeek.SATURDAY -> "토요일"
+            java.time.DayOfWeek.SUNDAY -> "일요일"
+        }
+        
+        // 알림 본문 구성 (제목 + 본문 + 서브텍스트)
+        val fullText = buildString {
+            notificationTitle?.let { append(it) }
+            notificationText?.let { 
+                if (isNotEmpty()) append(" - ")
+                append(it) 
+            }
+            notificationSubText?.let { 
+                if (isNotEmpty()) append(" - ")
+                append(it) 
+            }
+        }
+        
+        val systemPrompt = """
+            당신은 사용자의 개인 데이터를 지능적으로 관리하는 AI 비서 "HuenDongMin"입니다.
+            
+            ⚠️⚠️⚠️ 절대적으로 중요: 푸시 알림 수신 시간 기준 (한국 표준시 KST, Asia/Seoul, UTC+9) ⚠️⚠️⚠️
+            
+            📱 푸시 알림 수신 정보 (모든 시간 계산의 기준 시점):
+            - 알림 수신 연도: ${notificationReceivedDate.year}년
+            - 알림 수신 월: ${notificationReceivedDate.monthValue}월
+            - 알림 수신 일: ${notificationReceivedDate.dayOfMonth}일
+            - 알림 수신 요일: ${when (notificationReceivedDate.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "월요일"
+                java.time.DayOfWeek.TUESDAY -> "화요일"
+                java.time.DayOfWeek.WEDNESDAY -> "수요일"
+                java.time.DayOfWeek.THURSDAY -> "목요일"
+                java.time.DayOfWeek.FRIDAY -> "금요일"
+                java.time.DayOfWeek.SATURDAY -> "토요일"
+                java.time.DayOfWeek.SUNDAY -> "일요일"
+            }}
+            - 알림 수신 Epoch ms: ${receivedTimestamp}ms
+            - 전체 시간: $notificationReceivedDate
+            
+            📅 현재 시간 (참고용):
+            - 현재 연도: ${now.year}년
+            - 현재 월: ${now.monthValue}월
+            - 현재 일: ${now.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
+            - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
+            
+            🔴🔴🔴 푸시 알림 시간 계산 원칙 (명시적 날짜 우선!) 🔴🔴🔴
+
+            **핵심 원칙: 명시적 날짜가 있으면 그 날짜를 기준, 없으면 알림 수신 시간을 기준으로 계산!**
+            
+            **1. 명시적 날짜 처리 (최우선!):**
+            - 알림 본문에 "9.30", "10/16", "2025년 10월 16일" 등 명시적 날짜가 있으면 **그 날짜를 기준 시점으로 사용**
+            - 연도가 생략된 경우 현재 연도(${now.year}) 사용
+            - 예: "9.30(화) 14시" → ${now.year}년 9월 30일 14:00
+            - 예: "10월 16일 오후 3시" → ${now.year}년 10월 16일 15:00
+            
+            **2. 상대적 표현 처리:**
+            
+            **명시적 날짜가 있는 경우:**
+            - 명시적 날짜를 기준 시점으로 사용
+            - 예: "10월 16일 ... 다음주 수요일" → 10월 16일 기준 다음주 수요일
+            
+            **명시적 날짜가 없는 경우:**
+            - 알림 수신 시간(${notificationReceivedDate.year}년 ${notificationReceivedDate.monthValue}월 ${notificationReceivedDate.dayOfMonth}일)을 기준 시점으로 사용
+            - **"내일"**: 알림 수신일 + 1일
+            - **"모레"**: 알림 수신일 + 2일
+            - **"다음주"**: 알림 수신일 기준 다음 주
+              - 예: 수신일이 화요일 → 다음주 화요일 = 수신일 + 7일
+            - **"다음주 [요일]"**: 다음 주의 해당 요일
+              - 예: 수신일이 화요일, "다음주 수요일" → 수신일 다음 주 수요일
+            - **"다음달"**: 알림 수신일의 다음 달 같은 날짜
+              - 예: 수신일이 10월 15일 → 다음달 15일 = 11월 15일
+            - **"[요일]"**: 알림 수신일 기준 가장 가까운 해당 요일
+              - 수신일 이후 같은 요일이 있으면 그 날, 없으면 다음 주 해당 요일
+              - 예: 수신일이 화요일, "수요일" → 다음 날 수요일
+            
+            **요일 매핑:**
+            - 월요일 = 1, 화요일 = 2, 수요일 = 3, 목요일 = 4, 금요일 = 5, 토요일 = 6, 일요일 = 7
+            
+            **3. 시간 처리:**
+            - 시간이 명시되지 않으면 오전 12시(00:00:00) 기준
+            - "오후 3시", "15시" 등은 그대로 사용
+        """.trimIndent()
+        
+        val userPrompt = """
+            다음 푸시 알림을 분석하여 약속/일정이 있는지 확인하고, 있다면 구조화된 JSON으로 반환하세요.
+            
+            📱 앱 이름: ${appName ?: "알 수 없음"}
+            📱 제목: ${notificationTitle ?: "(없음)"}
+            📱 본문: ${notificationText ?: "(없음)"}
+            📱 서브텍스트: ${notificationSubText ?: "(없음)"}
+            
+            📅 알림 수신 시간 (모든 시간 계산의 기준):
+            - 연도: ${notificationReceivedDate.year}년
+            - 월: ${notificationReceivedDate.monthValue}월
+            - 일: ${notificationReceivedDate.dayOfMonth}일
+            - 요일: ${when (notificationReceivedDate.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "월요일"
+                java.time.DayOfWeek.TUESDAY -> "화요일"
+                java.time.DayOfWeek.WEDNESDAY -> "수요일"
+                java.time.DayOfWeek.THURSDAY -> "목요일"
+                java.time.DayOfWeek.FRIDAY -> "금요일"
+                java.time.DayOfWeek.SATURDAY -> "토요일"
+                java.time.DayOfWeek.SUNDAY -> "일요일"
+            }}
+            - 알림 수신 Epoch ms: ${receivedTimestamp}ms
+            
+            📅 현재 시간 (참고용):
+            - 현재 연도: ${now.year}년
+            - 현재 월: ${now.monthValue}월
+            - 현재 일: ${now.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
+            
+            🔴🔴🔴 푸시 알림 처리 순서 (명시적 날짜 우선!) 🔴🔴🔴
+            
+            **1단계: 명시적 날짜 찾기 (최우선!)**
+            
+            알림 본문에서 다음 패턴을 찾으세요:
+            - "9.30", "10.16" 등 점(.) 구분 → 9월 30일, 10월 16일
+            - "9/30", "10/16" 등 슬래시(/) 구분 → 9월 30일, 10월 16일
+            - "10월 16일", "9월 30일" 등 한글 → 그대로 인식
+            - "2025년 10월 16일" 등 전체 날짜 → 그대로 인식
+            - "9.30(화)", "10.16(목)" 등 날짜+요일 → 날짜 우선
+            
+            🔍 예시:
+            - 알림에 "9.30(화) 14시 회의" → ${now.year}년 9월 30일 14:00 ✅
+            - 알림에 "10월 16일 오후 3시" → ${now.year}년 10월 16일 15:00 ✅
+            
+            **2단계: 기준 시점 결정**
+            
+            - 1단계에서 명시적 날짜를 **찾았으면**: 그 날짜를 기준 시점으로 사용
+            - 1단계에서 명시적 날짜가 **없으면**: 알림 수신 시간(${notificationReceivedDate.year}년 ${notificationReceivedDate.monthValue}월 ${notificationReceivedDate.dayOfMonth}일)을 기준 시점으로 사용
+            
+            🔍 예시:
+            - 알림에 "10월 16일 ... 다음주 수요일" → 10월 16일 기준 다음주 수요일 ✅
+            - 알림에 날짜 없고 "내일 오후 3시" → 알림 수신일 기준 다음날 15:00 ✅
+            
+            **3단계: 일정 추출**
+            
+            - 일정이 있으면 type: "event", events 배열에 추가
+            - 일정이 없으면 type: "note", events: []
+            
+            예시:
+            - "안녕하세요. 잘 지내시나요?" → type: "note", events: [] ✅
+            - "내일 3시에 만나요" → type: "event", events: [...] ✅
+            - "9월 30일 회의 있습니다" → type: "event", events: [...] ✅
+            - "다음주 수요일 오후 2시 약속" → type: "event", events: [...] ✅
+            
+            일반 규칙:
+            1. 모든 시간은 한국 표준시(KST, UTC+9) 기준으로 계산하세요!
+            2. startAt과 endAt은 반드시 계산된 숫자여야 합니다!
+            3. 시간이 명시되지 않은 경우 오전 12시(00:00:00)를 기준으로 하세요!
+            4. body는 줄바꿈 없이 한 줄로 작성하세요!
+            5. 여러 일정이 있으면 반드시 events 배열에 모두 포함하세요!
+        """.trimIndent()
+        
+        val messages = listOf(
+            AiMessage(role = "system", content = systemPrompt),
+            AiMessage(role = "user", content = userPrompt)
+        )
+        
+        val response = callOpenAi(messages)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== 푸시 알림 AI 원본 응답 ===")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        android.util.Log.d("HuenDongMinAiAgent", "=====================================")
+        
+        val result = parseAiResponse(response)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== 푸시 알림 AI 응답 분석 ===")
+        android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
+        android.util.Log.d("HuenDongMinAiAgent", "추출된 이벤트 개수: ${result.events.size}개")
+        
+        // 모든 푸시 알림을 IngestItem으로 저장 (일정이 없어도 저장)
+        val firstEvent = result.events.firstOrNull()
+        
+        val metaJson = buildString {
+            append("{")
+            append("\"app_name\":\"${appName ?: ""}\",")
+            append("\"package_name\":\"\"")
+            if (result.type == "event" && firstEvent != null) {
+                append(",\"event\":true")
+            }
+            append("}")
+        }
+        
+        val ingestItem = IngestItem(
+            id = originalNotificationId,
+            source = "push_notification",
+            type = result.type ?: "note",
+            title = notificationTitle ?: appName ?: "푸시 알림",
+            body = fullText,
+            timestamp = receivedTimestamp,
+            dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
+            confidence = result.confidence,
+            metaJson = metaJson
+        )
+        ingestRepository.upsert(ingestItem)
+        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 IngestItem 저장 완료 (Type: ${result.type})")
+        
+        // Event 저장 (일정이 있는 경우만)
+        if (result.type == "event" && result.events.isNotEmpty()) {
+            
+            // Event 저장 (여러 개 지원)
+            result.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+                val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - AI 추출 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
+                val event = createEventFromAiData(eventData, originalNotificationId, "push_notification")
+                eventDao.upsert(event)
+                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalNotificationId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+            }
+        }
+        
+        result
+    }
+    
+    /**
      * OCR 텍스트에서 일정 추출 (Tool: createEventFromImage)
      */
     suspend fun createEventFromImage(

@@ -2,8 +2,8 @@ package com.example.agent_app.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.TextUnitType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -25,148 +25,174 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 요약 위젯 - 오늘/이번주 할일 표시
+ * 요약 위젯 - 오늘/이번주 일정 표시
  */
 class SummaryWidget : GlanceAppWidget() {
     
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // 데이터를 안전하게 조회
+        android.util.Log.d("SummaryWidget", "provideGlance 시작 - widgetId: $id")
+        
+        // 데이터를 미리 가져오게 조회
         val todayItemsText = try {
             withContext(Dispatchers.IO) {
-                val database = AppDatabase.build(context)
-                val widgetRepository = WidgetRepository(
-                    eventDao = database.eventDao(),
-                    ingestItemDao = database.ingestItemDao(),
-                )
-                
-                val todayData = widgetRepository.getTodayItems()
-                
-                buildList {
-                    if (todayData.events.isEmpty() && todayData.dueItems.isEmpty()) {
-                        add("오늘 특별한 일정은 없습니다")
-                    } else {
-                        todayData.events.take(3).forEach { event ->
-                            add("• ${event.title ?: "(제목 없음)"}")
+                try {
+                    android.util.Log.d("SummaryWidget", "오늘 데이터 조회 시작")
+                    val database = AppDatabase.build(context)
+                    val widgetRepository = WidgetRepository(
+                        eventDao = database.eventDao(),
+                        ingestItemDao = database.ingestItemDao(),
+                    )
+                    
+                    val todayData = widgetRepository.getTodayItems()
+                    android.util.Log.d("SummaryWidget", "오늘 데이터 조회 완료 - events: ${todayData.events.size}, items: ${todayData.dueItems.size}")
+                    
+                    buildList {
+                        if (todayData.events.isEmpty() && todayData.dueItems.isEmpty()) {
+                            add("오늘 예정된 일정이 없습니다")
+                        } else {
+                            todayData.events.take(3).forEach { event ->
+                                add("• ${event.title ?: "(제목 없음)"}")
+                            }
+                            if (todayData.events.size > 3) {
+                                add("... 더보기 ${todayData.events.size - 3}개")
+                            }
+                            todayData.dueItems.take(3).forEach { item ->
+                                add("• ${item.title ?: "(제목 없음)"}")
+                            }
+                            if (todayData.dueItems.size > 3) {
+                                add("... 더보기 ${todayData.dueItems.size - 3}개")
+                            }
                         }
-                        if (todayData.events.size > 3) {
-                            add("... 외 ${todayData.events.size - 3}개")
-                        }
-                        todayData.dueItems.take(3).forEach { item ->
-                            add("• ${item.title ?: "(제목 없음)"}")
-                        }
-                        if (todayData.dueItems.size > 3) {
-                            add("... 외 ${todayData.dueItems.size - 3}개")
-                        }
-                    }
-                }.joinToString("\n")
+                    }.joinToString("\n").ifEmpty { "오늘 예정된 일정이 없습니다" }
+                } catch (e: Exception) {
+                    android.util.Log.e("SummaryWidget", "오늘 데이터 조회 실패", e)
+                    e.printStackTrace()
+                    "오늘 예정된 일정이 없습니다"
+                }
             }
         } catch (e: Exception) {
-            "오늘 특별한 일정은 없습니다"
+            android.util.Log.e("SummaryWidget", "오늘 데이터 조회 중 예외", e)
+            e.printStackTrace()
+            "오늘 예정된 일정이 없습니다"
         }
         
         val weekItemsText = try {
             withContext(Dispatchers.IO) {
-                val database = AppDatabase.build(context)
-                val widgetRepository = WidgetRepository(
-                    eventDao = database.eventDao(),
-                    ingestItemDao = database.ingestItemDao(),
-                )
-                
-                val weekData = widgetRepository.getWeekItems()
-                
-                buildList {
-                    if (weekData.events.isEmpty() && weekData.dueItems.isEmpty()) {
-                        add("이번주 특별한 일정은 없습니다")
-                    } else {
-                        weekData.events.take(3).forEach { event ->
-                            add("• ${event.title ?: "(제목 없음)"}")
+                try {
+                    android.util.Log.d("SummaryWidget", "이번주 데이터 조회 시작")
+                    val database = AppDatabase.build(context)
+                    val widgetRepository = WidgetRepository(
+                        eventDao = database.eventDao(),
+                        ingestItemDao = database.ingestItemDao(),
+                    )
+                    
+                    val weekData = widgetRepository.getWeekItems()
+                    android.util.Log.d("SummaryWidget", "이번주 데이터 조회 완료 - events: ${weekData.events.size}, items: ${weekData.dueItems.size}")
+                    
+                    buildList {
+                        if (weekData.events.isEmpty() && weekData.dueItems.isEmpty()) {
+                            add("이번주 예정된 일정이 없습니다")
+                        } else {
+                            weekData.events.take(3).forEach { event ->
+                                add("• ${event.title ?: "(제목 없음)"}")
+                            }
+                            if (weekData.events.size > 3) {
+                                add("... 더보기 ${weekData.events.size - 3}개")
+                            }
+                            weekData.dueItems.take(3).forEach { item ->
+                                add("• ${item.title ?: "(제목 없음)"}")
+                            }
+                            if (weekData.dueItems.size > 3) {
+                                add("... 더보기 ${weekData.dueItems.size - 3}개")
+                            }
                         }
-                        if (weekData.events.size > 3) {
-                            add("... 외 ${weekData.events.size - 3}개")
-                        }
-                        weekData.dueItems.take(3).forEach { item ->
-                            add("• ${item.title ?: "(제목 없음)"}")
-                        }
-                        if (weekData.dueItems.size > 3) {
-                            add("... 외 ${weekData.dueItems.size - 3}개")
-                        }
-                    }
-                }.joinToString("\n")
+                    }.joinToString("\n").ifEmpty { "이번주 예정된 일정이 없습니다" }
+                } catch (e: Exception) {
+                    android.util.Log.e("SummaryWidget", "이번주 데이터 조회 실패", e)
+                    e.printStackTrace()
+                    "이번주 예정된 일정이 없습니다"
+                }
             }
         } catch (e: Exception) {
-            "이번주 특별한 일정은 없습니다"
+            android.util.Log.e("SummaryWidget", "이번주 데이터 조회 중 예외", e)
+            e.printStackTrace()
+            "이번주 예정된 일정이 없습니다"
         }
         
-        val componentName = android.content.ComponentName(context, MainActivity::class.java)
+        android.util.Log.d("SummaryWidget", "데이터 준비 완료 - today: ${todayItemsText.length}자, week: ${weekItemsText.length}자")
         
+        android.util.Log.d("SummaryWidget", "provideContent 시작")
         provideContent {
-            Box(
-                modifier = GlanceModifier
+            GlanceTheme {
+                // 기본 modifier
+                val boxModifier = GlanceModifier
                     .fillMaxSize()
                     .background(GlanceTheme.colors.background)
-                    .clickable(actionStartActivity(componentName))
-                    .padding(12)
-            ) {
-                Column(
-                    modifier = GlanceModifier.fillMaxSize(),
-                    verticalAlignment = Alignment.Top,
-                    horizontalAlignment = Alignment.Start
-                ) {
-                    // 오늘 할일
-                    Text(
-                        text = "오늘 할일",
-                        style = TextStyle(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = TextUnit(16f, TextUnitType.Sp)
-                        ),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
-                    
-                    Spacer(modifier = GlanceModifier.height(4))
-                    
-                    // 오늘 할일 내용 (여러 줄을 하나의 Text로 표시)
-                    Text(
-                        text = todayItemsText,
-                        style = TextStyle(fontSize = TextUnit(11f, TextUnitType.Sp)),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
-                    
-                    Spacer(modifier = GlanceModifier.height(8))
-                    
-                    // 구분선 (Box content를 명시적으로 지정)
-                    Box(
-                        content = {
-                            // 구분선은 modifier만으로 충분
-                        },
-                        modifier = GlanceModifier
-                            .fillMaxWidth()
-                            .height(1)
-                            .background(GlanceTheme.colors.onSurfaceVariant)
-                    )
-                    
-                    Spacer(modifier = GlanceModifier.height(8))
-                    
-                    // 이번주 할일
-                    Text(
-                        text = "이번주 할일",
-                        style = TextStyle(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = TextUnit(16f, TextUnitType.Sp)
-                        ),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
-                    
-                    Spacer(modifier = GlanceModifier.height(4))
-                    
-                    // 이번주 할일 내용 (여러 줄을 하나의 Text로 표시)
-                    Text(
-                        text = weekItemsText,
-                        style = TextStyle(fontSize = TextUnit(11f, TextUnitType.Sp)),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
+                    .padding(12.dp)
+                    .clickable(actionStartActivity(MainActivity::class.java))
+                
+                Box(modifier = boxModifier) {
+                    Column(
+                        modifier = GlanceModifier.fillMaxSize(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        // 오늘 일정
+                        Text(
+                            text = "오늘 일정",
+                            style = TextStyle(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            ),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                        
+                        Spacer(modifier = GlanceModifier.height(4.dp))
+                        
+                        // 오늘 일정 내용
+                        Text(
+                            text = todayItemsText,
+                            style = TextStyle(fontSize = 11.sp),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                        
+                        Spacer(modifier = GlanceModifier.height(8.dp))
+                        
+                        // 구분선
+                        Box(
+                            modifier = GlanceModifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(GlanceTheme.colors.onSurfaceVariant)
+                        ) {
+                            // 구분선은 modifier만으로 표시
+                        }
+                        
+                        Spacer(modifier = GlanceModifier.height(8.dp))
+                        
+                        // 이번주 일정
+                        Text(
+                            text = "이번주 일정",
+                            style = TextStyle(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            ),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                        
+                        Spacer(modifier = GlanceModifier.height(4.dp))
+                        
+                        // 이번주 일정 내용
+                        Text(
+                            text = weekItemsText,
+                            style = TextStyle(fontSize = 11.sp),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
+        android.util.Log.d("SummaryWidget", "provideContent 완료")
     }
     
     companion object {
@@ -180,7 +206,7 @@ class SummaryWidget : GlanceAppWidget() {
 }
 
 /**
- * 요약 행 컴포넌트
+ * 요약 컴포넌트
  */
 @Composable
 fun SummaryRow(label: String, eventsCount: Int, dueItemsCount: Int) {
@@ -192,7 +218,7 @@ fun SummaryRow(label: String, eventsCount: Int, dueItemsCount: Int) {
         Text(
             text = label,
             style = TextStyle(
-                fontSize = TextUnit(12f, TextUnitType.Sp),
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             ),
             modifier = GlanceModifier.defaultWeight()
@@ -205,21 +231,21 @@ fun SummaryRow(label: String, eventsCount: Int, dueItemsCount: Int) {
                 if (eventsCount > 0) {
                     Text(
                         text = "일정 $eventsCount",
-                        style = TextStyle(fontSize = TextUnit(11f, TextUnitType.Sp)),
-                        modifier = GlanceModifier.padding(end = 4)
+                        style = TextStyle(fontSize = 11.sp),
+                        modifier = GlanceModifier.padding(end = 4.dp)
                     )
                 }
                 if (dueItemsCount > 0) {
                     Text(
                         text = "마감 $dueItemsCount",
-                        style = TextStyle(fontSize = TextUnit(11f, TextUnitType.Sp))
+                        style = TextStyle(fontSize = 11.sp)
                     )
                 }
             }
         } else {
             Text(
                 text = "없음",
-                style = TextStyle(fontSize = TextUnit(11f, TextUnitType.Sp))
+                style = TextStyle(fontSize = 11.sp)
             )
         }
     }

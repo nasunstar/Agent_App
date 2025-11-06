@@ -66,5 +66,28 @@ object DatabaseMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // 푸시 알림 테이블 생성
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `push_notifications` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`package_name` TEXT NOT NULL, " +
+                    "`app_name` TEXT, " +
+                    "`title` TEXT, " +
+                    "`text` TEXT, " +
+                    "`sub_text` TEXT, " +
+                    "`timestamp` INTEGER NOT NULL, " +
+                    "`meta_json` TEXT" +
+                    ")"
+            )
+            
+            // 인덱스 생성
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_push_notifications_timestamp` ON `push_notifications` (`timestamp`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_push_notifications_package_name` ON `push_notifications` (`package_name`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_push_notifications_app_name` ON `push_notifications` (`app_name`)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

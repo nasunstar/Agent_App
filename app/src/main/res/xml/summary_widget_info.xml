@@ -9,5 +9,5 @@
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:previewImage="@mipmap/ic_launcher"
-    android:previewLayout="@android:layout/simple_list_item_1" />
+    android:initialLayout="@layout/widget_initial_layout" />
 
