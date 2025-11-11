@@ -52,6 +52,56 @@ java -jar backend/build/libs/backend-1.0.0.jar
 
 서버가 `http://localhost:8080`에서 실행됩니다.
 
+## 배포
+
+### 1. 로컬 또는 자체 서버에 JAR 배포
+
+1. 환경 변수 설정 (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI`, 필요 시 `DATABASE_URL`, `ENCRYPTION_KEY`, `ALLOWED_ORIGINS`, `ENVIRONMENT=production`)
+2. 빌드:
+   ```bash
+   ./gradlew :backend:build
+   ```
+3. 산출물: `backend/build/libs/backend-1.0.0.jar`
+4. 서버에서 실행:
+   ```bash
+   java -jar backend/build/libs/backend-1.0.0.jar
+   ```
+5. 시스템 서비스로 등록하거나 프로세스 매니저(pm2, systemd 등)에 연결하면 재시작/모니터링이 쉽습니다.
+
+### 2. Docker 배포
+
+프로젝트 루트에서 Docker 이미지를 빌드하고 실행할 수 있습니다.
+
+```bash
+# 이미지 빌드
+docker build -t agent-app-backend ./backend
+
+# 실행 (환경 변수는 상황에 맞게 지정)
+docker run -d \
+  -p 8080:8080 \
+  -e GOOGLE_CLIENT_ID=... \
+  -e GOOGLE_CLIENT_SECRET=... \
+  -e OAUTH_REDIRECT_URI=https://your-domain/admin/accounts/connect/google/callback \
+  -e DATABASE_URL=jdbc:postgresql://... \
+  -e ENCRYPTION_KEY=... \
+  -e ENVIRONMENT=production \
+  -e ALLOWED_ORIGINS=https://your-app.com \
+  --name agent-app-backend \
+  agent-app-backend
+```
+
+Docker 이미지는 `backend/Dockerfile`을 사용하며, 빌드 시 Gradle을 통해 JAR를 생성한 뒤 컨테이너에 포함합니다.
+
+### 3. Railway / Render 등 PaaS 배포
+
+1. 해당 플랫폼에서 새 서비스 생성 (Dockerfile 또는 Gradle 빌드 이용)
+2. 환경 변수(UI에서 제공) 설정
+3. 데이터베이스(PostgreSQL) 프로비저닝 후 `DATABASE_URL`로 연결
+4. 빌드 & 디플로이 설정: `./gradlew :backend:build` 또는 Dockerfile 사용
+5. 도메인 연결 후 `ALLOWED_ORIGINS`, `OAUTH_REDIRECT_URI` 값을 실제 도메인으로 갱신
+
+Railway에 배포할 때는 `railway.json`에 정의된 설정을 참고할 수 있습니다.
+
 ## API 엔드포인트
 
 ### 1. Google 계정 연결 시작

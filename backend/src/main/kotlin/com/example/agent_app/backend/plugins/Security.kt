@@ -5,6 +5,7 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.defaultheaders.*
 import io.ktor.server.plugins.forwardedheaders.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import com.example.agent_app.backend.config.ConfigLoader
 
@@ -37,8 +38,7 @@ fun Application.configureSecurity() {
     // CORS 설정
     install(CORS) {
         if (allowedOrigins == "*") {
-            // 개발 환경: 모든 origin 허용
-            allowAnyOrigin = true
+            anyHost()
         } else {
             // 프로덕션: 특정 origin만 허용
             allowedOrigins.split(",").forEach { origin ->
@@ -70,16 +70,16 @@ fun Application.configureSecurity() {
     
     if (isProduction) {
         intercept(ApplicationCallPipeline.Plugins) {
-            val scheme = call.request.origin.scheme
+            val scheme = call.request.header("X-Forwarded-Proto") ?: call.request.local.scheme
             if (scheme != "https") {
-                // HTTP 요청을 HTTPS로 리다이렉트
-                val httpsUrl = call.request.uri.replace("http://", "https://")
+                val host = call.request.host()
+                val httpsUrl = "https://$host${call.request.uri}"
                 call.respondRedirect(httpsUrl, permanent = true)
                 return@intercept
             }
         }
     }
     
-    application.log.info("Security configured: Production=${isProduction}, CORS=${allowedOrigins}")
+    log.info("Security configured: Production=$isProduction, CORS=$allowedOrigins")
 }
 

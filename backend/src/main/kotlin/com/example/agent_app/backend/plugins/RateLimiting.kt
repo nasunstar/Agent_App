@@ -1,12 +1,10 @@
 package com.example.agent_app.backend.plugins
 
 import io.ktor.server.application.*
-import io.ktor.server.response.*
-import io.ktor.http.*
+import io.ktor.server.request.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.time.TimeSource
 
 /**
  * 간단한 Rate Limiting 구현
@@ -76,7 +74,11 @@ object RateLimiter {
  * Rate Limiting 인터셉터
  */
 suspend fun ApplicationCall.rateLimit(): Boolean {
-    val clientIp = request.origin.remoteHost
+    val clientIp = request.header("X-Forwarded-For")
+        ?.split(",")
+        ?.firstOrNull()
+        ?.trim()
+        ?: request.local.remoteHost
     return RateLimiter.isAllowed(clientIp)
 }
 

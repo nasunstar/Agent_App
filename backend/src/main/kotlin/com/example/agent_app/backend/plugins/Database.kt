@@ -6,6 +6,10 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.transactions.transaction
 import com.example.agent_app.backend.data.AdminAccountsTable
 import com.example.agent_app.backend.data.ManagedGoogleAccountTable
+import com.example.agent_app.backend.data.calendar.CalendarEventsTable
+import com.example.agent_app.backend.data.calendar.CalendarMembershipsTable
+import com.example.agent_app.backend.data.calendar.CalendarShareTokensTable
+import com.example.agent_app.backend.data.calendar.SharedCalendarsTable
 import com.example.agent_app.backend.config.ConfigLoader
 
 fun Application.configureDatabase() {
@@ -41,7 +45,14 @@ fun Application.configureDatabase() {
     
     // 테이블 생성 (없으면 자동 생성)
     transaction(database) {
-        SchemaUtils.createMissingTablesAndColumns(AdminAccountsTable, ManagedGoogleAccountTable)
+        SchemaUtils.createMissingTablesAndColumns(
+            AdminAccountsTable,
+            ManagedGoogleAccountTable,
+            SharedCalendarsTable,
+            CalendarMembershipsTable,
+            CalendarEventsTable,
+            CalendarShareTokensTable
+        )
     }
     
     log.info("Database configured successfully: ${databaseUrl.take(50)}...")
