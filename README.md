@@ -343,3 +343,5 @@ Run the full unit test suite (includes Gmail repository coverage):
 ```
 
 > **Note:** The test task requires an Android SDK (`sdk.dir` or `ANDROID_HOME`). In CI-less local runs configure the SDK path before executing the command.
+
+Room-based unit tests such as `AppDatabaseTest` depend on `ApplicationProvider` and need an Android-aware runner. When invoking them from the command line ensure Robolectric (or another Android test runner) is configured, or execute the tests from Android Studio as instrumented tests. Otherwise you may see `IllegalStateException` failures even though the app builds and runs normally.
