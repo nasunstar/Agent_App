@@ -2,6 +2,7 @@ package com.example.agent_app.backend.repositories
 
 import com.example.agent_app.backend.data.calendar.CalendarEventsTable
 import com.example.agent_app.backend.data.calendar.CalendarMembershipsTable
+import com.example.agent_app.backend.data.calendar.CalendarProfilesTable
 import com.example.agent_app.backend.data.calendar.CalendarRole
 import com.example.agent_app.backend.data.calendar.CalendarShareTokensTable
 import com.example.agent_app.backend.data.calendar.SharedCalendarsTable
@@ -11,7 +12,6 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.innerJoin
 import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.insertAndGetId
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
@@ -60,6 +60,13 @@ data class CalendarShareTokenRecord(
     val createdAt: Instant,
 )
 
+data class CalendarProfileRecord(
+    val id: UUID,
+    val email: String,
+    val shareId: String,
+    val createdAt: Instant,
+)
+
 class SharedCalendarRepository {
 
     fun createCalendar(
@@ -99,6 +106,12 @@ class SharedCalendarRepository {
             .select { CalendarMembershipsTable.memberEmail eq email }
             .map { it.toCalendarRecord() }
             .distinctBy { it.id }
+    }
+
+    fun calendarsOwnedBy(email: String): List<SharedCalendarRecord> = transaction {
+        SharedCalendarsTable
+            .select { SharedCalendarsTable.ownerEmail eq email }
+            .map { it.toCalendarRecord() }
     }
 
     fun insertMember(
@@ -241,6 +254,33 @@ class SharedCalendarRepository {
             ?.toShareTokenRecord()
     }
 
+    fun getOrCreateProfile(email: String): CalendarProfileRecord = transaction {
+        val existing = CalendarProfilesTable
+            .select { CalendarProfilesTable.email eq email }
+            .firstOrNull()
+            ?.toProfileRecord()
+        if (existing != null) {
+            existing
+        } else {
+            val shareId = generateShareId()
+            CalendarProfilesTable.insert {
+                it[CalendarProfilesTable.email] = email
+                it[CalendarProfilesTable.shareId] = shareId
+            }
+            CalendarProfilesTable
+                .select { CalendarProfilesTable.email eq email }
+                .first()
+                .toProfileRecord()
+        }
+    }
+
+    fun findProfileByShareId(shareId: String): CalendarProfileRecord? = transaction {
+        CalendarProfilesTable
+            .select { CalendarProfilesTable.shareId eq shareId }
+            .firstOrNull()
+            ?.toProfileRecord()
+    }
+
     private fun ResultRow.toCalendarRecord(): SharedCalendarRecord = SharedCalendarRecord(
         id = this[SharedCalendarsTable.id],
         name = this[SharedCalendarsTable.name],
@@ -282,10 +322,25 @@ class SharedCalendarRepository {
         createdAt = this[CalendarShareTokensTable.createdAt],
     )
 
+    private fun ResultRow.toProfileRecord(): CalendarProfileRecord = CalendarProfileRecord(
+        id = this[CalendarProfilesTable.id],
+        email = this[CalendarProfilesTable.email],
+        shareId = this[CalendarProfilesTable.shareId],
+        createdAt = this[CalendarProfilesTable.createdAt],
+    )
+
     private fun generateToken(): String {
         val bytes = ByteArray(24)
         SecureRandom().nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun generateShareId(): String {
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val random = SecureRandom()
+        return (0 until 10)
+            .map { chars[random.nextInt(chars.length)] }
+            .joinToString("")
     }
 }
 

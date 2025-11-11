@@ -2,6 +2,7 @@ package com.example.agent_app.share.data
 
 import com.example.agent_app.share.model.CalendarDetailDto
 import com.example.agent_app.share.model.CreateCalendarRequest
+import com.example.agent_app.share.model.ShareProfileResponse
 import com.example.agent_app.share.network.ShareCalendarApi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -12,12 +13,26 @@ class ShareCalendarRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
+    suspend fun getOrCreateProfile(actorEmail: String): Result<ShareProfileResponse> =
+        withContext(ioDispatcher) {
+            runCatching { api.getOrCreateProfile(actorEmail) }
+        }
+
+    suspend fun getProfileByShareId(shareId: String): Result<ShareProfileResponse> =
+        withContext(ioDispatcher) {
+            runCatching { api.getProfileByShareId(shareId) }
+        }
+
     suspend fun createCalendar(
+        actorEmail: String,
         name: String,
         description: String?,
     ): Result<CalendarDetailDto> = withContext(ioDispatcher) {
         runCatching {
-            api.createCalendar(CreateCalendarRequest(name = name, description = description))
+            api.createCalendar(
+                actorEmail = actorEmail,
+                request = CreateCalendarRequest(name = name, description = description),
+            )
         }
     }
 }

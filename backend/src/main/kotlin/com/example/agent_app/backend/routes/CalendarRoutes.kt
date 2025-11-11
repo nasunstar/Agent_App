@@ -24,6 +24,20 @@ fun Route.calendarRoutes(service: SharedCalendarService) {
             call.respond(response)
         }
 
+        get("/profile") {
+            val actorEmail = call.actorEmailOrNull() ?: return@get
+            val profile = service.getOrCreateShareProfile(actorEmail)
+            call.respond(profile)
+        }
+
+        get("/profile/{shareId}") {
+            val shareId = call.parameters["shareId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing share id.")
+            val profile = service.getShareProfile(shareId)
+                ?: return@get call.respond(HttpStatusCode.NotFound, "Profile not found.")
+            call.respond(profile)
+        }
+
         post("/groups") {
             val actorEmail = call.actorEmailOrNull() ?: return@post
             val body = call.receiveValidated<CreateCalendarRequest>() ?: return@post

@@ -106,4 +106,11 @@ data class CalendarListResponse(
     val calendars: List<CalendarSummaryDto>,
 )
 
+@Serializable
+data class ShareProfileDto(
+    val shareId: String,
+    val ownerEmail: String,
+    val calendars: List<CalendarSummaryDto>,
+)
+
 

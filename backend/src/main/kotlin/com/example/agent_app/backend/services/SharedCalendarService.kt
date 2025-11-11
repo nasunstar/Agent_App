@@ -16,12 +16,28 @@ import com.example.agent_app.backend.repositories.CalendarMemberRecord
 import com.example.agent_app.backend.repositories.CalendarShareTokenRecord
 import com.example.agent_app.backend.repositories.SharedCalendarRecord
 import com.example.agent_app.backend.repositories.SharedCalendarRepository
+import com.example.agent_app.backend.repositories.CalendarProfileRecord
+import com.example.agent_app.backend.models.calendar.ShareProfileDto
 import java.time.Instant
 import java.util.UUID
 
 class SharedCalendarService(
     private val repository: SharedCalendarRepository,
 ) {
+
+    fun getOrCreateShareProfile(actorEmail: String): ShareProfileDto {
+        val profile = repository.getOrCreateProfile(actorEmail)
+        val calendars = repository.calendarsOwnedBy(actorEmail)
+            .map { it.toSummaryDto() }
+        return profile.toDto(calendars)
+    }
+
+    fun getShareProfile(shareId: String): ShareProfileDto? {
+        val profile = repository.findProfileByShareId(shareId) ?: return null
+        val calendars = repository.calendarsOwnedBy(profile.email)
+            .map { it.toSummaryDto() }
+        return profile.toDto(calendars)
+    }
 
     fun createCalendar(actorEmail: String, request: CreateCalendarRequest): CalendarDetailDto {
         val calendar = repository.createCalendar(
@@ -172,6 +188,14 @@ class SharedCalendarService(
         expiresAt = expiresAt,
         createdBy = createdBy,
         createdAt = createdAt,
+    )
+
+    private fun CalendarProfileRecord.toDto(
+        calendars: List<CalendarSummaryDto>,
+    ) = ShareProfileDto(
+        shareId = shareId,
+        ownerEmail = email,
+        calendars = calendars,
     )
 }
 

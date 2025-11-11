@@ -11,6 +11,7 @@ import com.example.agent_app.backend.data.calendar.CalendarEventsTable
 import com.example.agent_app.backend.data.calendar.CalendarMembershipsTable
 import com.example.agent_app.backend.data.calendar.CalendarShareTokensTable
 import com.example.agent_app.backend.data.calendar.SharedCalendarsTable
+import com.example.agent_app.backend.data.calendar.CalendarProfilesTable
 import com.example.agent_app.backend.config.ConfigLoader
 
 fun Application.configureDatabase() {
@@ -66,7 +67,8 @@ fun Application.configureDatabase() {
             SharedCalendarsTable,
             CalendarMembershipsTable,
             CalendarEventsTable,
-            CalendarShareTokensTable
+            CalendarShareTokensTable,
+            CalendarProfilesTable,
         )
     }
     

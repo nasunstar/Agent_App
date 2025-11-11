@@ -106,6 +106,7 @@ import com.example.agent_app.ui.chat.ChatScreen
 import com.example.agent_app.ui.chat.ChatViewModel
 import com.example.agent_app.ui.share.ShareCalendarScreen
 import com.example.agent_app.ui.share.ShareCalendarViewModel
+import com.example.agent_app.ui.share.ShareCalendarUiState
 import androidx.compose.ui.platform.LocalContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -123,6 +124,7 @@ fun AssistantApp(
     var selectedTab by rememberSaveable { mutableStateOf(AssistantTab.Dashboard) }
     var selectedDrawerMenu by rememberSaveable { mutableStateOf(DrawerMenu.Menu) }
     val shareCalendarUiState by shareCalendarViewModel.uiState.collectAsStateWithLifecycle()
+    val selectedEmail = mainViewModel.getSelectedAccountEmail()
     
     // 푸시 알림 권한 안내 다이얼로그 상태
     var showPushNotificationPermissionDialog by rememberSaveable { mutableStateOf(false) }
@@ -132,12 +134,6 @@ fun AssistantApp(
     LaunchedEffect(Unit) {
         if (!hasCheckedPermission) {
             hasCheckedPermission = true
-    LaunchedEffect(shareCalendarUiState.snackbarMessage) {
-        shareCalendarUiState.snackbarMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            shareCalendarViewModel.consumeMessage()
-        }
-    }
             val hasPermission = mainViewModel.checkNotificationListenerPermission()
             if (!hasPermission) {
                 // 권한이 없으면 다이얼로그 표시
@@ -146,11 +142,24 @@ fun AssistantApp(
         }
     }
 
+    LaunchedEffect(shareCalendarUiState.snackbarMessage) {
+        shareCalendarUiState.snackbarMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            shareCalendarViewModel.consumeMessage()
+        }
+    }
+
     LaunchedEffect(uiState.loginState.statusMessage, uiState.syncMessage) {
         val messages = listOfNotNull(uiState.loginState.statusMessage, uiState.syncMessage)
         if (messages.isNotEmpty()) {
             messages.forEach { snackbarHostState.showSnackbar(it) }
             mainViewModel.consumeStatusMessage()
+        }
+    }
+
+    LaunchedEffect(selectedTab, selectedEmail) {
+        if (selectedTab == AssistantTab.ShareCalendar) {
+            shareCalendarViewModel.loadMyProfile(selectedEmail)
         }
     }
 
@@ -173,6 +182,13 @@ fun AssistantApp(
         onSync = { /* Gmail 동기화는 GmailSyncCard에서 직접 처리 */ },
         onResetDatabase = mainViewModel::resetDatabase,
         googleSignInLauncher = googleSignInLauncher,
+        shareCalendarUiState = shareCalendarUiState,
+        onShareCalendarNameChange = shareCalendarViewModel::updateName,
+        onShareCalendarDescriptionChange = shareCalendarViewModel::updateDescription,
+        onShareCalendarSubmit = { shareCalendarViewModel.createCalendar(selectedEmail) },
+        onShareCalendarLoadProfile = { shareCalendarViewModel.loadMyProfile(selectedEmail) },
+        onShareCalendarSearchInputChange = shareCalendarViewModel::updateSearchInput,
+        onShareCalendarSearch = shareCalendarViewModel::searchProfileByShareId,
     )
     
     // 푸시 알림 권한 안내 다이얼로그
@@ -237,6 +253,13 @@ private fun AssistantScaffold(
     onSync: () -> Unit,
     onResetDatabase: () -> Unit,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
+    shareCalendarUiState: ShareCalendarUiState,
+    onShareCalendarNameChange: (String) -> Unit,
+    onShareCalendarDescriptionChange: (String) -> Unit,
+    onShareCalendarSubmit: () -> Unit,
+    onShareCalendarLoadProfile: () -> Unit,
+    onShareCalendarSearchInputChange: (String) -> Unit,
+    onShareCalendarSearch: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -332,9 +355,12 @@ private fun AssistantScaffold(
                         )
                         AssistantTab.ShareCalendar -> ShareCalendarScreen(
                             uiState = shareCalendarUiState,
-                            onNameChange = shareCalendarViewModel::updateName,
-                            onDescriptionChange = shareCalendarViewModel::updateDescription,
-                            onSubmit = shareCalendarViewModel::createCalendar,
+                            onNameChange = onShareCalendarNameChange,
+                            onDescriptionChange = onShareCalendarDescriptionChange,
+                            onSubmit = onShareCalendarSubmit,
+                            onLoadProfile = onShareCalendarLoadProfile,
+                            onSearchInputChange = onShareCalendarSearchInputChange,
+                            onSearchProfile = onShareCalendarSearch,
                             modifier = Modifier.padding(paddingValues),
                         )
                     }

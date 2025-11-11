@@ -99,3 +99,12 @@ object CalendarShareTokensTable : Table("calendar_share_tokens") {
     }
 }
 
+object CalendarProfilesTable : Table("calendar_profiles") {
+    val id = uuid("id").clientDefault { UUID.randomUUID() }
+    val email = varchar("email", 255).uniqueIndex()
+    val shareId = varchar("share_id", 64).uniqueIndex()
+    val createdAt = timestamp("created_at").clientDefault { Instant.now() }
+
+    override val primaryKey = PrimaryKey(id)
+}
+

@@ -10,6 +10,18 @@ data class CreateCalendarRequest(
 )
 
 @Serializable
+data class CalendarSummaryDto(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+)
+
+@Serializable
+data class CalendarListResponse(
+    val calendars: List<CalendarSummaryDto> = emptyList(),
+)
+
+@Serializable
 data class CalendarDetailDto(
     val id: String,
     val name: String,
@@ -41,5 +53,29 @@ data class CalendarEventDto(
     val createdBy: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
+)
+
+@Serializable
+data class CreateShareTokenRequest(
+    val label: String? = null,
+    val canEdit: Boolean = false,
+    val expiresAt: String? = null,
+)
+
+@Serializable
+data class CalendarShareTokenDto(
+    val token: String,
+    val label: String? = null,
+    val canEdit: Boolean = false,
+    val expiresAt: String? = null,
+    val createdBy: String? = null,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class ShareProfileResponse(
+    val shareId: String,
+    val ownerEmail: String,
+    val calendars: List<CalendarSummaryDto> = emptyList(),
 )
 
