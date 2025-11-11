@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.agent_app.share.data.ShareCalendarRepository
+import com.example.agent_app.share.model.CalendarDetailDto
 import com.example.agent_app.share.model.CalendarSummaryDto
 import com.example.agent_app.share.model.ShareProfileResponse
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,8 @@ data class ShareCalendarUiState(
     val searchInput: String = "",
     val isSearching: Boolean = false,
     val searchResult: ShareProfileResponse? = null,
+    val isLoadingMyCalendarPreview: Boolean = false,
+    val myCalendarPreview: CalendarDetailDto? = null,
     val snackbarMessage: String? = null,
 )
 
@@ -178,6 +181,49 @@ class ShareCalendarViewModel(
                 }
             )
         }
+    }
+
+    fun loadMyCalendarDetail(actorEmail: String?, calendarId: String) {
+        val email = actorEmail ?: run {
+            emitMessage("Google 계정을 선택해 주세요.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoadingMyCalendarPreview = true,
+                    snackbarMessage = null,
+                )
+            }
+            val result = repository.getCalendarDetail(email, calendarId)
+            result.fold(
+                onSuccess = { detail ->
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMyCalendarPreview = false,
+                            myCalendarPreview = detail,
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMyCalendarPreview = false,
+                            myCalendarPreview = null,
+                            snackbarMessage = throwable.message ?: "캘린더 정보를 불러오지 못했습니다.",
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearMyCalendarPreview() {
+        _uiState.update { it.copy(myCalendarPreview = null) }
+    }
+
+    fun applyInternalDataPlaceholder() {
+        emitMessage("내부 일정 공유 기능은 곧 지원 예정입니다.")
     }
 
     fun consumeMessage() {

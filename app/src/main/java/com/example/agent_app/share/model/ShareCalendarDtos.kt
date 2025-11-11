@@ -79,3 +79,4 @@ data class ShareProfileResponse(
     val calendars: List<CalendarSummaryDto> = emptyList(),
 )
 
+

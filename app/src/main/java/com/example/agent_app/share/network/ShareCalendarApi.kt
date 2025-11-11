@@ -26,5 +26,11 @@ interface ShareCalendarApi {
         @Header("X-User-Email") actorEmail: String,
         @Body request: CreateCalendarRequest,
     ): CalendarDetailDto
+
+    @GET("calendar/groups/{id}")
+    suspend fun getCalendarDetail(
+        @Header("X-User-Email") actorEmail: String,
+        @Path("id") calendarId: String,
+    ): CalendarDetailDto
 }
 

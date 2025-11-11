@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +42,9 @@ fun ShareCalendarScreen(
     onLoadProfile: () -> Unit,
     onSearchInputChange: (String) -> Unit,
     onSearchProfile: () -> Unit,
+    onMyCalendarClick: (String) -> Unit,
+    onDismissPreview: () -> Unit,
+    onApplyInternalData: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -49,42 +53,61 @@ fun ShareCalendarScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.Top,
-            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            MyShareIdSection(
-                uiState = uiState,
-                onLoadProfile = onLoadProfile,
-                onCopyShareId = { shareId ->
-                    clipboardManager.setText(AnnotatedString(shareId))
-                },
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            MyCalendarsSection(uiState)
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            CreateCalendarSection(
-                uiState = uiState,
-                onNameChange = onNameChange,
-                onDescriptionChange = onDescriptionChange,
-                onSubmit = onSubmit,
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            SearchShareIdSection(
-                uiState = uiState,
-                onSearchInputChange = onSearchInputChange,
-                onSearchProfile = onSearchProfile,
-            )
+            item {
+                MyShareIdSection(
+                    uiState = uiState,
+                    onLoadProfile = onLoadProfile,
+                    onCopyShareId = { shareId ->
+                        clipboardManager.setText(AnnotatedString(shareId))
+                    },
+                )
+            }
+            item {
+                MyCalendarsSection(
+                    uiState = uiState,
+                    onCalendarClick = onMyCalendarClick,
+                )
+            }
+            item {
+                CreateCalendarSection(
+                    uiState = uiState,
+                    onNameChange = onNameChange,
+                    onDescriptionChange = onDescriptionChange,
+                    onSubmit = onSubmit,
+                )
+            }
+            item {
+                SearchShareIdSection(
+                    uiState = uiState,
+                    onSearchInputChange = onSearchInputChange,
+                    onSearchProfile = onSearchProfile,
+                )
+            }
         }
+    }
+
+    val preview = uiState.myCalendarPreview
+    if (preview != null) {
+        MyCalendarPreviewDialog(
+            calendar = preview,
+            isLoading = uiState.isLoadingMyCalendarPreview,
+            onDismiss = onDismissPreview,
+            onApplyInternalData = { onApplyInternalData(preview.id) },
+        )
+    } else if (uiState.isLoadingMyCalendarPreview) {
+        // show loading dialog even if preview not yet available
+        MyCalendarPreviewDialog(
+            calendar = null,
+            isLoading = true,
+            onDismiss = onDismissPreview,
+            onApplyInternalData = {},
+        )
     }
 }
 
@@ -167,7 +190,10 @@ private fun MyShareIdSection(
 }
 
 @Composable
-private fun MyCalendarsSection(uiState: ShareCalendarUiState) {
+private fun MyCalendarsSection(
+    uiState: ShareCalendarUiState,
+    onCalendarClick: (String) -> Unit,
+) {
     Text(
         text = "내 공유 캘린더",
         style = MaterialTheme.typography.titleMedium,
@@ -187,12 +213,16 @@ private fun MyCalendarsSection(uiState: ShareCalendarUiState) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp),
+                .heightIn(min = 0.dp, max = 220.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(uiState.myCalendars, key = { it.id }) { calendar ->
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    onClick = { onCalendarClick(calendar.id) },
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
@@ -211,6 +241,70 @@ private fun MyCalendarsSection(uiState: ShareCalendarUiState) {
             }
         }
     }
+}
+
+@Composable
+private fun MyCalendarPreviewDialog(
+    calendar: com.example.agent_app.share.model.CalendarDetailDto?,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onApplyInternalData: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("닫기")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onApplyInternalData,
+                enabled = calendar != null && !isLoading,
+            ) {
+                Text("내 일정 공유")
+            }
+        },
+        title = {
+            Text("공유 캘린더 상세")
+        },
+        text = {
+            if (isLoading && calendar == null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("캘린더 정보를 불러오는 중입니다...")
+                }
+            } else if (calendar != null) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = calendar.name,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    calendar.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Text(
+                        text = "멤버 ${calendar.members.size}명, 일정 ${calendar.events.size}개",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Text("캘린더 정보를 찾지 못했습니다.")
+            }
+        }
+    )
 }
 
 @Composable

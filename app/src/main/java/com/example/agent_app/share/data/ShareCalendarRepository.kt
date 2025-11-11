@@ -35,5 +35,17 @@ class ShareCalendarRepository(
             )
         }
     }
+
+    suspend fun getCalendarDetail(
+        actorEmail: String,
+        calendarId: String,
+    ): Result<CalendarDetailDto> = withContext(ioDispatcher) {
+        runCatching {
+            api.getCalendarDetail(
+                actorEmail = actorEmail,
+                calendarId = calendarId,
+            )
+        }
+    }
 }
 
