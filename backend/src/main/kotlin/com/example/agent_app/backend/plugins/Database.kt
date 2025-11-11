@@ -1,6 +1,7 @@
 package com.example.agent_app.backend.plugins
 
 import io.ktor.server.application.*
+import java.net.URI
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -23,16 +24,30 @@ fun Application.configureDatabase() {
     val database = when {
         // PostgreSQL (Railway, Render 등에서 제공)
         databaseUrl.startsWith("jdbc:postgresql://") || databaseUrl.startsWith("postgresql://") -> {
-            // Railway나 Render는 postgresql:// 형식으로 제공
-            val jdbcUrl = if (databaseUrl.startsWith("postgresql://")) {
-                "jdbc:postgresql://${databaseUrl.removePrefix("postgresql://")}"
+            if (databaseUrl.startsWith("jdbc:postgresql://")) {
+                Database.connect(
+                    url = databaseUrl,
+                    driver = "org.postgresql.Driver"
+                )
             } else {
-                databaseUrl
+                val uri = URI(databaseUrl)
+                val userInfo = uri.userInfo ?: throw IllegalArgumentException("DATABASE_URL must include credentials.")
+                val (username, password) = userInfo.split(":", limit = 2).let {
+                    val user = it.getOrNull(0) ?: ""
+                    val pass = it.getOrNull(1) ?: ""
+                    user to pass
+                }
+                val query = uri.rawQuery?.let { "?$it" } ?: ""
+                val portPart = if (uri.port != -1) ":${uri.port}" else ""
+                val jdbcUrl = "jdbc:postgresql://${uri.host}$portPart${uri.path}$query"
+
+                Database.connect(
+                    url = jdbcUrl,
+                    driver = "org.postgresql.Driver",
+                    user = username,
+                    password = password
+                )
             }
-            Database.connect(
-                url = jdbcUrl,
-                driver = "org.postgresql.Driver"
-            )
         }
         // H2 (로컬 개발용)
         else -> {
