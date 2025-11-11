@@ -41,9 +41,24 @@ fun Application.configureSecurity() {
             anyHost()
         } else {
             // 프로덕션: 특정 origin만 허용
-            allowedOrigins.split(",").forEach { origin ->
-                allowHost(origin.trim(), schemes = listOf("http", "https"))
-            }
+            allowedOrigins.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { rawOrigin ->
+                    val schemes = mutableListOf<String>()
+                    if (rawOrigin.startsWith("https://", ignoreCase = true)) schemes += "https"
+                    if (rawOrigin.startsWith("http://", ignoreCase = true)) schemes += "http"
+                    if (schemes.isEmpty()) schemes += listOf("http", "https")
+
+                    val withoutScheme = rawOrigin
+                        .removePrefix("https://")
+                        .removePrefix("http://")
+                    val host = withoutScheme.substringBefore("/")
+
+                    if (host.isNotBlank()) {
+                        allowHost(host, schemes = schemes)
+                    }
+                }
         }
         
         // 허용된 HTTP 메서드
