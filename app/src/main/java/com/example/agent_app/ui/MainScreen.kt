@@ -84,6 +84,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,6 +104,7 @@ import com.example.agent_app.util.TimeFormatter
 import com.example.agent_app.util.TestUserManager
 import com.example.agent_app.ui.chat.ChatScreen
 import com.example.agent_app.ui.chat.ChatViewModel
+import com.example.agent_app.ui.share.ShareCalendarScreen
 import androidx.compose.ui.platform.LocalContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -318,6 +320,9 @@ private fun AssistantScaffold(
                             pushNotificationEvents = uiState.pushNotificationEvents,
                             contentPadding = paddingValues,
                             mainViewModel = mainViewModel,
+                        )
+                        AssistantTab.ShareCalendar -> ShareCalendarScreen(
+                            modifier = Modifier.padding(paddingValues),
                         )
                     }
                 }
@@ -1050,6 +1055,7 @@ private enum class AssistantTab(val label: String) {
     Chat("챗봇"),
     Calendar("캘린더"),
     Inbox("인박스"),
+    ShareCalendar("공유 캘린더"),
 }
 
 @Composable
@@ -1059,6 +1065,7 @@ private fun getTabIcon(tab: AssistantTab): androidx.compose.ui.graphics.vector.I
         AssistantTab.Chat -> Icons.Filled.Email
         AssistantTab.Calendar -> Icons.Filled.DateRange
         AssistantTab.Inbox -> Icons.Filled.Email
+        AssistantTab.ShareCalendar -> Icons.Filled.Share
     }
 }
 
