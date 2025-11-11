@@ -21,6 +21,8 @@ import com.example.agent_app.data.entity.User
 import com.example.agent_app.di.AppContainer
 import com.example.agent_app.service.CallRecordTextProcessor
 import com.example.agent_app.ui.chat.ChatViewModel
+import com.example.agent_app.ui.share.ShareCalendarViewModel
+import com.example.agent_app.ui.share.ShareCalendarViewModelFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,6 +48,10 @@ class MainActivity : ComponentActivity() {
 
     private val chatViewModel: ChatViewModel by viewModels {
         ChatViewModelFactory(appContainer.executeChatUseCase)
+    }
+
+    private val shareCalendarViewModel: ShareCalendarViewModel by viewModels {
+        ShareCalendarViewModelFactory(appContainer.shareCalendarRepository)
     }
 
     private val scanCompleteReceiver = object : BroadcastReceiver() {
@@ -139,6 +145,7 @@ class MainActivity : ComponentActivity() {
                     mainViewModel = mainViewModel,
                     chatViewModel = chatViewModel,
                     googleSignInLauncher = googleSignInActivityLauncher,
+                    shareCalendarViewModel = shareCalendarViewModel,
                 )
             }
         }

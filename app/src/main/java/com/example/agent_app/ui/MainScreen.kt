@@ -105,6 +105,7 @@ import com.example.agent_app.util.TestUserManager
 import com.example.agent_app.ui.chat.ChatScreen
 import com.example.agent_app.ui.chat.ChatViewModel
 import com.example.agent_app.ui.share.ShareCalendarScreen
+import com.example.agent_app.ui.share.ShareCalendarViewModel
 import androidx.compose.ui.platform.LocalContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -115,11 +116,13 @@ fun AssistantApp(
     mainViewModel: MainViewModel,
     chatViewModel: ChatViewModel,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
+    shareCalendarViewModel: ShareCalendarViewModel,
 ) {
     val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableStateOf(AssistantTab.Dashboard) }
     var selectedDrawerMenu by rememberSaveable { mutableStateOf(DrawerMenu.Menu) }
+    val shareCalendarUiState by shareCalendarViewModel.uiState.collectAsStateWithLifecycle()
     
     // 푸시 알림 권한 안내 다이얼로그 상태
     var showPushNotificationPermissionDialog by rememberSaveable { mutableStateOf(false) }
@@ -129,6 +132,12 @@ fun AssistantApp(
     LaunchedEffect(Unit) {
         if (!hasCheckedPermission) {
             hasCheckedPermission = true
+    LaunchedEffect(shareCalendarUiState.snackbarMessage) {
+        shareCalendarUiState.snackbarMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            shareCalendarViewModel.consumeMessage()
+        }
+    }
             val hasPermission = mainViewModel.checkNotificationListenerPermission()
             if (!hasPermission) {
                 // 권한이 없으면 다이얼로그 표시
@@ -322,6 +331,10 @@ private fun AssistantScaffold(
                             mainViewModel = mainViewModel,
                         )
                         AssistantTab.ShareCalendar -> ShareCalendarScreen(
+                            uiState = shareCalendarUiState,
+                            onNameChange = shareCalendarViewModel::updateName,
+                            onDescriptionChange = shareCalendarViewModel::updateDescription,
+                            onSubmit = shareCalendarViewModel::createCalendar,
                             modifier = Modifier.padding(paddingValues),
                         )
                     }

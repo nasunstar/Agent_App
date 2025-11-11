@@ -18,8 +18,11 @@ val localProperties = Properties().apply {
 }
 val googleWebClientId = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")?.trim().orEmpty().ifBlank { "YOUR_GOOGLE_WEB_CLIENT_ID" }
 val openAiApiKey = localProperties.getProperty("OPENAI_API_KEY")?.trim().orEmpty()
+val backendBaseUrl = localProperties.getProperty("BACKEND_BASE_URL")?.trim().orEmpty()
+val resolvedBackendBaseUrl = backendBaseUrl.ifBlank { "https://agentapp-production.up.railway.app/" }
 val escapedGoogleClientId = googleWebClientId.replace("\"", "\\\"")
 val escapedOpenAiApiKey = openAiApiKey.replace("\"", "\\\"")
+val escapedBackendBaseUrl = resolvedBackendBaseUrl.replace("\"", "\\\"")
 
 android {
     namespace = "com.example.agent_app"
@@ -36,6 +39,7 @@ android {
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$escapedGoogleClientId\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$escapedOpenAiApiKey\"")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$escapedBackendBaseUrl\"")
     }
 
     buildTypes {

@@ -1,6 +1,7 @@
 package com.example.agent_app.di
 
 import android.content.Context
+import com.example.agent_app.BuildConfig
 import com.example.agent_app.ai.HuenDongMinAiAgent
 import com.example.agent_app.ai.OpenAIClassifier
 import com.example.agent_app.data.chat.HuenDongMinChatGatewayImpl
@@ -21,6 +22,8 @@ import com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase
 import com.example.agent_app.domain.chat.usecase.PromptBuilder
 import com.example.agent_app.gmail.GmailServiceFactory
 import com.example.agent_app.openai.PromptBuilderImpl
+import com.example.agent_app.share.data.ShareCalendarRepository
+import com.example.agent_app.share.network.ShareCalendarServiceFactory
 
 class AppContainer(context: Context) {
     val database: AppDatabase = AppDatabase.build(context)
@@ -69,6 +72,15 @@ class AppContainer(context: Context) {
     val ocrRepository: OcrRepositoryWithAi = OcrRepositoryWithAi(
         huenDongMinAiAgent = huenDongMinAiAgent,
         eventDao = eventDao,
+    )
+
+    private val shareCalendarApi = ShareCalendarServiceFactory.create(
+        baseUrl = BuildConfig.BACKEND_BASE_URL,
+        enableLogging = false,
+    )
+
+    val shareCalendarRepository: ShareCalendarRepository = ShareCalendarRepository(
+        api = shareCalendarApi,
     )
 
     private val hybridSearchEngine = HybridSearchEngine(
