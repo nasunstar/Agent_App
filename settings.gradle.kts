@@ -19,6 +19,17 @@ dependencyResolutionManagement {
     }
 }
 
+toolchainManagement {
+    jvm {
+        jdkDownload {
+            repositories {
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+    }
+}
+
 rootProject.name = "Agent_App"
 include(":app")
 include(":backend")
