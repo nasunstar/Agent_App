@@ -1,3 +1,4 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 buildscript {
     dependencies {
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.20")
@@ -6,6 +7,7 @@ buildscript {
 
 plugins {
     application
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 apply(plugin = "org.jetbrains.kotlin.jvm")
@@ -16,13 +18,6 @@ version = "1.0.0"
 
 application {
     mainClass.set("com.example.agent_app.backend.ApplicationKt")
-}
-
-tasks.withType<Jar> {
-    manifest {
-        attributes["Main-Class"] = application.mainClass.get()
-    }
-    from(sourceSets.main.get().output)
 }
 
 val ktorVersion = "2.3.7"
@@ -76,5 +71,17 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))
     }
+}
+
+tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+    archiveBaseName.set("backend")
+    archiveClassifier.set("all")
+    manifest {
+        attributes["Main-Class"] = application.mainClass.get()
+    }
+}
+
+tasks.build {
+    dependsOn(tasks.named("shadowJar"))
 }
 
