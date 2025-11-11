@@ -18,6 +18,13 @@ application {
     mainClass.set("com.example.agent_app.backend.ApplicationKt")
 }
 
+tasks.withType<Jar> {
+    manifest {
+        attributes["Main-Class"] = application.mainClass.get()
+    }
+    from(sourceSets.main.get().output)
+}
+
 val ktorVersion = "2.3.7"
 val exposedVersion = "0.45.0"
 val h2Version = "2.2.224"
