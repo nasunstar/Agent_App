@@ -1,6 +1,9 @@
 package com.example.agent_app.ui.share
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -27,11 +33,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun ShareCalendarScreen(
@@ -93,20 +112,13 @@ fun ShareCalendarScreen(
     }
 
     val preview = uiState.myCalendarPreview
-    if (preview != null) {
+    if (preview != null || uiState.isLoadingMyCalendarPreview) {
         MyCalendarPreviewDialog(
             calendar = preview,
             isLoading = uiState.isLoadingMyCalendarPreview,
+            isSyncing = uiState.isSyncingInternalEvents,
             onDismiss = onDismissPreview,
-            onApplyInternalData = { onApplyInternalData(preview.id) },
-        )
-    } else if (uiState.isLoadingMyCalendarPreview) {
-        // show loading dialog even if preview not yet available
-        MyCalendarPreviewDialog(
-            calendar = null,
-            isLoading = true,
-            onDismiss = onDismissPreview,
-            onApplyInternalData = {},
+            onApplyInternalData = { preview?.id?.let(onApplyInternalData) },
         )
     }
 }
@@ -247,6 +259,7 @@ private fun MyCalendarsSection(
 private fun MyCalendarPreviewDialog(
     calendar: com.example.agent_app.share.model.CalendarDetailDto?,
     isLoading: Boolean,
+    isSyncing: Boolean,
     onDismiss: () -> Unit,
     onApplyInternalData: () -> Unit,
 ) {
@@ -260,8 +273,16 @@ private fun MyCalendarPreviewDialog(
         dismissButton = {
             TextButton(
                 onClick = onApplyInternalData,
-                enabled = calendar != null && !isLoading,
+                enabled = calendar != null && !isLoading && !isSyncing,
             ) {
+                if (isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .height(16.dp)
+                            .padding(end = 8.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
                 Text("내 일정 공유")
             }
         },
@@ -282,7 +303,7 @@ private fun MyCalendarPreviewDialog(
                 }
             } else if (calendar != null) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
                         text = calendar.name,
@@ -299,6 +320,14 @@ private fun MyCalendarPreviewDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    SharedCalendarMonthView(events = calendar.events)
+                    if (isSyncing) {
+                        Text(
+                            text = "내부 일정을 공유하는 중입니다...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
                 }
             } else {
                 Text("캘린더 정보를 찾지 못했습니다.")
@@ -456,4 +485,221 @@ private fun SearchShareIdSection(
         }
     }
 }
+
+@Composable
+private fun SharedCalendarMonthView(
+    events: List<com.example.agent_app.share.model.CalendarEventDto>,
+) {
+    val zone = remember { ZoneId.systemDefault() }
+    val parsedEvents = remember(events) {
+        events.mapNotNull { event ->
+            val startInstant = event.startAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?: return@mapNotNull null
+            val startDateTime = startInstant.atZone(zone)
+            val endTime = event.endAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?.atZone(zone)?.toLocalTime()
+
+            SharedCalendarEventInfo(
+                title = event.title ?: "제목 없는 일정",
+                description = event.description,
+                date = startDateTime.toLocalDate(),
+                startTime = startDateTime.toLocalTime(),
+                endTime = endTime,
+                location = event.location,
+            )
+        }
+    }
+
+    var selectedMonth by remember { mutableStateOf(YearMonth.now()) }
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+
+    LaunchedEffect(selectedMonth) {
+        selectedDate = selectedMonth.atDay(1)
+    }
+
+    val eventsByDate = remember(parsedEvents) { parsedEvents.groupBy { it.date } }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { selectedMonth = selectedMonth.minusMonths(1) }) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "이전 달")
+            }
+            Text(
+                text = selectedMonth.format(DateTimeFormatter.ofPattern("yyyy년 MM월")),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            IconButton(onClick = { selectedMonth = selectedMonth.plusMonths(1) }) {
+                Icon(Icons.Filled.ArrowForward, contentDescription = "다음 달")
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            listOf("일", "월", "화", "수", "목", "금", "토").forEach { day ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = day,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = when (day) {
+                            "일" -> Color.Red
+                            "토" -> Color.Blue
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
+        }
+
+        val firstDayOfMonth = selectedMonth.atDay(1)
+        val startDate = firstDayOfMonth.minusDays(firstDayOfMonth.dayOfWeek.value.toLong() % 7)
+        val allDates = remember(selectedMonth) { List(42) { startDate.plusDays(it.toLong()) } }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            allDates.chunked(7).forEach { week ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    week.forEach { date ->
+                        val isCurrentMonth = date.month == selectedMonth.month
+                        val isSelected = date == selectedDate
+                        val hasEvents = eventsByDate.containsKey(date)
+                        val isToday = date == LocalDate.now()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(4.dp)
+                                .clickable { selectedDate = date }
+                                .height(48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .height(40.dp)
+                                        .widthIn(min = 40.dp)
+                                        .background(
+                                            color = if (isToday) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(50),
+                                        )
+                                )
+                            }
+
+                            Text(
+                                text = date.dayOfMonth.toString(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = when {
+                                    !isCurrentMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    isToday && isSelected -> MaterialTheme.colorScheme.onPrimary
+                                    isToday -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+
+                            if (hasEvents) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 4.dp)
+                                        .height(6.dp)
+                                        .widthIn(min = 6.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.secondary,
+                                            shape = RoundedCornerShape(50),
+                                        )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    val selectedEvents = eventsByDate[selectedDate] ?: emptyList()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 220.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (selectedEvents.isEmpty()) {
+            Text(
+                text = "선택한 날짜에 일정이 없습니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            selectedEvents.sortedBy { it.startTime }.forEach { event ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = event.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        val timeRange = buildString {
+                            event.startTime?.let {
+                                append(it.format(DateTimeFormatter.ofPattern("HH:mm")))
+                            }
+                            if (event.endTime != null) {
+                                append(" - ")
+                                append(event.endTime.format(DateTimeFormatter.ofPattern("HH:mm")))
+                            }
+                        }
+                        if (timeRange.isNotEmpty()) {
+                            Text(
+                                text = timeRange,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        event.location?.takeIf { it.isNotBlank() }?.let { location ->
+                            Text(
+                                text = "장소: $location",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        event.description?.takeIf { it.isNotBlank() }?.let { description ->
+                            Text(
+                                text = description,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+}
+
+private data class SharedCalendarEventInfo(
+    val title: String,
+    val description: String?,
+    val date: LocalDate,
+    val startTime: LocalTime?,
+    val endTime: LocalTime?,
+    val location: String?,
+)
 

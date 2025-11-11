@@ -3,9 +3,11 @@ package com.example.agent_app.ui.share
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.agent_app.data.entity.Event
 import com.example.agent_app.share.data.ShareCalendarRepository
 import com.example.agent_app.share.model.CalendarDetailDto
 import com.example.agent_app.share.model.CalendarSummaryDto
+import com.example.agent_app.share.model.CreateCalendarEventRequest
 import com.example.agent_app.share.model.ShareProfileResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,7 @@ data class ShareCalendarUiState(
     val searchResult: ShareProfileResponse? = null,
     val isLoadingMyCalendarPreview: Boolean = false,
     val myCalendarPreview: CalendarDetailDto? = null,
+    val isSyncingInternalEvents: Boolean = false,
     val snackbarMessage: String? = null,
 )
 
@@ -219,11 +222,84 @@ class ShareCalendarViewModel(
     }
 
     fun clearMyCalendarPreview() {
-        _uiState.update { it.copy(myCalendarPreview = null) }
+        _uiState.update {
+            it.copy(
+                myCalendarPreview = null,
+                isLoadingMyCalendarPreview = false,
+                isSyncingInternalEvents = false,
+            )
+        }
     }
 
-    fun applyInternalDataPlaceholder() {
-        emitMessage("내부 일정 공유 기능은 곧 지원 예정입니다.")
+    fun syncInternalEvents(
+        actorEmail: String?,
+        calendarId: String,
+        events: List<Event>,
+    ) {
+        val email = actorEmail ?: run {
+            emitMessage("Google 계정을 선택해 주세요.")
+            return
+        }
+        val shareableEvents = events.filter { it.startAt != null && it.title.isNotBlank() }
+        if (shareableEvents.isEmpty()) {
+            emitMessage("공유할 일정이 없습니다.")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSyncingInternalEvents = true,
+                    snackbarMessage = null,
+                )
+            }
+
+            var hasError = false
+
+            shareableEvents.forEach { event ->
+                val startAt = event.startAt ?: return@forEach
+                val request = CreateCalendarEventRequest(
+                    title = event.title,
+                    description = event.body,
+                    location = event.location,
+                    allDay = false,
+                    startAt = java.time.Instant.ofEpochMilli(startAt).toString(),
+                    endAt = event.endAt?.let { java.time.Instant.ofEpochMilli(it).toString() },
+                )
+
+                val result = repository.createEvent(
+                    actorEmail = email,
+                    calendarId = calendarId,
+                    request = request,
+                )
+                if (result.isFailure) {
+                    hasError = true
+                }
+            }
+
+            if (hasError) {
+                _uiState.update {
+                    it.copy(
+                        isSyncingInternalEvents = false,
+                        snackbarMessage = "일부 일정을 공유하지 못했습니다.",
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isSyncingInternalEvents = false,
+                        snackbarMessage = "내부 일정이 공유 캘린더에 추가되었습니다.",
+                    )
+                }
+            }
+
+            val detailResult = repository.getCalendarDetail(email, calendarId)
+            detailResult.onSuccess { detail ->
+                _uiState.update { it.copy(myCalendarPreview = detail) }
+            }.onFailure { throwable ->
+                emitMessage(throwable.message ?: "캘린더 정보를 새로고침하지 못했습니다.")
+            }
+        }
     }
 
     fun consumeMessage() {

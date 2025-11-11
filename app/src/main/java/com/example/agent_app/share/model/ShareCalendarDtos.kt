@@ -79,4 +79,14 @@ data class ShareProfileResponse(
     val calendars: List<CalendarSummaryDto> = emptyList(),
 )
 
+@Serializable
+data class CreateCalendarEventRequest(
+    val title: String,
+    val description: String? = null,
+    val location: String? = null,
+    val allDay: Boolean = false,
+    val startAt: String,
+    val endAt: String? = null,
+)
+
 

@@ -1,6 +1,7 @@
 package com.example.agent_app.share.data
 
 import com.example.agent_app.share.model.CalendarDetailDto
+import com.example.agent_app.share.model.CreateCalendarEventRequest
 import com.example.agent_app.share.model.CreateCalendarRequest
 import com.example.agent_app.share.model.ShareProfileResponse
 import com.example.agent_app.share.network.ShareCalendarApi
@@ -46,6 +47,20 @@ class ShareCalendarRepository(
                 calendarId = calendarId,
             )
         }
+    }
+
+    suspend fun createEvent(
+        actorEmail: String,
+        calendarId: String,
+        request: CreateCalendarEventRequest,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            api.createEvent(
+                actorEmail = actorEmail,
+                calendarId = calendarId,
+                request = request,
+            )
+        }.map { }
     }
 }
 

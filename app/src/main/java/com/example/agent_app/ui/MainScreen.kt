@@ -191,7 +191,9 @@ fun AssistantApp(
         onShareCalendarSearch = shareCalendarViewModel::searchProfileByShareId,
         onShareCalendarMyCalendarClick = { id -> shareCalendarViewModel.loadMyCalendarDetail(selectedEmail, id) },
         onShareCalendarDismissPreview = shareCalendarViewModel::clearMyCalendarPreview,
-        onShareCalendarApplyInternalData = { shareCalendarViewModel.applyInternalDataPlaceholder() },
+        onShareCalendarApplyInternalData = { calendarId ->
+            shareCalendarViewModel.syncInternalEvents(selectedEmail, calendarId, uiState.events)
+        },
     )
     
     // 푸시 알림 권한 안내 다이얼로그
@@ -265,7 +267,7 @@ private fun AssistantScaffold(
     onShareCalendarSearch: () -> Unit,
     onShareCalendarMyCalendarClick: (String) -> Unit,
     onShareCalendarDismissPreview: () -> Unit,
-    onShareCalendarApplyInternalData: () -> Unit,
+    onShareCalendarApplyInternalData: (String) -> Unit,
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -369,7 +371,7 @@ private fun AssistantScaffold(
                             onSearchProfile = onShareCalendarSearch,
                             onMyCalendarClick = onShareCalendarMyCalendarClick,
                             onDismissPreview = onShareCalendarDismissPreview,
-                            onApplyInternalData = { onShareCalendarApplyInternalData() },
+                            onApplyInternalData = onShareCalendarApplyInternalData,
                             modifier = Modifier.padding(paddingValues),
                         )
                     }

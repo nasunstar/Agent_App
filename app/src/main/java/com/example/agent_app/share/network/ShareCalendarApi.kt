@@ -1,6 +1,8 @@
 package com.example.agent_app.share.network
 
 import com.example.agent_app.share.model.CalendarDetailDto
+import com.example.agent_app.share.model.CalendarEventDto
+import com.example.agent_app.share.model.CreateCalendarEventRequest
 import com.example.agent_app.share.model.CreateCalendarRequest
 import com.example.agent_app.share.model.ShareProfileResponse
 import retrofit2.http.Body
@@ -32,5 +34,12 @@ interface ShareCalendarApi {
         @Header("X-User-Email") actorEmail: String,
         @Path("id") calendarId: String,
     ): CalendarDetailDto
+
+    @POST("calendar/groups/{id}/events")
+    suspend fun createEvent(
+        @Header("X-User-Email") actorEmail: String,
+        @Path("id") calendarId: String,
+        @Body request: CreateCalendarEventRequest,
+    ): CalendarEventDto
 }
 
