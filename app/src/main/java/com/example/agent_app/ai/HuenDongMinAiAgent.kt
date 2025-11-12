@@ -59,6 +59,395 @@ class HuenDongMinAiAgent(
     }
     
     /**
+     * 시간 분석 결과 데이터 클래스
+     */
+    data class TimeAnalysisResult(
+        val hasExplicitDate: Boolean,  // 명시적 날짜가 있는지
+        val explicitDate: String?,  // 명시적 날짜 (예: "2025-10-16", "10월 16일")
+        val hasRelativeTime: Boolean,  // 상대적 시간 표현이 있는지
+        val relativeTimeExpressions: List<String>,  // 상대적 시간 표현 목록 (예: ["내일", "다음주 수요일"])
+        val hasTime: Boolean,  // 시간이 명시되어 있는지
+        val time: String?,  // 시간 (예: "14:00", "오후 3시")
+        val referenceTimestamp: Long,  // 기준 시점 (메일 수신 시간 등)
+        val currentTimestamp: Long,  // 현재 시간
+        val timezone: String = "Asia/Seoul"  // 시간대
+    )
+    
+    /**
+     * 텍스트에서 시간 정보를 추출하고 분석하는 함수 (AI tool 사용)
+     * 
+     * @param text 분석할 텍스트
+     * @param referenceTimestamp 기준 시점 (메일 수신 시간, SMS 수신 시간 등)
+     * @param sourceType 데이터 소스 타입 ("gmail", "sms", "ocr", "push_notification")
+     * @return TimeAnalysisResult 시간 분석 결과
+     */
+    private suspend fun analyzeTimeFromText(
+        text: String?,
+        referenceTimestamp: Long,
+        sourceType: String
+    ): TimeAnalysisResult = withContext(dispatcher) {
+        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+        val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        val systemPrompt = """
+            당신은 텍스트에서 시간 정보를 정확하게 추출하고 분석하는 전문가입니다.
+            
+            📅 기준 시점 정보:
+            - 기준 연도: ${referenceDate.year}년
+            - 기준 월: ${referenceDate.monthValue}월
+            - 기준 일: ${referenceDate.dayOfMonth}일
+            - 기준 요일: ${when (referenceDate.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "월요일"
+                java.time.DayOfWeek.TUESDAY -> "화요일"
+                java.time.DayOfWeek.WEDNESDAY -> "수요일"
+                java.time.DayOfWeek.THURSDAY -> "목요일"
+                java.time.DayOfWeek.FRIDAY -> "금요일"
+                java.time.DayOfWeek.SATURDAY -> "토요일"
+                java.time.DayOfWeek.SUNDAY -> "일요일"
+            }}
+            - 기준 Epoch ms: ${referenceTimestamp}ms
+            
+            📅 현재 시간 (참고용):
+            - 현재 연도: ${now.year}년
+            - 현재 월: ${now.monthValue}월
+            - 현재 일: ${now.dayOfMonth}일
+            - 현재 요일: ${when (now.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "월요일"
+                java.time.DayOfWeek.TUESDAY -> "화요일"
+                java.time.DayOfWeek.WEDNESDAY -> "수요일"
+                java.time.DayOfWeek.THURSDAY -> "목요일"
+                java.time.DayOfWeek.FRIDAY -> "금요일"
+                java.time.DayOfWeek.SATURDAY -> "토요일"
+                java.time.DayOfWeek.SUNDAY -> "일요일"
+            }}
+            - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
+            
+            🔍 분석 원칙:
+            
+            1. 명시적 날짜 찾기 (최우선):
+               - "2025년 10월 16일", "10월 16일", "10/16", "9.30", "2025-10-16" 등
+               - "11.11~12", "10/16~17" 같은 범위 형식도 인식 (시작 날짜 사용)
+               - 연도가 생략된 경우 기준 연도(${referenceDate.year}) 사용
+               
+            2. 상대적 시간 표현 찾기:
+               - "내일", "모레", "다음주", "담주", "다음주 수요일" 등
+               - 기준 시점(${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일)을 기준으로 계산
+               
+            3. 시간 찾기:
+               - "14시", "오후 3시", "15:00", "3pm" 등
+               
+            ⚠️ 중요:
+            - 명시적 날짜가 있으면 그 날짜를 기준으로 사용 (최우선!)
+            - 명시적 날짜가 있으면 상대적 표현("내일", "다음주" 등)은 무시하세요!
+            - 명시적 날짜가 없을 때만 상대적 표현을 추출하세요!
+            - 명시적 날짜가 없으면 기준 시점을 사용
+            - 모든 시간은 한국 표준시(KST, UTC+9) 기준
+            
+            🔴 예시:
+            - "9.30(화) 14시" → 명시적 날짜: "9.30", 상대적 표현: [] (없음) ✅
+            - "내일 오후 3시" → 명시적 날짜: null, 상대적 표현: ["내일"] ✅
+            - "9.30(화) 내일 14시" → 명시적 날짜: "9.30", 상대적 표현: [] (명시적 날짜가 있으므로 "내일" 무시) ✅
+            
+            출력 형식 (순수 JSON만):
+            {
+              "hasExplicitDate": true/false,
+              "explicitDate": "2025-10-16" 또는 null,
+              "hasRelativeTime": true/false,
+              "relativeTimeExpressions": ["내일", "다음주 수요일"] 또는 [],
+              "hasTime": true/false,
+              "time": "14:00" 또는 null
+            }
+        """.trimIndent()
+        
+        val userPrompt = """
+            다음 텍스트에서 시간 정보를 추출하고 분석하세요:
+            
+            ${text ?: "(텍스트 없음)"}
+            
+            기준 시점: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일
+        """.trimIndent()
+        
+        val messages = listOf(
+            AiMessage(role = "system", content = systemPrompt),
+            AiMessage(role = "user", content = userPrompt)
+        )
+        
+        val response = callOpenAi(messages)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== 시간 분석 AI 응답 ===")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        android.util.Log.d("HuenDongMinAiAgent", "=====================================")
+        
+        // JSON 파싱
+        val cleanedJson = response
+            .trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        
+        val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
+        
+        TimeAnalysisResult(
+            hasExplicitDate = jsonObj["hasExplicitDate"]?.jsonPrimitive?.content?.toBoolean() ?: false,
+            explicitDate = jsonObj["explicitDate"]?.jsonPrimitive?.content,
+            hasRelativeTime = jsonObj["hasRelativeTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
+            relativeTimeExpressions = jsonObj["relativeTimeExpressions"]?.jsonArray?.mapNotNull { 
+                it.jsonPrimitive.content 
+            } ?: emptyList(),
+            hasTime = jsonObj["hasTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
+            time = jsonObj["time"]?.jsonPrimitive?.content,
+            referenceTimestamp = referenceTimestamp,
+            currentTimestamp = now.toInstant().toEpochMilli(),
+            timezone = "Asia/Seoul"
+        )
+    }
+    
+    /**
+     * 시간 분석 결과를 JSON 형식의 이벤트 데이터로 변환하는 함수
+     * 
+     * @param timeAnalysis 시간 분석 결과
+     * @param title 이벤트 제목
+     * @param body 이벤트 본문
+     * @param location 장소 (선택)
+     * @return JSON 형식의 이벤트 데이터 (Map<String, JsonElement?>)
+     */
+    private fun convertTimeAnalysisToJson(
+        timeAnalysis: TimeAnalysisResult,
+        title: String,
+        body: String,
+        location: String? = null
+    ): Map<String, JsonElement?> {
+        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+        val referenceDate = java.time.Instant.ofEpochMilli(timeAnalysis.referenceTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        // 기준 시점 결정: 명시적 날짜가 있으면 그 날짜, 없으면 기준 시점
+        val baseDate = if (timeAnalysis.hasExplicitDate && timeAnalysis.explicitDate != null) {
+            // 명시적 날짜 파싱
+            parseExplicitDate(timeAnalysis.explicitDate, referenceDate)
+        } else {
+            referenceDate
+        }
+        
+        // 상대적 시간 표현 처리
+        // ⚠️ 중요: 명시적 날짜가 있으면 상대적 표현을 무시 (명시적 날짜가 최우선)
+        var targetDate = baseDate
+        if (!timeAnalysis.hasExplicitDate && timeAnalysis.hasRelativeTime && timeAnalysis.relativeTimeExpressions.isNotEmpty()) {
+            // 명시적 날짜가 없을 때만 상대적 표현 처리
+            targetDate = processRelativeTimeExpressions(
+                timeAnalysis.relativeTimeExpressions,
+                baseDate
+            )
+        }
+        
+        // 시간 처리
+        val hour = if (timeAnalysis.hasTime && timeAnalysis.time != null) {
+            parseTime(timeAnalysis.time)
+        } else {
+            0  // 시간이 없으면 00:00:00
+        }
+        
+        val minute = if (timeAnalysis.hasTime && timeAnalysis.time != null) {
+            parseMinute(timeAnalysis.time)
+        } else {
+            0
+        }
+        
+        // 최종 날짜/시간 생성
+        val finalDateTime = targetDate
+            .withHour(hour)
+            .withMinute(minute)
+            .withSecond(0)
+            .withNano(0)
+        
+        val startAt = finalDateTime.toInstant().toEpochMilli()
+        val endAt = startAt + (60 * 60 * 1000)  // 기본 1시간
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 결과:")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 최종 날짜/시간: $finalDateTime")
+        android.util.Log.d("HuenDongMinAiAgent", "  - Epoch ms: $startAt")
+        
+        return mapOf(
+            "title" to JsonPrimitive(title),
+            "startAt" to JsonPrimitive(startAt.toString()),
+            "endAt" to JsonPrimitive(endAt.toString()),
+            "location" to (location?.let { JsonPrimitive(it) } ?: JsonPrimitive("")),
+            "type" to JsonPrimitive("이벤트"),
+            "body" to JsonPrimitive(body)
+        )
+    }
+    
+    /**
+     * 명시적 날짜 파싱 (예: "2025-10-16", "10월 16일", "10/16")
+     */
+    private fun parseExplicitDate(
+        dateString: String,
+        referenceDate: java.time.ZonedDateTime
+    ): java.time.ZonedDateTime {
+        return try {
+            // "2025-10-16" 형식
+            if (dateString.matches(Regex("\\d{4}-\\d{1,2}-\\d{1,2}"))) {
+                val parts = dateString.split("-")
+                java.time.LocalDate.of(
+                    parts[0].toInt(),
+                    parts[1].toInt(),
+                    parts[2].toInt()
+                ).atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+            }
+            // "10월 16일" 형식
+            else if (dateString.contains("월") && dateString.contains("일")) {
+                val monthMatch = Regex("(\\d{1,2})월").find(dateString)
+                val dayMatch = Regex("(\\d{1,2})일").find(dateString)
+                val yearMatch = Regex("(\\d{4})년").find(dateString)
+                
+                val year = yearMatch?.groupValues?.get(1)?.toInt() ?: referenceDate.year
+                val month = monthMatch?.groupValues?.get(1)?.toInt() ?: referenceDate.monthValue
+                val day = dayMatch?.groupValues?.get(1)?.toInt() ?: referenceDate.dayOfMonth
+                
+                java.time.LocalDate.of(year, month, day)
+                    .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+            }
+            // "10/16~17" 또는 "11.11~12" 같은 범위 형식 (시작 날짜 사용)
+            else if (dateString.matches(Regex("\\d{1,2}[/.]\\d{1,2}~\\d{1,2}"))) {
+                val rangeParts = dateString.split("~")
+                val startDatePart = rangeParts[0]  // "11.11" 또는 "10/16"
+                val parts = startDatePart.split("/", ".")
+                val month = parts[0].toInt()
+                val day = parts[1].toInt()
+                java.time.LocalDate.of(referenceDate.year, month, day)
+                    .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+            }
+            // "10/16" 또는 "10.16" 형식
+            else if (dateString.matches(Regex("\\d{1,2}[/.]\\d{1,2}"))) {
+                val parts = dateString.split("/", ".")
+                val month = parts[0].toInt()
+                val day = parts[1].toInt()
+                java.time.LocalDate.of(referenceDate.year, month, day)
+                    .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+            }
+            // 기본값: 기준 날짜
+            else {
+                referenceDate
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "날짜 파싱 실패: $dateString", e)
+            referenceDate
+        }
+    }
+    
+    /**
+     * 상대적 시간 표현 처리 (예: "내일", "다음주 수요일")
+     */
+    private fun processRelativeTimeExpressions(
+        expressions: List<String>,
+        baseDate: java.time.ZonedDateTime
+    ): java.time.ZonedDateTime {
+        var result = baseDate
+        
+        for (expr in expressions) {
+            when {
+                expr.contains("내일") -> result = result.plusDays(1)
+                expr.contains("모레") -> result = result.plusDays(2)
+                expr.contains("다음주") || expr.contains("담주") -> {
+                    // 다음 주 월요일 찾기
+                    val daysUntilMonday = when (result.dayOfWeek) {
+                        java.time.DayOfWeek.MONDAY -> 7L
+                        java.time.DayOfWeek.TUESDAY -> 6L
+                        java.time.DayOfWeek.WEDNESDAY -> 5L
+                        java.time.DayOfWeek.THURSDAY -> 4L
+                        java.time.DayOfWeek.FRIDAY -> 3L
+                        java.time.DayOfWeek.SATURDAY -> 2L
+                        java.time.DayOfWeek.SUNDAY -> 1L
+                    }
+                    result = result.plusDays(daysUntilMonday)
+                    
+                    // 요일이 지정된 경우 추가 계산
+                    val dayOfWeekMap = mapOf(
+                        "월요일" to java.time.DayOfWeek.MONDAY,
+                        "화요일" to java.time.DayOfWeek.TUESDAY,
+                        "수요일" to java.time.DayOfWeek.WEDNESDAY,
+                        "목요일" to java.time.DayOfWeek.THURSDAY,
+                        "금요일" to java.time.DayOfWeek.FRIDAY,
+                        "토요일" to java.time.DayOfWeek.SATURDAY,
+                        "일요일" to java.time.DayOfWeek.SUNDAY
+                    )
+                    
+                    for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
+                        if (expr.contains(koreanDay)) {
+                            val currentDayOfWeek = result.dayOfWeek.value
+                            val targetDayOfWeek = dayOfWeek.value
+                            val daysToAdd = (targetDayOfWeek - currentDayOfWeek + 7) % 7
+                            if (daysToAdd > 0) {
+                                result = result.plusDays(daysToAdd.toLong())
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    /**
+     * 시간 파싱 (예: "14:00", "오후 3시", "15:00")
+     */
+    private fun parseTime(timeString: String): Int {
+        return try {
+            // "14:00" 형식
+            if (timeString.matches(Regex("\\d{1,2}:\\d{2}"))) {
+                timeString.split(":")[0].toInt()
+            }
+            // "14시" 형식
+            else if (timeString.contains("시")) {
+                Regex("(\\d{1,2})시").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+            }
+            // "오후 3시" 형식
+            else if (timeString.contains("오후") || timeString.contains("PM") || timeString.contains("pm")) {
+                val hour = Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+                if (hour < 12) hour + 12 else hour
+            }
+            // "오전" 형식
+            else if (timeString.contains("오전") || timeString.contains("AM") || timeString.contains("am")) {
+                Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+            }
+            else {
+                0
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "시간 파싱 실패: $timeString", e)
+            0
+        }
+    }
+    
+    /**
+     * 분 파싱
+     */
+    private fun parseMinute(timeString: String): Int {
+        return try {
+            // "14:30" 형식
+            if (timeString.matches(Regex("\\d{1,2}:\\d{2}"))) {
+                timeString.split(":")[1].toInt()
+            }
+            // "30분" 형식
+            else if (timeString.contains("분")) {
+                Regex("(\\d{1,2})분").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+            }
+            else {
+                0
+            }
+        } catch (e: Exception) {
+            0
+        }
+    }
+    
+    /**
      * Gmail 메일에서 일정 추출 (Tool: processGmailForEvent)
      */
     suspend fun processGmailForEvent(
@@ -69,6 +458,18 @@ class HuenDongMinAiAgent(
     ): AiProcessingResult = withContext(dispatcher) {
         
         android.util.Log.d("HuenDongMinAiAgent", "Gmail 처리 시작 - ID: $originalEmailId")
+        
+        // 1단계: 시간 분석 (새로운 파이프라인)
+        val timeAnalysis = analyzeTimeFromText(
+            text = emailBody,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "gmail"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
         
         // 실제 현재 시간 (한국시간)
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -106,7 +507,12 @@ class HuenDongMinAiAgent(
             - 현재 요일: $dayOfWeekKorean
             - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms (한국 시간 기준)
             
-            🔴🔴🔴 Gmail 시간 계산 원칙 (명시적 날짜 우선!) 🔴🔴🔴
+            ⏰ 시간 분석 결과 (이미 완료됨):
+            - 명시적 날짜: ${timeAnalysis.explicitDate ?: "없음"}
+            - 상대적 표현: ${timeAnalysis.relativeTimeExpressions.joinToString(", ") { it }.takeIf { it.isNotEmpty() } ?: "없음"}
+            - 시간: ${timeAnalysis.time ?: "없음"}
+            
+            🔴🔴🔴 Gmail 일정 추출 원칙 🔴🔴🔴
 
             **원칙 1: '기준 시점'의 확립**
             
@@ -340,32 +746,61 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
         android.util.Log.d("HuenDongMinAiAgent", "추출된 이벤트 개수: ${result.events.size}개")
         
+        // 시간 분석 결과를 사용하여 이벤트 시간 보정
+        val correctedEvents = if (result.type == "event" && result.events.isNotEmpty() && 
+            (timeAnalysis.hasExplicitDate || timeAnalysis.hasRelativeTime || timeAnalysis.hasTime)) {
+            // 시간 분석 결과가 있으면 이를 사용하여 이벤트 시간 보정
+            result.events.mapIndexed { index, eventData ->
+                val title = eventData["title"]?.jsonPrimitive?.content ?: emailSubject ?: "일정"
+                val body = eventData["body"]?.jsonPrimitive?.content ?: emailBody ?: ""
+                val location = eventData["location"]?.jsonPrimitive?.content
+                
+                // 시간 분석 결과를 사용하여 JSON 변환
+                val correctedEventData = convertTimeAnalysisToJson(
+                    timeAnalysis = timeAnalysis,
+                    title = title,
+                    body = body,
+                    location = location
+                )
+                
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 시간 분석 결과로 보정됨")
+                correctedEventData
+            }
+        } else {
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
+            result.events
+        }
+        
+        // 보정된 이벤트로 결과 업데이트
+        val finalResult = AiProcessingResult(
+            type = result.type,
+            confidence = result.confidence,
+            events = correctedEvents
+        )
+        
         // 모든 Gmail 메시지를 IngestItem으로 저장
-        val firstEvent = result.events.firstOrNull()
+        val firstEvent = finalResult.events.firstOrNull()
         val ingestItem = IngestItem(
             id = originalEmailId,
             source = "gmail",
-            type = result.type ?: "note",
+            type = finalResult.type ?: "note",
             title = emailSubject,
             body = emailBody,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = result.confidence,
+            confidence = finalResult.confidence,
             metaJson = null
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${result.type}, Events: ${result.events.size}개)")
+        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${finalResult.type}, Events: ${finalResult.events.size}개)")
         
         // Event 저장 (일정이 있는 경우만)
-        if (result.type == "event" && result.events.isNotEmpty()) {
+        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            result.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
-                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - AI 추출 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
-                
-                // ⚠️ correctPastDate 제거: AI가 정확하게 날짜를 추출하도록 프롬프트를 강화했으므로
-                // AI의 응답을 그대로 신뢰합니다.
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalEmailId, "gmail")
@@ -374,7 +809,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        result
+        finalResult
     }
     
     /**
@@ -440,6 +875,18 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "SMS 처리 시작 - ID: $originalSmsId")
         
+        // 1단계: 시간 분석 (새로운 파이프라인)
+        val timeAnalysis = analyzeTimeFromText(
+            text = smsBody,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "sms"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
+        
         // 실제 현재 시간 (한국시간)
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
         
@@ -463,21 +910,11 @@ class HuenDongMinAiAgent(
             
             ⚠️⚠️⚠️ 절대적으로 중요: SMS 수신 시간 기준 (한국 표준시 KST, Asia/Seoul, UTC+9) ⚠️⚠️⚠️
             
-            📱 SMS 수신 정보 (모든 시간 계산의 기준 시점):
+            📱 SMS 수신 정보 (참고용):
             - SMS 수신 연도: ${smsReceivedDate.year}년
             - SMS 수신 월: ${smsReceivedDate.monthValue}월
             - SMS 수신 일: ${smsReceivedDate.dayOfMonth}일
-            - SMS 수신 요일: ${when (smsReceivedDate.dayOfWeek) {
-                java.time.DayOfWeek.MONDAY -> "월요일"
-                java.time.DayOfWeek.TUESDAY -> "화요일"
-                java.time.DayOfWeek.WEDNESDAY -> "수요일"
-                java.time.DayOfWeek.THURSDAY -> "목요일"
-                java.time.DayOfWeek.FRIDAY -> "금요일"
-                java.time.DayOfWeek.SATURDAY -> "토요일"
-                java.time.DayOfWeek.SUNDAY -> "일요일"
-            }}
             - SMS 수신 Epoch ms: ${receivedTimestamp}ms
-            - 전체 시간: $smsReceivedDate
             
             📅 현재 시간 (참고용):
             - 현재 연도: ${now.year}년
@@ -486,42 +923,17 @@ class HuenDongMinAiAgent(
             - 현재 요일: $dayOfWeekKorean
             - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
             
-            🔴🔴🔴 SMS 시간 계산 원칙 (명시적 날짜 우선!) 🔴🔴🔴
-
-            **핵심 원칙: 명시적 날짜가 있으면 그 날짜를 기준, 없으면 SMS 수신 시간을 기준으로 계산!**
+            ⏰ 시간 분석 결과 (이미 완료됨):
+            - 명시적 날짜: ${timeAnalysis.explicitDate ?: "없음"}
+            - 상대적 표현: ${timeAnalysis.relativeTimeExpressions.joinToString(", ") { it }.takeIf { it.isNotEmpty() } ?: "없음"}
+            - 시간: ${timeAnalysis.time ?: "없음"}
             
-            **1. 명시적 날짜 처리 (최우선!):**
-            - SMS 본문에 "9.30", "10/16", "2025년 10월 16일" 등 명시적 날짜가 있으면 **그 날짜를 기준 시점으로 사용**
-            - 연도가 생략된 경우 현재 연도(${now.year}) 사용
-            - 예: "9.30(화) 14시" → ${now.year}년 9월 30일 14:00
-            - 예: "10월 16일 오후 3시" → ${now.year}년 10월 16일 15:00
+            🔴🔴🔴 SMS 일정 추출 원칙 🔴🔴🔴
             
-            **2. 상대적 표현 처리:**
-            
-            **명시적 날짜가 있는 경우:**
-            - 명시적 날짜를 기준 시점으로 사용
-            - 예: "10월 16일 ... 다음주 수요일" → 10월 16일 기준 다음주 수요일
-            
-            **명시적 날짜가 없는 경우:**
-            - SMS 수신 시간(${smsReceivedDate.year}년 ${smsReceivedDate.monthValue}월 ${smsReceivedDate.dayOfMonth}일)을 기준 시점으로 사용
-            - **"내일"**: SMS 수신일 + 1일
-            - **"모레"**: SMS 수신일 + 2일
-            - **"다음주"**: SMS 수신일 기준 다음 주
-              - 예: 수신일이 화요일 → 다음주 화요일 = 수신일 + 7일
-            - **"다음주 [요일]"**: 다음 주의 해당 요일
-              - 예: 수신일이 화요일, "다음주 수요일" → 수신일 다음 주 수요일
-            - **"다음달"**: SMS 수신일의 다음 달 같은 날짜
-              - 예: 수신일이 10월 15일 → 다음달 15일 = 11월 15일
-            - **"[요일]"**: SMS 수신일 기준 가장 가까운 해당 요일
-              - 수신일 이후 같은 요일이 있으면 그 날, 없으면 다음 주 해당 요일
-              - 예: 수신일이 화요일, "수요일" → 다음 날 수요일
-            
-            **요일 매핑:**
-            - 월요일 = 1, 화요일 = 2, 수요일 = 3, 목요일 = 4, 금요일 = 5, 토요일 = 6, 일요일 = 7
-            
-            **3. 시간 처리:**
-            - 시간이 명시되지 않으면 오전 12시(00:00:00) 기준
-            - "오후 3시", "15시" 등은 그대로 사용
+            **당신의 역할:**
+            - SMS 본문에서 일정/약속 정보를 추출하고 구조화된 JSON으로 반환하세요.
+            - 시간 계산은 이미 완료되었으므로, 일정 정보(제목, 장소, 본문 등)에 집중하세요.
+            - 시간 정보는 시간 분석 결과를 참고하되, 최종 시간 계산은 시스템에서 처리합니다.
         """.trimIndent()
         
         val userPrompt = """
@@ -742,8 +1154,40 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
         android.util.Log.d("HuenDongMinAiAgent", "추출된 이벤트 개수: ${result.events.size}개")
         
+        // 시간 분석 결과를 사용하여 이벤트 시간 보정
+        val correctedEvents = if (result.type == "event" && result.events.isNotEmpty() && 
+            (timeAnalysis.hasExplicitDate || timeAnalysis.hasRelativeTime || timeAnalysis.hasTime)) {
+            // 시간 분석 결과가 있으면 이를 사용하여 이벤트 시간 보정
+            result.events.mapIndexed { index, eventData ->
+                val title = eventData["title"]?.jsonPrimitive?.content ?: "일정"
+                val body = eventData["body"]?.jsonPrimitive?.content ?: smsBody
+                val location = eventData["location"]?.jsonPrimitive?.content
+                
+                // 시간 분석 결과를 사용하여 JSON 변환
+                val correctedEventData = convertTimeAnalysisToJson(
+                    timeAnalysis = timeAnalysis,
+                    title = title,
+                    body = body,
+                    location = location
+                )
+                
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 시간 분석 결과로 보정됨")
+                correctedEventData
+            }
+        } else {
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
+            result.events
+        }
+        
+        // 보정된 이벤트로 결과 업데이트
+        val finalResult = AiProcessingResult(
+            type = result.type,
+            confidence = result.confidence,
+            events = correctedEvents
+        )
+        
         // 모든 SMS 메시지를 IngestItem으로 저장 (일정이 없어도 저장)
-        val firstEvent = result.events.firstOrNull()
+        val firstEvent = finalResult.events.firstOrNull()
         
         // SMS 카테고리 정보 추출 (SmsMessage에서 전달받음)
         // smsAddress에서 카테고리 정보를 추출하기 위해 SmsReader의 분류 함수를 재사용
@@ -753,7 +1197,7 @@ class HuenDongMinAiAgent(
             append("{")
             append("\"category\":\"${smsCategory.name}\",")
             append("\"address\":\"$smsAddress\"")
-            if (result.type == "event" && firstEvent != null) {
+            if (finalResult.type == "event" && firstEvent != null) {
                 append(",\"event\":true")
             }
             append("}")
@@ -762,24 +1206,24 @@ class HuenDongMinAiAgent(
         val ingestItem = IngestItem(
             id = originalSmsId,
             source = "sms",
-            type = result.type ?: "note",
+            type = finalResult.type ?: "note",
             title = smsAddress,
             body = smsBody,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = result.confidence,
+            confidence = finalResult.confidence,
             metaJson = metaJson
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "SMS IngestItem 저장 완료 (Type: ${result.type}, Category: $smsCategory)")
+        android.util.Log.d("HuenDongMinAiAgent", "SMS IngestItem 저장 완료 (Type: ${finalResult.type}, Category: $smsCategory)")
         
         // Event 저장 (일정이 있는 경우만)
-        if (result.type == "event" && result.events.isNotEmpty()) {
+        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            result.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
-                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - AI 추출 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
@@ -788,7 +1232,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        result
+        finalResult
     }
     
     /**
@@ -804,6 +1248,31 @@ class HuenDongMinAiAgent(
     ): AiProcessingResult = withContext(dispatcher) {
         
         android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 처리 시작 - ID: $originalNotificationId")
+        
+        // 알림 본문 구성 (제목 + 본문 + 서브텍스트)
+        val fullText = buildString {
+            notificationTitle?.let { append(it) }
+            notificationText?.let { 
+                if (isNotEmpty()) append(" - ")
+                append(it) 
+            }
+            notificationSubText?.let { 
+                if (isNotEmpty()) append(" - ")
+                append(it) 
+            }
+        }
+        
+        // 1단계: 시간 분석 (새로운 파이프라인)
+        val timeAnalysis = analyzeTimeFromText(
+            text = fullText,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "push_notification"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
         
         // 실제 현재 시간 (한국시간)
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -823,39 +1292,16 @@ class HuenDongMinAiAgent(
             java.time.DayOfWeek.SUNDAY -> "일요일"
         }
         
-        // 알림 본문 구성 (제목 + 본문 + 서브텍스트)
-        val fullText = buildString {
-            notificationTitle?.let { append(it) }
-            notificationText?.let { 
-                if (isNotEmpty()) append(" - ")
-                append(it) 
-            }
-            notificationSubText?.let { 
-                if (isNotEmpty()) append(" - ")
-                append(it) 
-            }
-        }
-        
         val systemPrompt = """
             당신은 사용자의 개인 데이터를 지능적으로 관리하는 AI 비서 "HuenDongMin"입니다.
             
             ⚠️⚠️⚠️ 절대적으로 중요: 푸시 알림 수신 시간 기준 (한국 표준시 KST, Asia/Seoul, UTC+9) ⚠️⚠️⚠️
             
-            📱 푸시 알림 수신 정보 (모든 시간 계산의 기준 시점):
+            📱 푸시 알림 수신 정보 (참고용):
             - 알림 수신 연도: ${notificationReceivedDate.year}년
             - 알림 수신 월: ${notificationReceivedDate.monthValue}월
             - 알림 수신 일: ${notificationReceivedDate.dayOfMonth}일
-            - 알림 수신 요일: ${when (notificationReceivedDate.dayOfWeek) {
-                java.time.DayOfWeek.MONDAY -> "월요일"
-                java.time.DayOfWeek.TUESDAY -> "화요일"
-                java.time.DayOfWeek.WEDNESDAY -> "수요일"
-                java.time.DayOfWeek.THURSDAY -> "목요일"
-                java.time.DayOfWeek.FRIDAY -> "금요일"
-                java.time.DayOfWeek.SATURDAY -> "토요일"
-                java.time.DayOfWeek.SUNDAY -> "일요일"
-            }}
             - 알림 수신 Epoch ms: ${receivedTimestamp}ms
-            - 전체 시간: $notificationReceivedDate
             
             📅 현재 시간 (참고용):
             - 현재 연도: ${now.year}년
@@ -864,42 +1310,17 @@ class HuenDongMinAiAgent(
             - 현재 요일: $dayOfWeekKorean
             - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
             
-            🔴🔴🔴 푸시 알림 시간 계산 원칙 (명시적 날짜 우선!) 🔴🔴🔴
-
-            **핵심 원칙: 명시적 날짜가 있으면 그 날짜를 기준, 없으면 알림 수신 시간을 기준으로 계산!**
+            ⏰ 시간 분석 결과 (이미 완료됨):
+            - 명시적 날짜: ${timeAnalysis.explicitDate ?: "없음"}
+            - 상대적 표현: ${timeAnalysis.relativeTimeExpressions.joinToString(", ") { it }.takeIf { it.isNotEmpty() } ?: "없음"}
+            - 시간: ${timeAnalysis.time ?: "없음"}
             
-            **1. 명시적 날짜 처리 (최우선!):**
-            - 알림 본문에 "9.30", "10/16", "2025년 10월 16일" 등 명시적 날짜가 있으면 **그 날짜를 기준 시점으로 사용**
-            - 연도가 생략된 경우 현재 연도(${now.year}) 사용
-            - 예: "9.30(화) 14시" → ${now.year}년 9월 30일 14:00
-            - 예: "10월 16일 오후 3시" → ${now.year}년 10월 16일 15:00
+            🔴🔴🔴 푸시 알림 일정 추출 원칙 🔴🔴🔴
             
-            **2. 상대적 표현 처리:**
-            
-            **명시적 날짜가 있는 경우:**
-            - 명시적 날짜를 기준 시점으로 사용
-            - 예: "10월 16일 ... 다음주 수요일" → 10월 16일 기준 다음주 수요일
-            
-            **명시적 날짜가 없는 경우:**
-            - 알림 수신 시간(${notificationReceivedDate.year}년 ${notificationReceivedDate.monthValue}월 ${notificationReceivedDate.dayOfMonth}일)을 기준 시점으로 사용
-            - **"내일"**: 알림 수신일 + 1일
-            - **"모레"**: 알림 수신일 + 2일
-            - **"다음주"**: 알림 수신일 기준 다음 주
-              - 예: 수신일이 화요일 → 다음주 화요일 = 수신일 + 7일
-            - **"다음주 [요일]"**: 다음 주의 해당 요일
-              - 예: 수신일이 화요일, "다음주 수요일" → 수신일 다음 주 수요일
-            - **"다음달"**: 알림 수신일의 다음 달 같은 날짜
-              - 예: 수신일이 10월 15일 → 다음달 15일 = 11월 15일
-            - **"[요일]"**: 알림 수신일 기준 가장 가까운 해당 요일
-              - 수신일 이후 같은 요일이 있으면 그 날, 없으면 다음 주 해당 요일
-              - 예: 수신일이 화요일, "수요일" → 다음 날 수요일
-            
-            **요일 매핑:**
-            - 월요일 = 1, 화요일 = 2, 수요일 = 3, 목요일 = 4, 금요일 = 5, 토요일 = 6, 일요일 = 7
-            
-            **3. 시간 처리:**
-            - 시간이 명시되지 않으면 오전 12시(00:00:00) 기준
-            - "오후 3시", "15시" 등은 그대로 사용
+            **당신의 역할:**
+            - 푸시 알림에서 일정/약속 정보를 추출하고 구조화된 JSON으로 반환하세요.
+            - 시간 계산은 이미 완료되었으므로, 일정 정보(제목, 장소, 본문 등)에 집중하세요.
+            - 시간 정보는 시간 분석 결과를 참고하되, 최종 시간 계산은 시스템에서 처리합니다.
         """.trimIndent()
         
         val userPrompt = """
@@ -991,14 +1412,46 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
         android.util.Log.d("HuenDongMinAiAgent", "추출된 이벤트 개수: ${result.events.size}개")
         
+        // 시간 분석 결과를 사용하여 이벤트 시간 보정
+        val correctedEvents = if (result.type == "event" && result.events.isNotEmpty() && 
+            (timeAnalysis.hasExplicitDate || timeAnalysis.hasRelativeTime || timeAnalysis.hasTime)) {
+            // 시간 분석 결과가 있으면 이를 사용하여 이벤트 시간 보정
+            result.events.mapIndexed { index, eventData ->
+                val title = eventData["title"]?.jsonPrimitive?.content ?: (notificationTitle ?: "일정")
+                val body = eventData["body"]?.jsonPrimitive?.content ?: fullText
+                val location = eventData["location"]?.jsonPrimitive?.content
+                
+                // 시간 분석 결과를 사용하여 JSON 변환
+                val correctedEventData = convertTimeAnalysisToJson(
+                    timeAnalysis = timeAnalysis,
+                    title = title,
+                    body = body,
+                    location = location
+                )
+                
+                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - 시간 분석 결과로 보정됨")
+                correctedEventData
+            }
+        } else {
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
+            result.events
+        }
+        
+        // 보정된 이벤트로 결과 업데이트
+        val finalResult = AiProcessingResult(
+            type = result.type,
+            confidence = result.confidence,
+            events = correctedEvents
+        )
+        
         // 모든 푸시 알림을 IngestItem으로 저장 (일정이 없어도 저장)
-        val firstEvent = result.events.firstOrNull()
+        val firstEvent = finalResult.events.firstOrNull()
         
         val metaJson = buildString {
             append("{")
             append("\"app_name\":\"${appName ?: ""}\",")
             append("\"package_name\":\"\"")
-            if (result.type == "event" && firstEvent != null) {
+            if (finalResult.type == "event" && firstEvent != null) {
                 append(",\"event\":true")
             }
             append("}")
@@ -1007,24 +1460,24 @@ class HuenDongMinAiAgent(
         val ingestItem = IngestItem(
             id = originalNotificationId,
             source = "push_notification",
-            type = result.type ?: "note",
+            type = finalResult.type ?: "note",
             title = notificationTitle ?: appName ?: "푸시 알림",
             body = fullText,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = result.confidence,
+            confidence = finalResult.confidence,
             metaJson = metaJson
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 IngestItem 저장 완료 (Type: ${result.type})")
+        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 IngestItem 저장 완료 (Type: ${finalResult.type})")
         
         // Event 저장 (일정이 있는 경우만)
-        if (result.type == "event" && result.events.isNotEmpty()) {
+        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            result.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
-                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - AI 추출 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalNotificationId, "push_notification")
@@ -1033,7 +1486,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        result
+        finalResult
     }
     
     /**
@@ -1047,6 +1500,18 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "=== OCR 처리 시작 ===")
         android.util.Log.d("HuenDongMinAiAgent", "OCR ID: $originalOcrId")
+        
+        // 1단계: 시간 분석 (새로운 파이프라인)
+        val timeAnalysis = analyzeTimeFromText(
+            text = ocrText,
+            referenceTimestamp = currentTimestamp,
+            sourceType = "ocr"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
         
         // 실제 현재 시간 (한국시간)
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -1069,8 +1534,6 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "📱 OCR 처리 시간(ms): $currentTimestamp")
         android.util.Log.d("HuenDongMinAiAgent", "📅 현재 날짜: ${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일 $dayOfWeekKorean")
         android.util.Log.d("HuenDongMinAiAgent", "📅 OCR 처리 날짜: ${ocrProcessedDate.year}년 ${ocrProcessedDate.monthValue}월 ${ocrProcessedDate.dayOfMonth}일")
-        android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI에게 전달: ${now.year}년 ${now.monthValue}월을 기준으로 해석하라고 명령!")
-        android.util.Log.d("HuenDongMinAiAgent", "🕐 전체 현재 시간 정보: $now")
         
         val systemPrompt = """
             당신은 이미지(OCR)에서 일정을 추출하는 AI 비서 "HuenDongMin"입니다.
@@ -1090,32 +1553,17 @@ class HuenDongMinAiAgent(
             - OCR 처리 일: ${ocrProcessedDate.dayOfMonth}일
             - OCR 처리 Epoch ms: ${currentTimestamp}ms
             
-            🔴🔴🔴 OCR 시간 계산 원칙 (OCR은 명시적 날짜 중심!) 🔴🔴🔴
-
-            **핵심 원칙: OCR은 이미지에서 텍스트를 추출한 것이므로, 명시적 날짜만 사용합니다!**
+            ⏰ 시간 분석 결과 (이미 완료됨):
+            - 명시적 날짜: ${timeAnalysis.explicitDate ?: "없음"}
+            - 상대적 표현: ${timeAnalysis.relativeTimeExpressions.joinToString(", ") { it }.takeIf { it.isNotEmpty() } ?: "없음"}
+            - 시간: ${timeAnalysis.time ?: "없음"}
             
-            **1. 명시적 날짜 처리 (최우선!):**
-            - OCR 텍스트에 "2025,10,30.(목)", "10월 30일", "10.30" 등 명시적 날짜가 있으면 그 날짜를 그대로 사용
-            - 연도가 생략된 경우 현재 연도(${now.year}) 사용
-            - 예: "10월 30일" → ${now.year}년 10월 30일
-            - 예: "2025,10,30.(목)" → 2025년 10월 30일 목요일
+            🔴🔴🔴 OCR 일정 추출 원칙 🔴🔴🔴
             
-            **2. 상대적 표현 처리:**
-            - OCR에는 일반적으로 "내일", "다음주" 같은 상대적 표현이 거의 없음
-            - 만약 상대적 표현이 있다면, **현재 시간(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)**을 기준으로 계산
-            - 예: "내일" → ${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일
-            
-            **3. 시간 처리:**
-            - 시간이 명시되지 않으면 오전 12시(00:00:00) 기준
-            - "11:30" → 11:30:00 KST
-            - "14시" → 14:00:00 KST
-            - "오후 3시" → 15:00:00 KST
-            
-            ⚠️ **절대 금지:**
-            - 명시적 날짜를 수정하거나 변경 ❌
-            - "10월 30일"을 "10월 29일"로 변경 ❌
-            - 명시적 날짜를 상대적 표현으로 해석 ❌
-            - OCR 텍스트에 없는 날짜를 임의로 추가 ❌
+            **당신의 역할:**
+            - OCR 텍스트에서 일정/약속 정보를 추출하고 구조화된 JSON으로 반환하세요.
+            - 시간 계산은 이미 완료되었으므로, 일정 정보(제목, 장소, 본문 등)에 집중하세요.
+            - 시간 정보는 시간 분석 결과를 참고하되, 최종 시간 계산은 시스템에서 처리합니다.
         """.trimIndent()
         
         // Few-shot 예시 (하드코딩 - 리소스 로딩 문제 우회)
@@ -1286,40 +1734,69 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "Type: ${result.type}, Confidence: ${result.confidence}")
         android.util.Log.d("HuenDongMinAiAgent", "추출된 이벤트 개수: ${result.events.size}개")
         
+        // 시간 분석 결과를 사용하여 이벤트 시간 보정
+        val correctedEvents = if (result.type == "event" && result.events.isNotEmpty() && 
+            (timeAnalysis.hasExplicitDate || timeAnalysis.hasRelativeTime || timeAnalysis.hasTime)) {
+            // 시간 분석 결과가 있으면 이를 사용하여 이벤트 시간 보정
+            result.events.mapIndexed { index, eventData ->
+                val title = eventData["title"]?.jsonPrimitive?.content ?: "일정"
+                val body = eventData["body"]?.jsonPrimitive?.content ?: ocrText
+                val location = eventData["location"]?.jsonPrimitive?.content
+                
+                // 시간 분석 결과를 사용하여 JSON 변환
+                val correctedEventData = convertTimeAnalysisToJson(
+                    timeAnalysis = timeAnalysis,
+                    title = title,
+                    body = body,
+                    location = location
+                )
+                
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 시간 분석 결과로 보정됨")
+                correctedEventData
+            }
+        } else {
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
+            result.events
+        }
+        
+        // 보정된 이벤트로 결과 업데이트
+        val finalResult = AiProcessingResult(
+            type = result.type,
+            confidence = result.confidence,
+            events = correctedEvents
+        )
+        
         // Event 저장 (일정인 경우만 IngestItem과 Event 저장)
-        if (result.type == "event" && result.events.isNotEmpty()) {
+        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
             // 일정이 있는 경우에만 IngestItem 저장 (원본 보관, 첫 번째 이벤트 정보 사용)
-            val firstEvent = result.events.firstOrNull()
+            val firstEvent = finalResult.events.firstOrNull()
             val ingestItem = IngestItem(
                 id = originalOcrId,
                 source = "ocr",
-                type = result.type,
+                type = finalResult.type,
                 title = firstEvent?.get("title")?.jsonPrimitive?.content,
                 body = ocrText,
                 timestamp = currentTimestamp,
                 dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-                confidence = result.confidence,
+                confidence = finalResult.confidence,
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
             android.util.Log.d("HuenDongMinAiAgent", "OCR IngestItem 저장 완료 (일정 있음)")
             
             // Event 저장 (여러 개 지원)
-            result.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
-                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - AI 추출 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
-                
-                // 🔍 AI 응답 검증 및 수정
-                val correctedEventData = validateAndCorrectAiResponse(eventData, ocrText, now)
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
-                val event = createEventFromAiData(correctedEventData, originalOcrId, "ocr")
+                val event = createEventFromAiData(eventData, originalOcrId, "ocr")
                 eventDao.upsert(event)
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
         }
         
-        result
+        finalResult
     }
     
     /**

@@ -44,13 +44,17 @@ class GmailRepositoryWithAi(
             
             // 시간 범위 필터링을 위한 쿼리 생성
             // Gmail API의 after: 쿼리는 날짜 형식(YYYY/MM/DD) 또는 Unix timestamp(초)를 받습니다
+            // 정확한 시간 필터링을 위해 Unix timestamp(초 단위)를 직접 사용
             val query = if (sinceTimestamp > 0L) {
-                // Unix timestamp를 날짜 형식으로 변환
-                val date = java.time.Instant.ofEpochMilli(sinceTimestamp)
+                // Unix timestamp(밀리초)를 초 단위로 변환하여 Gmail API에 전달
+                val timestampSeconds = sinceTimestamp / 1000
+                val dateStr = java.time.Instant.ofEpochMilli(sinceTimestamp)
                     .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                    .toLocalDate()
-                "after:${date.year}/${date.monthValue}/${date.dayOfMonth}"
+                    .toString()
+                android.util.Log.d("GmailRepositoryWithAi", "기간별 필터링 적용 - sinceTimestamp: $sinceTimestamp (${dateStr}), 쿼리: after:$timestampSeconds")
+                "after:$timestampSeconds"
             } else {
+                android.util.Log.d("GmailRepositoryWithAi", "기간별 필터링 없음 - 전체 메시지 조회")
                 null
             }
             
