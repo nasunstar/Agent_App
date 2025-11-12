@@ -1,4 +1,178 @@
 <resources>
-    <string name="app_name">Agent_App</string>
-    <string name="widget_description">일정 및 마감일 요약</string>
+    <!-- === MOA 브랜딩 === -->
+    <string name="app_name">모아</string>
+    <string name="widget_description">오늘의 기록을 정리해드려요</string>
+    
+    <!-- === MOA: 1인칭 화법 + 쉬운 한글 === -->
+    
+    <!-- 액션 문구 (action_me_*) -->
+    <string name="action_me_summarize">제가 내용을 정리해두었어요.</string>
+    <string name="action_me_checking">제가 확인해볼게요…</string>
+    <string name="action_me_add_to_calendar">일정으로 옮겨둘게요.</string>
+    <string name="action_me_processing">제가 처리하고 있어요…</string>
+    <string name="action_me_saving">기록함에 저장하고 있어요…</string>
+    
+    <!-- 상태 문구 (state_me_*) - MOA 톤 -->
+    <string name="state_me_understanding">제가 새 내용을 이해하고 있어요.</string>
+    <string name="state_me_done">정리 완료! 이렇게 정리했어요.</string>
+    <string name="state_me_waiting">제가 준비 중이에요 🕓</string>
+    <string name="state_me_loading">내용을 정리하고 있어요 💡</string>
+    <string name="state_me_success">완료! 이렇게 정리됐어요 📚</string>
+    <string name="state_me_error">지금은 잠시 어려움이 있어요 🔄</string>
+    
+    <!-- 빈 상태 (empty_*) - MOA 톤 -->
+    <string name="empty_records">새 기록이 없어요 🌱</string>
+    <string name="empty_events_today">오늘 예정된 일정이 없어요.</string>
+    <string name="empty_events_week">이번주 예정된 일정이 없어요.</string>
+    <string name="empty_message">제가 기다리고 있을게요 🙂</string>
+    
+    <!-- 에러 문구 (error_me_*) -->
+    <string name="error_me_retry">제가 지금은 처리하지 못했어요. 잠시 후 다시 해볼게요.</string>
+    <string name="error_me_network">네트워크 연결을 확인해볼게요.</string>
+    
+    <!-- 탭/버튼 (tab_*, btn_*) -->
+    <string name="tab_original">원본 보기</string>
+    <string name="tab_summary">정리한 내용 보기</string>
+    <string name="btn_view_details">자세히 보기</string>
+    <string name="btn_save_record">기록함에 저장</string>
+    <string name="btn_add_calendar">일정으로 추가</string>
+    <string name="btn_view_all">전체 보기</string>
+    
+    <!-- 신뢰도 라벨 (label_confidence_*) -->
+    <string name="label_confidence_high">정확하게 인식했어요 😄</string>
+    <string name="label_confidence_mid">대체로 정확해요 🙂</string>
+    <string name="label_confidence_low">조금 확인이 필요해요 🤔</string>
+    
+    <!-- 출처 뱃지 (badge_from_*) -->
+    <string name="badge_from_mail">메일에서 가져왔어요 💌</string>
+    <string name="badge_from_image">사진에서 찾았어요 📸</string>
+    <string name="badge_from_chat">대화에서 정리했어요 💬</string>
+    <string name="badge_from_sms">문자에서 확인했어요 📱</string>
+    
+    <!-- 대시보드 (dashboard_*) - MOA 톤 -->
+    <string name="dashboard_greeting">안녕하세요,\n오늘도 제가 도와드릴게요 🌿</string>
+    <string name="dashboard_today_summary">오늘의 한눈 요약 🌿</string>
+    <string name="dashboard_today_brief">오늘의 한눈 요약</string>
+    <string name="dashboard_actions_today_agenda">오늘 일정 보기 📅</string>
+    <string name="dashboard_actions_open_inbox">메일함 열기 💌</string>
+    <string name="dashboard_title_today">오늘 일정</string>
+    <string name="dashboard_title_week">이번주 일정</string>
+    <string name="dashboard_more_events">… 외 %1$d개</string>
+    
+    <!-- 인사말 시간대별 (greeting_*) -->
+    <string name="greeting_morning">좋은 아침이에요! 오늘도 제가 도와드릴게요.</string>
+    <string name="greeting_afternoon">좋은 오후네요! 오늘 하루는 어떠신가요?</string>
+    <string name="greeting_evening">좋은 저녁이에요! 오늘 하루 고생하셨어요.</string>
+    <string name="greeting_night">안녕하세요! 오늘도 수고하셨어요.</string>
+    
+    <!-- 챗봇 화면 (chat_*) -->
+    <string name="chat_title">대화</string>
+    <string name="chat_error_title">제가 처리하지 못했어요</string>
+    <string name="chat_confirm">알겠어요</string>
+    <string name="chat_question_label">질문하신 내용</string>
+    <string name="chat_answer_label">제가 찾아본 내용</string>
+    <string name="chat_context_label">참고한 내용</string>
+    <string name="chat_input_placeholder">예: 이번 주 회의 일정 알려줘</string>
+    <string name="chat_send_button">질문하기</string>
+    <string name="chat_current_time_label">현재 시간</string>
+    <string name="chat_processing">제가 확인하고 있어요…</string>
+    
+    <!-- 탭 레이블 (tab_*) -->
+    <string name="tab_dashboard">대시보드</string>
+    <string name="tab_chat">대화</string>
+    <string name="tab_calendar">일정</string>
+    <string name="tab_inbox">수집함</string>
+    <string name="tab_share_calendar">공유 캘린더</string>
+    
+    <!-- Gmail 수집 (gmail_*) -->
+    <string name="gmail_sync_title">메일 수집함</string>
+    <string name="gmail_sync_recent">최근 동기화</string>
+    <string name="gmail_sync_button">최근 20개 동기화</string>
+    <string name="gmail_sync_progress">제가 메일을 확인하고 있어요…</string>
+    <string name="gmail_sync_updates">메일 최근 업데이트 기록</string>
+    <string name="gmail_sync_updates_with_account">메일 최근 업데이트 기록: %1$s</string>
+    
+    <!-- SMS 스캔 (sms_*) -->
+    <string name="sms_scan_title">문자 메시지 스캔</string>
+    <string name="sms_scan_recent">최신 스캔</string>
+    <string name="sms_scan_progress">제가 문자를 확인하고 있어요…</string>
+    <string name="sms_scan_date_range">스캔 범위: %1$s ~ %2$s</string>
+    <string name="sms_scan_updates">문자 최근 업데이트 기록</string>
+    <string name="sms_scan_date_picker">기간 선택</string>
+    
+    <!-- 통화 녹음 (call_*) -->
+    <string name="call_scan_title">통화 녹음 텍스트 스캔</string>
+    <string name="call_scan_button">스캔</string>
+    <string name="call_scan_description">스캔 버튼을 누르면 날짜를 선택할 수 있어요. 선택한 날짜 이후의 통화 녹음 텍스트 파일에서 일정을 추출해드릴게요. (삼성 갤럭시 전용)</string>
+    
+    <!-- Google 계정 (google_*) -->
+    <string name="google_accounts_title">Google 계정 관리</string>
+    <string name="google_accounts_add">계정 추가</string>
+    <string name="google_accounts_delete">삭제</string>
+    
+    <!-- 인박스 (inbox_*) -->
+    <string name="inbox_title">수집함</string>
+    <string name="inbox_refresh">새로고침</string>
+    <string name="inbox_category_all">전체</string>
+    <string name="inbox_category_ocr">사진</string>
+    <string name="inbox_category_sms">문자</string>
+    <string name="inbox_category_email">메일</string>
+    <string name="inbox_category_push">알림</string>
+    
+    <!-- 분류된 데이터 (classified_*) -->
+    <string name="classified_events_title">일정 (%1$d개)</string>
+    <string name="classified_notes_title">메모 (%1$d개)</string>
+    <string name="classified_contacts_title">연락처 (%1$d개)</string>
+    <string name="classified_empty_message">메일을 동기화하면 제가 자동으로 분류한 데이터가 여기에 표시돼요.</string>
+    
+    <!-- 권한 (permission_*) -->
+    <string name="permission_push_title">푸시 알림 접근 권한 필요</string>
+    <string name="permission_push_message">제가 푸시 알림을 확인하려면 접근 권한이 필요해요. 설정에서 권한을 허용해주세요.</string>
+    <string name="permission_push_open_settings">설정 열기</string>
+    <string name="permission_push_later">나중에</string>
+    
+    <!-- 개발자 (dev_*) -->
+    <string name="dev_test_user_title">테스트 사용자 추가</string>
+    <string name="dev_test_user_email_label">이메일 주소</string>
+    <string name="dev_test_user_add">추가</string>
+    <string name="dev_test_user_cancel">취소</string>
+    <string name="dev_db_reset_title">기록함 초기화</string>
+    <string name="dev_db_reset_message">모든 수집된 데이터(일정, 연락처, 메모, 수집 항목 등)를 삭제해요. 이 작업은 되돌릴 수 없어요.</string>
+    <string name="dev_db_reset_confirm_title">기록함 초기화 확인</string>
+    <string name="dev_db_reset_confirm_message">모든 데이터를 삭제하시겠어요? 이 작업은 되돌릴 수 없어요.</string>
+    <string name="dev_db_reset_button">초기화</string>
+    <string name="dev_db_reset_progress">제가 초기화하고 있어요…</string>
+    
+    <!-- 공통 (common_*) -->
+    <string name="common_confirm">확인</string>
+    <string name="common_cancel">취소</string>
+    <string name="common_more_items">… 외 %1$d개</string>
+    
+    <!-- 인박스 빈 상태 (inbox_empty_*) -->
+    <string name="inbox_empty_ocr">사진 데이터가 없어요.</string>
+    <string name="inbox_empty_sms">문자 데이터가 없어요.</string>
+    <string name="inbox_empty_email">메일 데이터가 없어요.</string>
+    <string name="inbox_empty_push">알림 데이터가 없어요.</string>
+    <string name="inbox_empty_category">카테고리를 선택해주세요.</string>
+    
+    <!-- 인박스 요약 (inbox_summary_*) -->
+    <string name="inbox_summary_total">전체</string>
+    <string name="inbox_summary_ocr">사진</string>
+    <string name="inbox_summary_sms">문자</string>
+    <string name="inbox_summary_email">메일</string>
+    <string name="inbox_summary_push">알림</string>
+    
+    <!-- 위젯 (widget_*) - MOA 톤 -->
+    <string name="widget_title">모아 위젯</string>
+    <string name="widget_greeting">안녕하세요, 제가 오늘을 정리해둘게요 🌿</string>
+    <string name="widget_today_summary">오늘의 한눈 요약</string>
+    <string name="widget_btn_agenda">오늘 일정 보기 📅</string>
+    <string name="widget_btn_inbox">메일함 열기 💌</string>
+    <string name="widget_btn_quick_note">새 기록 추가 🗒️</string>
+    <string name="widget_btn_sync">동기화하기 🔄</string>
+    <string name="widget_empty">아직 새 기록이 없어요 🙂</string>
+    <string name="widget_loading">제가 정리 중이에요… 💡</string>
+    <string name="widget_done">완료! 이렇게 정리됐어요 📚</string>
+    <string name="widget_events_count">오늘 일정 %1$d개</string>
+    <string name="widget_syncing">동기화 중…</string>
 </resources>

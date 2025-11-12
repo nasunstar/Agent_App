@@ -1,27 +1,41 @@
 package com.example.agent_app.ui
 
-import androidx.compose.foundation.clickable
+/**
+ * ⚠️ UI 리브랜딩 안전장치 ⚠️
+ * 
+ * 이 파일은 UI/UX 리브랜딩 작업 중입니다.
+ * 다음 항목은 절대 변경하지 마세요:
+ * - Repository/UseCase/DAO/네트워크/도메인 모델/라우팅
+ * - 화면 로직과 데이터 흐름 (viewModel.uiState 사용 방식 등)
+ * - 이벤트 필터링/정렬 로직 (isToday, isThisWeek 등)
+ * 
+ * 변경 가능한 항목:
+ * - 표시되는 텍스트 (strings.xml 사용)
+ * - 컴포넌트 스타일링 (테마 토큰 사용)
+ * - 아이콘/색상 표현
+ * - 레이아웃 간격/모서리 등 시각적 요소
+ */
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.agent_app.R
 import com.example.agent_app.data.entity.Event
+import com.example.agent_app.ui.common.UiState
+import com.example.agent_app.ui.common.components.*
+import com.example.agent_app.ui.theme.*
 import com.example.agent_app.util.TimeFormatter
-import java.text.SimpleDateFormat
 import java.util.*
 
 /**
@@ -43,15 +57,36 @@ fun DashboardScreen(
         event.startAt != null && isThisWeek(event.startAt!!)
     }.sortedBy { it.startAt }
     
+    // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
+    
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(Dimens.spacingMD),
+        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
     ) {
-        // 환영 메시지
+        // 환영 메시지 (1인칭 화법)
         WelcomeHeader()
+        
+        // 액션 칩 (빠른 액션)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
+        ) {
+            ActionChip(
+                text = stringResource(R.string.dashboard_actions_today_agenda),
+                icon = Icons.Filled.DateRange,
+                onClick = onNavigateToCalendar,
+                modifier = Modifier.weight(1f)
+            )
+            ActionChip(
+                text = stringResource(R.string.dashboard_actions_open_inbox),
+                icon = Icons.Filled.Email,
+                onClick = onNavigateToInbox,
+                modifier = Modifier.weight(1f)
+            )
+        }
         
         // 오늘 일정 카드
         TodayScheduleCard(
@@ -74,15 +109,16 @@ private fun WelcomeHeader() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = Dimens.spacingSM)
     ) {
         Text(
-            text = "안녕하세요, 고객님!",
+            text = stringResource(R.string.dashboard_greeting),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(Dimens.spacingXS))
         Text(
             text = getGreetingMessage(),
             style = MaterialTheme.typography.bodyMedium,
@@ -97,71 +133,44 @@ private fun TodayScheduleCard(
     onViewAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    DashboardCard(
-        title = "오늘 일정",
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    InfoCard(
+        title = stringResource(R.string.dashboard_title_today),
+        summary = stringResource(R.string.dashboard_today_summary),
         icon = Icons.Filled.DateRange,
-        iconTint = Color(0xFF9C27B0), // 보라색
-        onViewAll = onViewAll,
+        iconTint = MoaPrimary, // MOA 메인 색상
+        accentColor = if (isDark) MoaPrimaryDark.copy(alpha = 0.2f) else MoaPrimaryLight.copy(alpha = 0.15f), // 나뭇잎 테마 녹색 계열
+        onClick = onViewAll,
         modifier = modifier
     ) {
         if (events.isEmpty()) {
-            Text(
-                text = "오늘 예정된 일정이 없습니다",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
+            EmptyState(messageResId = R.string.empty_events_today)
         } else {
-            events.take(3).forEach { event ->
-                ScheduleItem(event = event)
-                if (event != events.take(3).last()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
+            ) {
+                events.take(3).forEach { event ->
+                    TimelineItem(
+                        title = event.title,
+                        time = formatTime(event.startAt),
+                        location = event.location,
+                        source = event.sourceType ?: "gmail"
+                    )
                 }
-            }
-            if (events.size > 3) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "... 외 ${events.size - 3}개",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (events.size > 3) {
+                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                    Text(
+                        text = stringResource(R.string.dashboard_more_events, events.size - 3),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
-private fun ScheduleItem(event: Event) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 시간
-        Text(
-            text = formatTime(event.startAt),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(60.dp)
-        )
-        
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = event.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-            if (!event.location.isNullOrBlank()) {
-                Text(
-                    text = event.location ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
+// ScheduleItem은 TimelineItem으로 대체됨 (제거)
 
 @Composable
 private fun WeekScheduleCard(
@@ -169,144 +178,43 @@ private fun WeekScheduleCard(
     onViewAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    DashboardCard(
-        title = "이번주 일정",
-        icon = Icons.Filled.DateRange,
-        iconTint = Color(0xFF9C27B0), // 보라색
-        onViewAll = onViewAll,
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    InfoCard(
+        title = stringResource(R.string.dashboard_title_week),
+        icon = Icons.Filled.CalendarMonth,
+        iconTint = MoaPrimary, // MOA 메인 색상
+        accentColor = if (isDark) MoaPrimaryDark.copy(alpha = 0.2f) else MoaPrimaryLight.copy(alpha = 0.15f), // 나뭇잎 테마 녹색 계열
+        onClick = onViewAll,
         modifier = modifier
     ) {
         if (events.isEmpty()) {
-            Text(
-                text = "이번주 예정된 일정이 없습니다",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
+            EmptyState(messageResId = R.string.empty_events_week)
         } else {
-            events.take(5).forEach { event ->
-                WeekScheduleItem(event = event)
-                if (event != events.take(5).last()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-            if (events.size > 5) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "... 외 ${events.size - 5}개",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WeekScheduleItem(event: Event) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 날짜와 시간
-        Column(modifier = Modifier.width(80.dp)) {
-            if (event.startAt != null) {
-                Text(
-                    text = formatDayOfWeek(event.startAt!!),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = formatTime(event.startAt),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-        
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = event.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-            if (!event.location.isNullOrBlank()) {
-                Text(
-                    text = event.location ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DashboardCard(
-    title: String,
-    icon: ImageVector,
-    iconTint: Color,
-    onViewAll: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(enabled = onViewAll != null) { onViewAll?.invoke() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // 헤더
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                events.take(5).forEach { event ->
+                    TimelineItem(
+                        title = event.title,
+                        time = formatTime(event.startAt),
+                        location = event.location,
+                        source = event.sourceType ?: "gmail"
                     )
                 }
-                if (onViewAll != null) {
-                    Icon(
-                        imageVector = Icons.Filled.ArrowForward,
-                        contentDescription = "전체 보기",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                if (events.size > 5) {
+                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                    Text(
+                        text = stringResource(R.string.dashboard_more_events, events.size - 5),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
-            
-            // 내용
-            content()
         }
     }
 }
+
+// WeekScheduleItem과 DashboardCard는 공통 컴포넌트로 대체됨 (제거)
 
 // 유틸리티 함수들
 private fun isToday(timestamp: Long): Boolean {
@@ -383,13 +291,118 @@ private fun formatDayOfWeek(timestamp: Long): String {
     return days[dayOfWeek - 1] + "요일"
 }
 
+@Composable
 private fun getGreetingMessage(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     return when (hour) {
-        in 5..11 -> "좋은 아침이에요! 오늘도 화이팅하세요."
-        in 12..17 -> "좋은 오후네요! 오늘 하루는 어떠신가요?"
-        in 18..21 -> "좋은 저녁이에요! 오늘 하루 고생하셨어요."
-        else -> "안녕하세요! 오늘도 수고하셨어요."
+        in 5..11 -> stringResource(R.string.greeting_morning)
+        in 12..17 -> stringResource(R.string.greeting_afternoon)
+        in 18..21 -> stringResource(R.string.greeting_evening)
+        else -> stringResource(R.string.greeting_night)
+    }
+}
+
+// === Preview ===
+
+@Preview(name = "로딩 상태", showBackground = true)
+@Composable
+private fun DashboardLoadingPreview() {
+    AgentAppTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Dimens.spacingMD),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            WelcomeHeader()
+            LoadingState()
+        }
+    }
+}
+
+@Preview(name = "빈 상태", showBackground = true)
+@Composable
+private fun DashboardEmptyPreview() {
+    AgentAppTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Dimens.spacingMD),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            WelcomeHeader()
+            TodayScheduleCard(
+                events = emptyList(),
+                onViewAll = {}
+            )
+        }
+    }
+}
+
+@Preview(name = "성공 상태 (일정 있음)", showBackground = true)
+@Composable
+private fun DashboardSuccessPreview() {
+    AgentAppTheme {
+        val sampleEvents = listOf(
+            Event(
+                id = 1,
+                userId = 1,
+                typeId = 1,
+                title = "팀 미팅",
+                body = null,
+                startAt = System.currentTimeMillis() + 3600000, // 1시간 후
+                endAt = null,
+                location = "회의실 A",
+                status = "confirmed",
+                sourceType = "gmail",
+                sourceId = "1"
+            ),
+            Event(
+                id = 2,
+                userId = 1,
+                typeId = 1,
+                title = "프로젝트 리뷰",
+                body = null,
+                startAt = System.currentTimeMillis() + 7200000, // 2시간 후
+                endAt = null,
+                location = null,
+                status = "confirmed",
+                sourceType = "ocr",
+                sourceId = "2"
+            )
+        )
+        
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Dimens.spacingMD),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            WelcomeHeader()
+            TodayScheduleCard(
+                events = sampleEvents,
+                onViewAll = {}
+            )
+        }
+    }
+}
+
+@Preview(name = "오류 상태", showBackground = true)
+@Composable
+private fun DashboardErrorPreview() {
+    AgentAppTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Dimens.spacingMD),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            WelcomeHeader()
+            StatusIndicator(
+                state = UiState.Error,
+                message = stringResource(R.string.error_me_retry)
+            )
+        }
     }
 }
 

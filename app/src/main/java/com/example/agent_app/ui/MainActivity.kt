@@ -138,6 +138,14 @@ class MainActivity : ComponentActivity() {
 
         // 공유된 텍스트 처리 (삼성 녹음 앱에서 STT 텍스트 공유)
         handleSharedText(intent)
+        
+        // 위젯에서 전달된 탭 정보 처리
+        val initialTab = when (intent.getStringExtra("tab")) {
+            "calendar" -> AssistantTab.Calendar
+            "inbox" -> AssistantTab.Inbox
+            "dashboard" -> AssistantTab.Dashboard
+            else -> null
+        }
 
         setContent {
             AgentAppTheme {
@@ -146,6 +154,7 @@ class MainActivity : ComponentActivity() {
                     chatViewModel = chatViewModel,
                     googleSignInLauncher = googleSignInActivityLauncher,
                     shareCalendarViewModel = shareCalendarViewModel,
+                    initialTab = initialTab,
                 )
             }
         }
@@ -162,6 +171,18 @@ class MainActivity : ComponentActivity() {
             // ViewModel에서 처리
             mainViewModel.handleGoogleSignInResult(intent)
             return
+        }
+        
+        // 위젯에서 전달된 탭 정보 처리
+        val tab = when (intent.getStringExtra("tab")) {
+            "calendar" -> AssistantTab.Calendar
+            "inbox" -> AssistantTab.Inbox
+            "dashboard" -> AssistantTab.Dashboard
+            else -> null
+        }
+        if (tab != null) {
+            // 탭 전환은 AssistantApp의 LaunchedEffect에서 처리됨
+            // 여기서는 Intent만 업데이트
         }
         
         // 앱이 이미 실행 중일 때 공유 텍스트 받기

@@ -118,13 +118,19 @@ fun AssistantApp(
     chatViewModel: ChatViewModel,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
     shareCalendarViewModel: ShareCalendarViewModel,
+    initialTab: AssistantTab? = null,
 ) {
     val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedTab by rememberSaveable { mutableStateOf(AssistantTab.Dashboard) }
+    var selectedTab by rememberSaveable { mutableStateOf(initialTab ?: AssistantTab.Dashboard) }
     var selectedDrawerMenu by rememberSaveable { mutableStateOf(DrawerMenu.Menu) }
     val shareCalendarUiState by shareCalendarViewModel.uiState.collectAsStateWithLifecycle()
     val selectedEmail = mainViewModel.getSelectedAccountEmail()
+    
+    // 초기 탭 설정 (위젯에서 전달된 경우)
+    LaunchedEffect(initialTab) {
+        initialTab?.let { selectedTab = it }
+    }
     
     // 푸시 알림 권한 안내 다이얼로그 상태
     var showPushNotificationPermissionDialog by rememberSaveable { mutableStateOf(false) }
@@ -201,20 +207,13 @@ fun AssistantApp(
         AlertDialog(
             onDismissRequest = { showPushNotificationPermissionDialog = false },
             title = {
-                Text("푸시 알림 접근 권한 필요")
+                Text(stringResource(R.string.permission_push_title))
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "푸시 알림을 수집하고 분석하려면 알림 접근 권한이 필요합니다.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "설정 화면에서 이 앱을 활성화해주세요.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
+                Text(
+                    stringResource(R.string.permission_push_message),
+                    style = MaterialTheme.typography.bodyMedium
+                )
             },
             confirmButton = {
                 Button(
@@ -223,14 +222,14 @@ fun AssistantApp(
                         mainViewModel.openNotificationListenerSettings()
                     }
                 ) {
-                    Text("설정 열기")
+                    Text(stringResource(R.string.permission_push_open_settings))
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showPushNotificationPermissionDialog = false }
                 ) {
-                    Text("나중에")
+                    Text(stringResource(R.string.permission_push_later))
                 }
             }
         )
@@ -313,11 +312,11 @@ private fun AssistantScaffold(
                                 onDrawerMenuSelected(DrawerMenu.Menu)
                             }
                         },
-                        label = { Text(tab.label) },
+                        label = { Text(stringResource(tab.labelResId)) },
                         icon = {
                             Icon(
                                 imageVector = getTabIcon(tab),
-                                contentDescription = tab.label
+                                contentDescription = stringResource(tab.labelResId)
                             )
                         },
                     )
@@ -621,16 +620,19 @@ private fun SmsScanCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Text(
-                text = "SMS 메시지 스캔",
+                text = stringResource(R.string.sms_scan_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
             ) {
                 // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
                 Button(
@@ -653,10 +655,10 @@ private fun SmsScanCard(
                             strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "스캔 중...")
+                        Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
+                        Text(text = stringResource(R.string.sms_scan_progress))
                     } else {
-                        Text(text = "최신 스캔")
+                        Text(text = stringResource(R.string.sms_scan_recent))
                     }
                 }
                 // 기간 선택 버튼
@@ -665,7 +667,7 @@ private fun SmsScanCard(
                     enabled = !smsScanState.isScanning,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(text = "기간 선택")
+                    Text(text = stringResource(R.string.sms_scan_date_picker))
                 }
             }
             
@@ -703,7 +705,7 @@ private fun SmsScanCard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = smsScanState.progressMessage ?: "스캔 중...",
+                                text = smsScanState.progressMessage ?: stringResource(R.string.sms_scan_progress),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -743,7 +745,11 @@ private fun SmsScanCard(
                         val daysCompleted = java.time.temporal.ChronoUnit.DAYS.between(startDate, currentDate)
                         
                         Text(
-                            text = "스캔 범위: ${startDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))} ~ ${endDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))}",
+                            text = stringResource(
+                                R.string.sms_scan_date_range,
+                                startDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일")),
+                                endDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         )
@@ -775,9 +781,12 @@ private fun SmsUpdateHistoryCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Text(
-                text = "SMS 최근 업데이트 기록",
+                text = stringResource(R.string.sms_scan_updates),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -818,9 +827,16 @@ private fun GmailUpdateHistoryCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Text(
-                text = if (accountEmail.isEmpty()) "Gmail 최근 업데이트 기록" else "Gmail 최근 업데이트 기록: $accountEmail",
+                text = if (accountEmail.isEmpty()) {
+                    stringResource(R.string.gmail_sync_updates)
+                } else {
+                    stringResource(R.string.gmail_sync_updates_with_account, accountEmail)
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -861,38 +877,36 @@ private fun CallRecordScanCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "통화 녹음 텍스트 스캔",
+                    text = stringResource(R.string.call_scan_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Button(onClick = onScanClick, enabled = !callRecordScanState.isScanning) {
-                    Text(text = "스캔")
+                    Text(text = stringResource(R.string.call_scan_button))
                 }
             }
             if (callRecordScanState.isScanning) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
+                com.example.agent_app.ui.common.components.LoadingState()
             }
             if (callRecordScanState.message != null) {
-            Text(
+                Text(
                     text = callRecordScanState.message,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
             Text(
-                text = "스캔 버튼을 누르면 날짜를 선택할 수 있습니다. 선택한 날짜 이후의 통화 녹음 텍스트 파일에서 일정을 추출합니다. (삼성 갤럭시 전용)",
+                text = stringResource(R.string.call_scan_description),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -1014,35 +1028,25 @@ private fun DatabaseResetCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Text(
-                text = "데이터베이스 초기화",
+                text = stringResource(R.string.dev_db_reset_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "모든 수집된 데이터(일정, 연락처, 메모, 수집 항목 등)를 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
+                text = stringResource(R.string.dev_db_reset_message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
             )
             
             if (isResetting) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "초기화 중...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                com.example.agent_app.ui.common.components.LoadingState(
+                    message = stringResource(R.string.dev_db_reset_progress)
+                )
             }
             
             if (message != null) {
@@ -1062,7 +1066,7 @@ private fun DatabaseResetCard(
                     contentColor = MaterialTheme.colorScheme.onError,
                 ),
             ) {
-                Text("DB 초기화")
+                Text(stringResource(R.string.dev_db_reset_button))
             }
         }
     }
@@ -1070,10 +1074,10 @@ private fun DatabaseResetCard(
     if (showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },
-            title = { Text("데이터베이스 초기화 확인") },
+            title = { Text(stringResource(R.string.dev_db_reset_confirm_title)) },
             text = {
                 Text(
-                    text = "모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
+                    text = stringResource(R.string.dev_db_reset_confirm_message),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -1088,24 +1092,28 @@ private fun DatabaseResetCard(
                         contentColor = MaterialTheme.colorScheme.onError,
                     ),
                 ) {
-                    Text("초기화")
+                    Text(stringResource(R.string.dev_db_reset_button))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirmDialog = false }) {
-                    Text("취소")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
         )
     }
 }
 
-private enum class AssistantTab(val label: String) {
-    Dashboard("대시보드"),
-    Chat("챗봇"),
-    Calendar("캘린더"),
-    Inbox("인박스"),
-    ShareCalendar("공유 캘린더"),
+/**
+ * ⚠️ UI 리브랜딩 안전장치 ⚠️
+ * 탭 레이블은 strings.xml에서 관리
+ */
+enum class AssistantTab(@androidx.annotation.StringRes val labelResId: Int) {
+    Dashboard(R.string.tab_dashboard),
+    Chat(R.string.tab_chat),
+    Calendar(R.string.tab_calendar),
+    Inbox(R.string.tab_inbox),
+    ShareCalendar(R.string.tab_share_calendar),
 }
 
 @Composable
@@ -1622,7 +1630,10 @@ private fun ClassifiedDataCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
             Text(
                 text = "분류된 데이터",
                 style = MaterialTheme.typography.titleMedium,
@@ -1632,7 +1643,7 @@ private fun ClassifiedDataCard(
             // 연락처 섹션
             if (contacts.isNotEmpty()) {
                 Text(
-                    text = "연락처 (${contacts.size}개)",
+                    text = stringResource(R.string.classified_contacts_title, contacts.size),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                 )
@@ -1644,7 +1655,7 @@ private fun ClassifiedDataCard(
                 }
                 if (contacts.size > 3) {
                     Text(
-                        text = "... 외 ${contacts.size - 3}개",
+                        text = stringResource(R.string.common_more_items, contacts.size - 3),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -1654,7 +1665,7 @@ private fun ClassifiedDataCard(
             // 이벤트 섹션
             if (events.isNotEmpty()) {
                 Text(
-                    text = "일정 (${events.size}개)",
+                    text = stringResource(R.string.classified_events_title, events.size),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                 )
@@ -1666,7 +1677,7 @@ private fun ClassifiedDataCard(
                 }
                 if (events.size > 3) {
                     Text(
-                        text = "... 외 ${events.size - 3}개",
+                        text = stringResource(R.string.common_more_items, events.size - 3),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -1676,7 +1687,7 @@ private fun ClassifiedDataCard(
             // 노트 섹션
             if (notes.isNotEmpty()) {
                 Text(
-                    text = "메모 (${notes.size}개)",
+                    text = stringResource(R.string.classified_notes_title, notes.size),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                 )
@@ -1688,7 +1699,7 @@ private fun ClassifiedDataCard(
                 }
                 if (notes.size > 3) {
                     Text(
-                        text = "... 외 ${notes.size - 3}개",
+                        text = stringResource(R.string.common_more_items, notes.size - 3),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -1696,7 +1707,7 @@ private fun ClassifiedDataCard(
             
             if (contacts.isEmpty() && events.isEmpty() && notes.isEmpty()) {
                 Text(
-                    text = "Gmail을 동기화하면 AI가 자동으로 분류한 데이터가 여기에 표시됩니다.",
+                    text = stringResource(R.string.classified_empty_message),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -1742,14 +1753,14 @@ private fun InboxContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
                 Text(
-                text = "인박스",
+                text = stringResource(R.string.inbox_title),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
             IconButton(onClick = { /* 새로고침 */ }) {
                 Icon(
                     imageVector = Icons.Filled.Refresh,
-                    contentDescription = "새로고침",
+                    contentDescription = stringResource(R.string.inbox_refresh),
                 )
             }
         }
@@ -1766,7 +1777,7 @@ private fun InboxContent(
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
-                        label = { Text(category.label) },
+                        label = { Text(stringResource(category.labelResId)) },
                     )
                 }
         }
@@ -1791,7 +1802,7 @@ private fun InboxContent(
                     if (ocrItems.isNotEmpty()) {
                         item {
                             CategorySection(
-                                title = "OCR",
+                                titleResId = R.string.inbox_category_ocr,
                                 items = ocrItems,
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1810,7 +1821,7 @@ private fun InboxContent(
                     if (smsItems.isNotEmpty()) {
                         item {
                             CategorySection(
-                                title = "SMS",
+                                titleResId = R.string.inbox_category_sms,
                                 items = smsItems,
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1842,7 +1853,7 @@ private fun InboxContent(
                            if (pushNotificationItems.isNotEmpty()) {
                                item {
                                    CategorySection(
-                                       title = "푸시 알림",
+                                       titleResId = R.string.inbox_category_push,
                                        items = pushNotificationItems,
                                        events = pushNotificationEvents,
                                        onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1862,12 +1873,12 @@ private fun InboxContent(
                 InboxCategory.OCR -> {
                     if (ocrItems.isEmpty()) {
                         item {
-                            EmptyStateCard(message = "OCR 데이터가 없습니다.")
+                            EmptyStateCard(messageResId = R.string.inbox_empty_ocr)
                         }
                     } else {
                         item {
                             CategorySection(
-                                title = "OCR",
+                                titleResId = R.string.inbox_category_ocr,
                                 items = ocrItems,
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1887,12 +1898,12 @@ private fun InboxContent(
                 InboxCategory.SMS -> {
                     if (smsItems.isEmpty()) {
                         item {
-                            EmptyStateCard(message = "SMS 데이터가 없습니다.")
+                            EmptyStateCard(messageResId = R.string.inbox_empty_sms)
                         }
                     } else {
                         item {
                             CategorySection(
-                                title = "SMS",
+                                titleResId = R.string.inbox_category_sms,
                                 items = smsItems,
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1912,7 +1923,7 @@ private fun InboxContent(
                 InboxCategory.Email -> {
                     if (gmailItems.isEmpty()) {
                         item {
-                            EmptyStateCard(message = "이메일 데이터가 없습니다.")
+                            EmptyStateCard(messageResId = R.string.inbox_empty_email)
                         }
                     } else {
                         item {
@@ -1929,12 +1940,12 @@ private fun InboxContent(
                 InboxCategory.PushNotification -> {
                     if (pushNotificationItems.isEmpty()) {
                         item {
-                            EmptyStateCard(message = "푸시 알림 데이터가 없습니다.")
+                            EmptyStateCard(messageResId = R.string.inbox_empty_push)
                         }
                     } else {
                         item {
                             CategorySection(
-                                title = "푸시 알림",
+                                titleResId = R.string.inbox_category_push,
                                 items = pushNotificationItems,
                                 events = pushNotificationEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
@@ -1953,7 +1964,7 @@ private fun InboxContent(
                 }
                 null -> {
                     item {
-                        EmptyStateCard(message = "카테고리를 선택해주세요.")
+                        EmptyStateCard(messageResId = R.string.inbox_empty_category)
                     }
                 }
             }
@@ -1961,12 +1972,16 @@ private fun InboxContent(
     }
 }
 
-private sealed class InboxCategory(val label: String) {
-    object All : InboxCategory("전체")
-    object OCR : InboxCategory("OCR")
-    object SMS : InboxCategory("SMS")
-    object Email : InboxCategory("이메일")
-    object PushNotification : InboxCategory("푸시 알림")
+/**
+ * ⚠️ UI 리브랜딩 안전장치 ⚠️
+ * 카테고리 레이블은 strings.xml에서 관리
+ */
+private sealed class InboxCategory(@androidx.annotation.StringRes val labelResId: Int) {
+    object All : InboxCategory(R.string.inbox_category_all)
+    object OCR : InboxCategory(R.string.inbox_category_ocr)
+    object SMS : InboxCategory(R.string.inbox_category_sms)
+    object Email : InboxCategory(R.string.inbox_category_email)
+    object PushNotification : InboxCategory(R.string.inbox_category_push)
 }
 
 // 이메일 주소 추출 헬퍼 함수
@@ -2012,27 +2027,27 @@ private fun InboxSummaryBlock(
         ) {
             SummaryItem(
                 icon = Icons.Filled.Email,
-                label = "전체",
+                label = stringResource(R.string.inbox_summary_total),
                 count = totalCount,
             )
             SummaryItem(
                 icon = Icons.Filled.Info,
-                label = "OCR",
+                label = stringResource(R.string.inbox_summary_ocr),
                 count = ocrCount,
             )
             SummaryItem(
                 icon = Icons.Filled.Email,
-                label = "SMS",
+                label = stringResource(R.string.inbox_summary_sms),
                 count = smsCount,
             )
             SummaryItem(
                 icon = Icons.Filled.Email,
-                label = "이메일",
+                label = stringResource(R.string.inbox_summary_email),
                 count = gmailCount,
             )
             SummaryItem(
                 icon = Icons.Filled.Info,
-                label = "푸시",
+                label = stringResource(R.string.inbox_summary_push),
                 count = pushNotificationCount,
             )
         }
@@ -2068,7 +2083,7 @@ private fun SummaryItem(
 
 @Composable
 private fun <T> CategorySection(
-    title: String,
+    @androidx.annotation.StringRes titleResId: Int,
     items: List<T>,
     events: Map<String, List<Event>>,
     onUpdateEvent: (Event) -> Unit,
@@ -2084,7 +2099,7 @@ private fun <T> CategorySection(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
                 Text(
-                text = title,
+                text = stringResource(titleResId),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -2148,7 +2163,7 @@ private fun EmailCategorySection(
 }
 
 @Composable
-private fun EmptyStateCard(message: String) {
+private fun EmptyStateCard(@androidx.annotation.StringRes messageResId: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -2156,18 +2171,18 @@ private fun EmptyStateCard(message: String) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(40.dp),
+                .padding(com.example.agent_app.ui.theme.Dimens.spacingLG * 2),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
         ) {
             Icon(
-                imageVector = Icons.Filled.Email,
+                imageVector = Icons.Filled.Info,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             )
-                    Text(
-                text = message,
+            Text(
+                text = stringResource(messageResId),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
             )
