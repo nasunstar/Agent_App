@@ -1,6 +1,7 @@
 package com.example.agent_app.data.repo
 
 import com.example.agent_app.ai.HuenDongMinAiAgent
+import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.gmail.GmailApi
 import com.example.agent_app.gmail.GmailBodyExtractor
 import com.example.agent_app.gmail.GmailMessage
@@ -26,6 +27,7 @@ class GmailRepositoryWithAi(
     suspend fun syncRecentMessages(
         accessToken: String,
         sinceTimestamp: Long = 0L,
+        onProgress: ((Float, String) -> Unit)? = null, // 진행률 콜백 (progress, message)
     ): GmailSyncResult = withContext(dispatcher) {
         android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 시작 (sinceTimestamp: $sinceTimestamp)")
         
@@ -69,35 +71,72 @@ class GmailRepositoryWithAi(
             var processed = 0
             var eventCount = 0
             val startTimestamp = System.currentTimeMillis()
+            val totalMessages = listResponse.messages.size
             
-            listResponse.messages.forEach { reference ->
-                android.util.Log.d("GmailRepositoryWithAi", "메시지 조회 중 - ID: ${reference.id}")
-                
-                val message = api.getMessage(
-                    authorization = authorization,
-                    userId = "me",
-                    messageId = reference.id,
-                    format = "full",
-                    metadataHeaders = listOf("Subject", "Date", "From", "To")
-                )
-                
-                // 시간 필터링: internalDate가 sinceTimestamp 이후인지 확인
-                val messageTimestamp = message.internalDate?.toLongOrNull() ?: 0L
-                if (sinceTimestamp > 0L && messageTimestamp < sinceTimestamp) {
-                    android.util.Log.d("GmailRepositoryWithAi", "메시지가 시간 범위 밖: ${messageTimestamp} < ${sinceTimestamp}")
-                    return@forEach
+            // 초기 진행률 업데이트
+            onProgress?.invoke(0.1f, "메시지 목록 조회 완료 (${totalMessages}개)")
+            
+            listResponse.messages.forEachIndexed { index, reference ->
+                try {
+                    android.util.Log.d("GmailRepositoryWithAi", "메시지 조회 중 - ID: ${reference.id}")
+                    
+                    val message = api.getMessage(
+                        authorization = authorization,
+                        userId = "me",
+                        messageId = reference.id,
+                        format = "full",
+                        metadataHeaders = listOf("Subject", "Date", "From", "To")
+                    )
+                    
+                    // 시간 필터링: internalDate가 sinceTimestamp 이후인지 확인
+                    val messageTimestamp = message.internalDate?.toLongOrNull() ?: 0L
+                    if (sinceTimestamp > 0L && messageTimestamp < sinceTimestamp) {
+                        android.util.Log.d("GmailRepositoryWithAi", "메시지가 시간 범위 밖: ${messageTimestamp} < ${sinceTimestamp}")
+                        return@forEachIndexed
+                    }
+                    
+                    // 진행률 업데이트 (0.1 ~ 0.9 범위)
+                    val progress = 0.1f + (index + 1).toFloat() / totalMessages * 0.8f
+                    onProgress?.invoke(progress, "메시지 처리 중 (${index + 1}/${totalMessages})")
+                    
+                    // AI Agent를 통한 처리
+                    val hasEvent = processMessageWithAi(message)
+                    if (hasEvent) {
+                        eventCount++
+                    }
+                    processed++
+                } catch (e: Exception) {
+                    android.util.Log.e("GmailRepositoryWithAi", "메시지 처리 중 오류 발생 - ID: ${reference.id}", e)
+                    // 개별 메시지 처리 실패해도 계속 진행
+                    // 최소한 메시지 정보만이라도 저장 시도
+                    try {
+                        val subject = "처리 실패한 메시지"
+                        val ingestItem = IngestItem(
+                            id = reference.id,
+                            source = "gmail",
+                            type = "note",
+                            title = subject,
+                            body = "메시지 처리 중 오류가 발생했습니다: ${e.message}",
+                            timestamp = System.currentTimeMillis(),
+                            dueDate = null,
+                            confidence = null,
+                            metaJson = null
+                        )
+                        ingestRepository.upsert(ingestItem)
+                        android.util.Log.d("GmailRepositoryWithAi", "오류 발생 메시지를 기본 IngestItem으로 저장 완료 - ID: ${reference.id}")
+                        processed++
+                    } catch (saveError: Exception) {
+                        android.util.Log.e("GmailRepositoryWithAi", "오류 발생 메시지 저장도 실패 - ID: ${reference.id}", saveError)
+                    }
                 }
-                
-                // AI Agent를 통한 처리
-                val hasEvent = processMessageWithAi(message)
-                if (hasEvent) {
-                    eventCount++
-                }
-                processed++
             }
             
             val endTimestamp = System.currentTimeMillis()
             android.util.Log.d("GmailRepositoryWithAi", "Gmail 동기화 완료 - 처리: $processed, 일정: $eventCount")
+            
+            // 완료 진행률 업데이트
+            onProgress?.invoke(1.0f, "동기화 완료 (${processed}개 처리, 일정 ${eventCount}개 추출)")
+            
             GmailSyncResult.Success(
                 upsertedCount = processed,
                 eventCount = eventCount,
@@ -130,68 +169,101 @@ class GmailRepositoryWithAi(
      * @return 일정이 추출되었는지 여부
      */
     private suspend fun processMessageWithAi(message: GmailMessage): Boolean {
-        val subject = message.payload?.headers?.firstOrNull { 
-            it.name.equals("Subject", ignoreCase = true) 
-        }?.value
-        
-        val from = message.payload?.headers?.firstOrNull { 
-            it.name.equals("From", ignoreCase = true) 
-        }?.value
-        
-        val to = message.payload?.headers?.firstOrNull { 
-            it.name.equals("To", ignoreCase = true) 
-        }?.value
-        
-        val dateHeader = message.payload?.headers?.firstOrNull { 
-            it.name.equals("Date", ignoreCase = true) 
-        }?.value
-        
-        // 전체 이메일 본문 추출
-        val fullBody = GmailBodyExtractor.extractBody(message)
-        
-        // 발신자 정보를 포함한 전체 내용
-        val enrichedBody = buildString {
-            if (from != null) append("발신자: $from\n")
-            if (to != null) append("수신자: $to\n\n")
-            append(fullBody)
+        try {
+            val subject = message.payload?.headers?.firstOrNull { 
+                it.name.equals("Subject", ignoreCase = true) 
+            }?.value
+            
+            val from = message.payload?.headers?.firstOrNull { 
+                it.name.equals("From", ignoreCase = true) 
+            }?.value
+            
+            val to = message.payload?.headers?.firstOrNull { 
+                it.name.equals("To", ignoreCase = true) 
+            }?.value
+            
+            val dateHeader = message.payload?.headers?.firstOrNull { 
+                it.name.equals("Date", ignoreCase = true) 
+            }?.value
+            
+            // 전체 이메일 본문 추출
+            val fullBody = GmailBodyExtractor.extractBody(message)
+            
+            // 발신자 정보를 포함한 전체 내용
+            val enrichedBody = buildString {
+                if (from != null) append("발신자: $from\n")
+                if (to != null) append("수신자: $to\n\n")
+                append(fullBody)
+            }
+            
+            // 현재 시간 기준으로 AI가 일정을 해석 (한국 시간대)
+            val currentTimestamp = System.currentTimeMillis()
+            val kstTime = java.time.Instant.ofEpochMilli(currentTimestamp)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+            
+            // 원본 이메일 수신 시간 (보관용)
+            val originalReceivedTimestamp = message.internalDate?.toLongOrNull() ?: currentTimestamp
+            
+            android.util.Log.d("GmailRepositoryWithAi", "=================================")
+            android.util.Log.d("GmailRepositoryWithAi", "AI Agent 처리 시작 - 제목: $subject")
+            android.util.Log.d("GmailRepositoryWithAi", "📱 휴대폰 현재 시간 (ms): $currentTimestamp")
+            android.util.Log.d("GmailRepositoryWithAi", "📅 한국 시간(KST): $kstTime")
+            android.util.Log.d("GmailRepositoryWithAi", "📧 원본 이메일 수신 시간: ${java.time.Instant.ofEpochMilli(originalReceivedTimestamp)}")
+            android.util.Log.d("GmailRepositoryWithAi", "⚠️  AI에게 전달할 시간: $currentTimestamp (현재 시간!)")
+            
+            // HuenDongMinAiAgent를 통한 처리 (Tool: processGmailForEvent)
+            // ⚠️ 중요: currentTimestamp를 전달하여 AI가 현재 시간 기준으로 일정 해석
+            val result = huenDongMinAiAgent.processGmailForEvent(
+                emailSubject = subject,
+                emailBody = enrichedBody,
+                receivedTimestamp = originalReceivedTimestamp,  // 원본 수신 시간 사용
+                originalEmailId = message.id
+            )
+            
+            android.util.Log.d("GmailRepositoryWithAi", 
+                "AI 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}")
+            
+            // HuenDongMinAiAgent.processGmailForEvent에서 이미 모든 메시지를 IngestItem으로 저장하므로
+            // 여기서는 추가 작업이 필요 없음
+            
+            // 일정이 추출되었는지 확인
+            return result.events.isNotEmpty()
+        } catch (e: Exception) {
+            android.util.Log.e("GmailRepositoryWithAi", "processMessageWithAi 중 오류 발생 - 메시지 ID: ${message.id}", e)
+            
+            // AI 처리 실패 시에도 최소한 메시지 정보는 저장
+            try {
+                val subject = message.payload?.headers?.firstOrNull { 
+                    it.name.equals("Subject", ignoreCase = true) 
+                }?.value ?: "제목 없음"
+                
+                val fullBody = try {
+                    GmailBodyExtractor.extractBody(message)
+                } catch (bodyError: Exception) {
+                    "본문 추출 실패: ${bodyError.message}"
+                }
+                
+                val originalReceivedTimestamp = message.internalDate?.toLongOrNull() ?: System.currentTimeMillis()
+                
+                val ingestItem = IngestItem(
+                    id = message.id,
+                    source = "gmail",
+                    type = "note",
+                    title = subject,
+                    body = fullBody,
+                    timestamp = originalReceivedTimestamp,
+                    dueDate = null,
+                    confidence = null,
+                    metaJson = null
+                )
+                ingestRepository.upsert(ingestItem)
+                android.util.Log.d("GmailRepositoryWithAi", "AI 처리 실패 메시지를 기본 IngestItem으로 저장 완료 - ID: ${message.id}")
+            } catch (saveError: Exception) {
+                android.util.Log.e("GmailRepositoryWithAi", "오류 발생 메시지 저장도 실패 - ID: ${message.id}", saveError)
+            }
+            
+            // 일정 추출 실패
+            return false
         }
-        
-        // 현재 시간 기준으로 AI가 일정을 해석 (한국 시간대)
-        val currentTimestamp = System.currentTimeMillis()
-        val kstTime = java.time.Instant.ofEpochMilli(currentTimestamp)
-            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-        
-        // 원본 이메일 수신 시간 (보관용)
-        val originalReceivedTimestamp = message.internalDate?.toLongOrNull() ?: currentTimestamp
-        
-        android.util.Log.d("GmailRepositoryWithAi", "=================================")
-        android.util.Log.d("GmailRepositoryWithAi", "AI Agent 처리 시작 - 제목: $subject")
-        android.util.Log.d("GmailRepositoryWithAi", "📱 휴대폰 현재 시간 (ms): $currentTimestamp")
-        android.util.Log.d("GmailRepositoryWithAi", "📅 한국 시간(KST): $kstTime")
-        android.util.Log.d("GmailRepositoryWithAi", "📧 원본 이메일 수신 시간: ${java.time.Instant.ofEpochMilli(originalReceivedTimestamp)}")
-        android.util.Log.d("GmailRepositoryWithAi", "⚠️  AI에게 전달할 시간: $currentTimestamp (현재 시간!)")
-        
-        // HuenDongMinAiAgent를 통한 처리 (Tool: processGmailForEvent)
-        // ⚠️ 중요: currentTimestamp를 전달하여 AI가 현재 시간 기준으로 일정 해석
-        val result = huenDongMinAiAgent.processGmailForEvent(
-            emailSubject = subject,
-            emailBody = enrichedBody,
-            receivedTimestamp = originalReceivedTimestamp,  // 원본 수신 시간 사용
-            originalEmailId = message.id
-        )
-        
-        android.util.Log.d("GmailRepositoryWithAi", 
-            "AI 처리 완료 - Type: ${result.type}, Confidence: ${result.confidence}")
-        
-        // 모든 메시지를 IngestItem으로 저장 (일정이 없어도 저장)
-        // HuenDongMinAiAgent.processGmailForEvent 내부에서 이미 IngestItem 저장을 처리하므로
-        // 여기서는 추가 저장이 필요 없음 (일정이 있는 경우에만 저장하는 로직이 이미 있음)
-        // 하지만 일정이 없는 경우에도 저장하도록 수정 필요
-        
-        // HuenDongMinAiAgent.processGmailForEvent에서 이미 모든 메시지를 IngestItem으로 저장하므로
-        // 여기서는 추가 작업이 필요 없음
-        
-        // 일정이 추출되었는지 확인
-        return result.events.isNotEmpty()
     }
 }
