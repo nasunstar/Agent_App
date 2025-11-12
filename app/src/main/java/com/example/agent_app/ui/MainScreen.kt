@@ -499,6 +499,7 @@ internal fun DeveloperContent(
                 )
             }
         }
+        val context = LocalContext.current
         SmsScanCard(
             smsScanState = uiState.smsScanState,
             onScanClick = { sinceTimestamp ->
@@ -514,7 +515,8 @@ internal fun DeveloperContent(
                 } else {
                     permissionLauncher.launch(Manifest.permission.READ_SMS)
                 }
-            }
+            },
+            context = context,
         )
         
         // 최근 업데이트 기록 표시
@@ -615,7 +617,22 @@ private fun SmsScanCard(
     smsScanState: com.example.agent_app.ui.SmsScanState,
     onScanClick: (Long) -> Unit,
     onDatePickerClick: () -> Unit,
+    context: android.content.Context,
 ) {
+    // 자동 처리 활성화 여부 확인 (실시간 업데이트)
+    val isAutoProcessEnabled = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
+        )
+    }
+    
+    // 상태 업데이트를 위해 LaunchedEffect 사용
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            isAutoProcessEnabled.value = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
+            kotlinx.coroutines.delay(1000) // 1초마다 확인
+        }
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -630,44 +647,54 @@ private fun SmsScanCard(
                 fontWeight = FontWeight.SemiBold,
             )
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
-            ) {
-                // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
-                Button(
-                    onClick = { 
-                        val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
-                            smsScanState.lastScanTimestamp
+            // 자동 처리 활성화 시 기간 선택 버튼 숨기고 메시지 표시
+            if (isAutoProcessEnabled.value) {
+                Text(
+                    text = "최신 메시지를 수집하고 있습니다",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
+                ) {
+                    // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
+                    Button(
+                        onClick = { 
+                            val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
+                                smsScanState.lastScanTimestamp
+                            } else {
+                                // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
+                                // 그것도 없으면 0L (전체 스캔)
+                                smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
+                            }
+                            onScanClick(sinceTimestamp)
+                        },
+                        enabled = !smsScanState.isScanning,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (smsScanState.isScanning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
+                            Text(text = stringResource(R.string.sms_scan_progress))
                         } else {
-                            // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
-                            // 그것도 없으면 0L (전체 스캔)
-                            smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
+                            Text(text = stringResource(R.string.sms_scan_recent))
                         }
-                        onScanClick(sinceTimestamp)
-                    },
-                    enabled = !smsScanState.isScanning,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    if (smsScanState.isScanning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                        Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
-                        Text(text = stringResource(R.string.sms_scan_progress))
-                    } else {
-                        Text(text = stringResource(R.string.sms_scan_recent))
                     }
-                }
-                // 기간 선택 버튼
-                Button(
-                    onClick = onDatePickerClick,
-                    enabled = !smsScanState.isScanning,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(text = stringResource(R.string.sms_scan_date_picker))
+                    // 기간 선택 버튼
+                    Button(
+                        onClick = onDatePickerClick,
+                        enabled = !smsScanState.isScanning,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = stringResource(R.string.sms_scan_date_picker))
+                    }
                 }
             }
             
@@ -1318,6 +1345,7 @@ private fun GmailSyncCard(
             }
         }
     } else {
+        val context = LocalContext.current
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             accounts.forEach { account ->
                 val accountEmail = if (account.email.isEmpty()) "" else account.email
@@ -1326,7 +1354,9 @@ private fun GmailSyncCard(
                 SingleAccountSyncCard(
                     accountEmail = accountEmail,
                     accountState = accountState,
+                    account = account,
                     onSync = onSync,
+                    context = context,
                 )
             }
         }
@@ -1338,9 +1368,31 @@ private fun GmailSyncCard(
 private fun SingleAccountSyncCard(
     accountEmail: String,
     accountState: AccountSyncState,
+    account: com.example.agent_app.data.entity.AuthToken,
     onSync: (String, Long) -> Unit,
+    context: android.content.Context,
 ) {
     var showDatePicker by remember { mutableStateOf(false) }
+    var showTokenExpiredDialog by remember { mutableStateOf(false) }
+    
+    // 자동 처리 활성화 여부 확인 (실시간 업데이트)
+    val isAutoProcessEnabled = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(context)
+        )
+    }
+    
+    // 상태 업데이트를 위해 LaunchedEffect 사용
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            isAutoProcessEnabled.value = com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(context)
+            kotlinx.coroutines.delay(1000) // 1초마다 확인
+        }
+    }
+    
+    // refresh token 없을 때 기간 선택 후 기간 선택 버튼 숨김
+    val hasRefreshToken = !account.refreshToken.isNullOrBlank()
+    val shouldHideDatePicker = isAutoProcessEnabled.value && !hasRefreshToken
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1418,23 +1470,20 @@ private fun SingleAccountSyncCard(
                 }
             }
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // 최신 동기화 버튼 (왼쪽)
+            // refresh token 없을 때 기간 선택 후 기간 선택 버튼 숨김
+            if (shouldHideDatePicker) {
+                // 최신 동기화 버튼만 표시
                 Button(
                     onClick = { 
                         val sinceTimestamp = if (accountState.lastSyncTimestamp > 0L) {
                             accountState.lastSyncTimestamp
                         } else {
-                            // 마지막 동기화 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
                             accountState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
                         }
                         onSync(accountEmail, sinceTimestamp)
                     },
                     enabled = !accountState.isSyncing && (accountState.lastSyncTimestamp > 0L || accountState.recentUpdates.isNotEmpty()),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (accountState.isSyncing) {
                         CircularProgressIndicator(
@@ -1448,13 +1497,45 @@ private fun SingleAccountSyncCard(
                         Text(text = "최신 동기화")
                     }
                 }
-                // 기간 선택 버튼 (오른쪽)
-                Button(
-                    onClick = { showDatePicker = true },
-                    enabled = !accountState.isSyncing,
-                    modifier = Modifier.weight(1f),
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(text = "기간 선택")
+                    // 최신 동기화 버튼 (왼쪽)
+                    Button(
+                        onClick = { 
+                            val sinceTimestamp = if (accountState.lastSyncTimestamp > 0L) {
+                                accountState.lastSyncTimestamp
+                            } else {
+                                // 마지막 동기화 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
+                                accountState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
+                            }
+                            onSync(accountEmail, sinceTimestamp)
+                        },
+                        enabled = !accountState.isSyncing && (accountState.lastSyncTimestamp > 0L || accountState.recentUpdates.isNotEmpty()),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (accountState.isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "동기화 중...")
+                        } else {
+                            Text(text = "최신 동기화")
+                        }
+                    }
+                    // 기간 선택 버튼 (오른쪽)
+                    Button(
+                        onClick = { showDatePicker = true },
+                        enabled = !accountState.isSyncing,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = "기간 선택")
+                    }
                 }
             }
             
@@ -1482,7 +1563,47 @@ private fun SingleAccountSyncCard(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            
+            // 토큰 만료 다이얼로그
+            if (accountState.tokenExpired) {
+                showTokenExpiredDialog = true
+            }
         }
+    }
+    
+    // 토큰 만료 다이얼로그
+    if (showTokenExpiredDialog) {
+        AlertDialog(
+            onDismissRequest = { showTokenExpiredDialog = false },
+            title = {
+                Text(
+                    text = "토큰 만료",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            text = {
+                Text(
+                    text = "${accountEmail}에 대한 토큰 지속시간이 끝났습니다.\n다시 발급 후 동기화 하시겠습니까?",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTokenExpiredDialog = false
+                        // TODO: 토큰 재발급 로직 호출 (Google 로그인 화면으로 이동 등)
+                    }
+                ) {
+                    Text("확인")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTokenExpiredDialog = false }) {
+                    Text("취소")
+                }
+            },
+        )
     }
 }
 
@@ -1757,7 +1878,9 @@ private fun InboxContent(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
-            IconButton(onClick = { /* 새로고침 */ }) {
+            IconButton(onClick = { 
+                mainViewModel.refreshInboxData()
+            }) {
                 Icon(
                     imageVector = Icons.Filled.Refresh,
                     contentDescription = stringResource(R.string.inbox_refresh),
@@ -1773,7 +1896,7 @@ private fun InboxContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
                 // 기본 카테고리들
-                listOf(InboxCategory.All, InboxCategory.OCR, InboxCategory.SMS, InboxCategory.Email, InboxCategory.PushNotification).forEach { category ->
+                listOf(InboxCategory.All, InboxCategory.WithEvents, InboxCategory.OCR, InboxCategory.SMS, InboxCategory.Email, InboxCategory.PushNotification).forEach { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -1807,12 +1930,14 @@ private fun InboxContent(
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                itemCard = { item, events, onUpdate, onDelete ->
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                itemCard = { item, events, onUpdate, onDelete, onCreate ->
                             OcrItemCard(
                                 item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
+                                        onCreateEvent = onCreate,
                                     )
                                 },
                             )
@@ -1826,12 +1951,14 @@ private fun InboxContent(
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                itemCard = { item, events, onUpdate, onDelete ->
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                itemCard = { item, events, onUpdate, onDelete, onCreate ->
                                     SmsItemCard(
                                         item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
+                                        onCreateEvent = onCreate,
                                     )
                                 },
                             )
@@ -1846,6 +1973,7 @@ private fun InboxContent(
                                        events = gmailEvents,
                                        onUpdateEvent = { mainViewModel.updateEvent(it) },
                                        onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                       onCreateEvent = { mainViewModel.createEventFromItem(it) },
                                    )
                                }
                            }
@@ -1858,12 +1986,14 @@ private fun InboxContent(
                                        events = pushNotificationEvents,
                                        onUpdateEvent = { mainViewModel.updateEvent(it) },
                                        onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                       itemCard = { item, events, onUpdate, onDelete ->
+                                       onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                       itemCard = { item, events, onUpdate, onDelete, onCreate ->
                                            PushNotificationItemCard(
                                                item = item,
                                                events = events,
                                                onUpdateEvent = onUpdate,
                                                onDeleteEvent = onDelete,
+                                               onCreateEvent = onCreate,
                                            )
                                        },
                                    )
@@ -1883,12 +2013,14 @@ private fun InboxContent(
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                itemCard = { item, events, onUpdate, onDelete ->
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                itemCard = { item, events, onUpdate, onDelete, onCreate ->
                                     OcrItemCard(
                                         item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
+                                        onCreateEvent = onCreate,
                                     )
                                 },
                             )
@@ -1908,12 +2040,14 @@ private fun InboxContent(
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                itemCard = { item, events, onUpdate, onDelete ->
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                itemCard = { item, events, onUpdate, onDelete, onCreate ->
                                     SmsItemCard(
                                         item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
+                                        onCreateEvent = onCreate,
                                     )
                                 },
                             )
@@ -1933,6 +2067,7 @@ private fun InboxContent(
                                 events = gmailEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
                             )
                         }
                     }
@@ -1950,15 +2085,112 @@ private fun InboxContent(
                                 events = pushNotificationEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                itemCard = { item, events, onUpdate, onDelete ->
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                itemCard = { item, events, onUpdate, onDelete, onCreate ->
                                     PushNotificationItemCard(
                                         item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
+                                        onCreateEvent = onCreate,
                                     )
                                 },
                             )
+                        }
+                    }
+                }
+                InboxCategory.WithEvents -> {
+                    // 이벤트가 있는 항목만 필터링
+                    val ocrItemsWithEvents = ocrItems.filter { ocrEvents[it.id]?.isNotEmpty() == true }
+                    val smsItemsWithEvents = smsItems.filter { smsEvents[it.id]?.isNotEmpty() == true }
+                    val gmailItemsWithEvents = gmailItems.filter { gmailEvents[it.id]?.isNotEmpty() == true }
+                    val pushNotificationItemsWithEvents = pushNotificationItems.filter { pushNotificationEvents[it.id]?.isNotEmpty() == true }
+                    
+                    val totalItemsWithEvents = ocrItemsWithEvents.size + smsItemsWithEvents.size + gmailItemsWithEvents.size + pushNotificationItemsWithEvents.size
+                    
+                    if (totalItemsWithEvents == 0) {
+                        item {
+                            EmptyStateCard(messageResId = R.string.inbox_empty_events)
+                        }
+                    } else {
+                        // OCR 항목 중 이벤트 있는 것만
+                        if (ocrItemsWithEvents.isNotEmpty()) {
+                            item {
+                                CategorySection(
+                                    titleResId = R.string.inbox_category_ocr,
+                                    items = ocrItemsWithEvents,
+                                    events = ocrEvents,
+                                    onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                    onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                    onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                    itemCard = { item, events, onUpdate, onDelete, onCreate ->
+                                        OcrItemCard(
+                                            item = item,
+                                            events = events,
+                                            onUpdateEvent = onUpdate,
+                                            onDeleteEvent = onDelete,
+                                            onCreateEvent = onCreate,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                        // SMS 항목 중 이벤트 있는 것만
+                        if (smsItemsWithEvents.isNotEmpty()) {
+                            item {
+                                CategorySection(
+                                    titleResId = R.string.inbox_category_sms,
+                                    items = smsItemsWithEvents,
+                                    events = smsEvents,
+                                    onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                    onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                    onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                    itemCard = { item, events, onUpdate, onDelete, onCreate ->
+                                        SmsItemCard(
+                                            item = item,
+                                            events = events,
+                                            onUpdateEvent = onUpdate,
+                                            onDeleteEvent = onDelete,
+                                            onCreateEvent = onCreate,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                        // Gmail 항목 중 이벤트 있는 것만
+                        if (gmailItemsWithEvents.isNotEmpty()) {
+                            item {
+                                EmailCategorySection(
+                                    email = null,
+                                    items = gmailItemsWithEvents,
+                                    events = gmailEvents,
+                                    onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                    onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                    onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                )
+                            }
+                        }
+                        // 푸시 알림 항목 중 이벤트 있는 것만
+                        if (pushNotificationItemsWithEvents.isNotEmpty()) {
+                            item {
+                                CategorySection(
+                                    titleResId = R.string.inbox_category_push,
+                                    items = pushNotificationItemsWithEvents,
+                                    events = pushNotificationEvents,
+                                    onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                    onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                    onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                                    itemCard = { item, events, onUpdate, onDelete, onCreate ->
+                                        PushNotificationItemCard(
+                                            item = item,
+                                            events = events,
+                                            onUpdateEvent = onUpdate,
+                                            onDeleteEvent = onDelete,
+                                            onCreateEvent = onCreate,
+                                        )
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -1982,6 +2214,7 @@ private sealed class InboxCategory(@androidx.annotation.StringRes val labelResId
     object SMS : InboxCategory(R.string.inbox_category_sms)
     object Email : InboxCategory(R.string.inbox_category_email)
     object PushNotification : InboxCategory(R.string.inbox_category_push)
+    object WithEvents : InboxCategory(R.string.inbox_category_with_events)
 }
 
 // 이메일 주소 추출 헬퍼 함수
@@ -2088,7 +2321,8 @@ private fun <T> CategorySection(
     events: Map<String, List<Event>>,
     onUpdateEvent: (Event) -> Unit,
     onDeleteEvent: (Event) -> Unit,
-    itemCard: @Composable (T, List<Event>, (Event) -> Unit, (Event) -> Unit) -> Unit,
+    onCreateEvent: ((T) -> Unit)? = null,
+    itemCard: @Composable (T, List<Event>, (Event) -> Unit, (Event) -> Unit, ((T) -> Unit)?) -> Unit,
 ) where T : IngestItem {
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -2110,7 +2344,7 @@ private fun <T> CategorySection(
                     )
                                 Divider()
             items.forEachIndexed { index, item ->
-                itemCard(item, events[item.id] ?: emptyList(), onUpdateEvent, onDeleteEvent)
+                itemCard(item, events[item.id] ?: emptyList(), onUpdateEvent, onDeleteEvent, onCreateEvent)
                 if (index < items.lastIndex) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                             }
@@ -2126,6 +2360,7 @@ private fun EmailCategorySection(
     events: Map<String, List<Event>>,
     onUpdateEvent: (Event) -> Unit,
     onDeleteEvent: (Event) -> Unit,
+    onCreateEvent: ((IngestItem) -> Unit)? = null,
 ) {
     
         Card(
@@ -2153,6 +2388,7 @@ private fun EmailCategorySection(
                     events = events[item.id] ?: emptyList(),
                     onUpdateEvent = onUpdateEvent,
                     onDeleteEvent = onDeleteEvent,
+                    onCreateEvent = onCreateEvent,
                 )
                 if (index < items.lastIndex) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -2196,6 +2432,7 @@ private fun GmailItemCard(
     events: List<Event>,
     onUpdateEvent: (Event) -> Unit,
     onDeleteEvent: (Event) -> Unit,
+    onCreateEvent: ((IngestItem) -> Unit)? = null,
 ) {
     var showTextDialog by remember { mutableStateOf(false) }
     
@@ -2230,6 +2467,20 @@ private fun GmailItemCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            } else if (onCreateEvent != null) {
+                // 일정 생성 버튼
+                Button(
+                    onClick = { onCreateEvent(item) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("일정 생성")
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2270,6 +2521,7 @@ private fun PushNotificationItemCard(
     events: List<Event>,
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
+    onCreateEvent: ((IngestItem) -> Unit)? = null,
 ) {
     var showTextDialog by remember { mutableStateOf(false) }
     
@@ -2332,6 +2584,21 @@ private fun PushNotificationItemCard(
                         onDeleteEvent = onDeleteEvent,
                     )
                 }
+            } else if (onCreateEvent != null) {
+                Divider()
+                // 일정 생성 버튼
+                Button(
+                    onClick = { onCreateEvent(item) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("일정 생성")
+                }
             }
             
             Row(
@@ -2373,6 +2640,7 @@ private fun SmsItemCard(
     events: List<Event>,
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
+    onCreateEvent: ((IngestItem) -> Unit)? = null,
 ) {
     var showTextDialog by remember { mutableStateOf(false) }
     
@@ -2447,6 +2715,21 @@ private fun SmsItemCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
+                // 일정 생성 버튼
+                if (onCreateEvent != null) {
+                    Button(
+                        onClick = { onCreateEvent(item) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("일정 생성")
+                    }
+                }
             }
         }
     }
@@ -2695,6 +2978,7 @@ private fun OcrItemCard(
     events: List<Event>,
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
+    onCreateEvent: ((IngestItem) -> Unit)? = null,
 ) {
     var showTextDialog by remember { mutableStateOf(false) }
     
@@ -2769,13 +3053,28 @@ private fun OcrItemCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
+                // 일정 생성 버튼
+                if (onCreateEvent != null) {
+                    Button(
+                        onClick = { onCreateEvent(item) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("일정 생성")
+                    }
+                }
             }
         }
     }
     
     if (showTextDialog) {
         TextDetailDialog(
-            title = "SMS 원본 텍스트",
+            title = "OCR 원본 텍스트",
             text = item.body.orEmpty(),
             onDismiss = { showTextDialog = false }
         )

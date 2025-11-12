@@ -114,6 +114,7 @@
     <string name="inbox_title">수집함</string>
     <string name="inbox_refresh">새로고침</string>
     <string name="inbox_category_all">전체</string>
+    <string name="inbox_category_with_events">일정</string>
     <string name="inbox_category_ocr">사진</string>
     <string name="inbox_category_sms">문자</string>
     <string name="inbox_category_email">메일</string>
@@ -153,6 +154,7 @@
     <string name="inbox_empty_sms">문자 데이터가 없어요.</string>
     <string name="inbox_empty_email">메일 데이터가 없어요.</string>
     <string name="inbox_empty_push">알림 데이터가 없어요.</string>
+    <string name="inbox_empty_events">일정이 있는 데이터가 없어요.</string>
     <string name="inbox_empty_category">카테고리를 선택해주세요.</string>
     
     <!-- 인박스 요약 (inbox_summary_*) -->

@@ -459,6 +459,69 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "Gmail 처리 시작 - ID: $originalEmailId")
         
+        val fullText = "${emailSubject ?: ""}\n${emailBody ?: ""}".trim()
+        
+        // 먼저 일정 요약 추출로 일정 개수 확인
+        val eventSummaries = extractEventSummary(
+            text = fullText,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "gmail"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "일정 요약 추출 완료: ${eventSummaries.size}개")
+        
+        // 일정이 2개 이상이면 2단계 방식 사용
+        if (eventSummaries.size >= 2) {
+            android.util.Log.d("HuenDongMinAiAgent", "일정이 2개 이상이므로 2단계 방식 사용")
+            
+            // 2단계: 각 일정별로 상세 정보 생성
+            val events = eventSummaries.map { summary ->
+                createEventFromSummary(
+                    summary = summary,
+                    originalText = fullText,
+                    referenceTimestamp = receivedTimestamp,
+                    sourceType = "gmail"
+                )
+            }.filter { it.isNotEmpty() }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
+            
+            // IngestItem 저장
+            val firstEvent = events.firstOrNull()
+            val ingestItem = IngestItem(
+                id = originalEmailId,
+                source = "gmail",
+                type = "event",
+                title = emailSubject,
+                body = emailBody,
+                timestamp = receivedTimestamp,
+                dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
+                confidence = 0.9,
+                metaJson = null
+            )
+            ingestRepository.upsert(ingestItem)
+            
+            // Event 저장
+            events.forEachIndexed { index, eventData ->
+                val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
+                val event = createEventFromAiData(eventData, originalEmailId, "gmail")
+                eventDao.upsert(event)
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+            }
+            
+            return@withContext AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+        }
+        
+        // 일정이 1개 이하이면 기존 1단계 방식 사용
+        android.util.Log.d("HuenDongMinAiAgent", "일정이 1개 이하이므로 기존 1단계 방식 사용")
+        
         // 1단계: 시간 분석 (새로운 파이프라인)
         val timeAnalysis = analyzeTimeFromText(
             text = emailBody,
@@ -874,6 +937,67 @@ class HuenDongMinAiAgent(
     ): AiProcessingResult = withContext(dispatcher) {
         
         android.util.Log.d("HuenDongMinAiAgent", "SMS 처리 시작 - ID: $originalSmsId")
+        
+        // 먼저 일정 요약 추출로 일정 개수 확인
+        val eventSummaries = extractEventSummary(
+            text = smsBody,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "sms"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "일정 요약 추출 완료: ${eventSummaries.size}개")
+        
+        // 일정이 2개 이상이면 2단계 방식 사용
+        if (eventSummaries.size >= 2) {
+            android.util.Log.d("HuenDongMinAiAgent", "일정이 2개 이상이므로 2단계 방식 사용")
+            
+            // 2단계: 각 일정별로 상세 정보 생성
+            val events = eventSummaries.map { summary ->
+                createEventFromSummary(
+                    summary = summary,
+                    originalText = smsBody,
+                    referenceTimestamp = receivedTimestamp,
+                    sourceType = "sms"
+                )
+            }.filter { it.isNotEmpty() }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
+            
+            // IngestItem 저장
+            val firstEvent = events.firstOrNull()
+            val ingestItem = IngestItem(
+                id = originalSmsId,
+                source = "sms",
+                type = "event",
+                title = smsAddress,
+                body = smsBody,
+                timestamp = receivedTimestamp,
+                dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
+                confidence = 0.9,
+                metaJson = null
+            )
+            ingestRepository.upsert(ingestItem)
+            
+            // Event 저장
+            events.forEachIndexed { index, eventData ->
+                val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
+                val event = createEventFromAiData(eventData, originalSmsId, "sms")
+                eventDao.upsert(event)
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+            }
+            
+            return@withContext AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+        }
+        
+        // 일정이 1개 이하이면 기존 1단계 방식 사용
+        android.util.Log.d("HuenDongMinAiAgent", "일정이 1개 이하이므로 기존 1단계 방식 사용")
         
         // 1단계: 시간 분석 (새로운 파이프라인)
         val timeAnalysis = analyzeTimeFromText(
@@ -1501,6 +1625,67 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "=== OCR 처리 시작 ===")
         android.util.Log.d("HuenDongMinAiAgent", "OCR ID: $originalOcrId")
         
+        // 먼저 일정 요약 추출로 일정 개수 확인
+        val eventSummaries = extractEventSummary(
+            text = ocrText,
+            referenceTimestamp = currentTimestamp,
+            sourceType = "ocr"
+        )
+        
+        android.util.Log.d("HuenDongMinAiAgent", "일정 요약 추출 완료: ${eventSummaries.size}개")
+        
+        // 일정이 2개 이상이면 2단계 방식 사용
+        if (eventSummaries.size >= 2) {
+            android.util.Log.d("HuenDongMinAiAgent", "일정이 2개 이상이므로 2단계 방식 사용")
+            
+            // 2단계: 각 일정별로 상세 정보 생성
+            val events = eventSummaries.map { summary ->
+                createEventFromSummary(
+                    summary = summary,
+                    originalText = ocrText,
+                    referenceTimestamp = currentTimestamp,
+                    sourceType = "ocr"
+                )
+            }.filter { it.isNotEmpty() }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
+            
+            // IngestItem 저장
+            val firstEvent = events.firstOrNull()
+            val ingestItem = IngestItem(
+                id = originalOcrId,
+                source = "ocr",
+                type = "event",
+                title = firstEvent?.get("title")?.jsonPrimitive?.content ?: "OCR 일정",
+                body = ocrText,
+                timestamp = currentTimestamp,
+                dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
+                confidence = 0.9,
+                metaJson = null
+            )
+            ingestRepository.upsert(ingestItem)
+            
+            // Event 저장
+            events.forEachIndexed { index, eventData ->
+                val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
+                val event = createEventFromAiData(eventData, originalOcrId, "ocr")
+                eventDao.upsert(event)
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+            }
+            
+            return@withContext AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+        }
+        
+        // 일정이 1개 이하이면 기존 1단계 방식 사용
+        android.util.Log.d("HuenDongMinAiAgent", "일정이 1개 이하이므로 기존 1단계 방식 사용")
+        
         // 1단계: 시간 분석 (새로운 파이프라인)
         val timeAnalysis = analyzeTimeFromText(
             text = ocrText,
@@ -2072,6 +2257,227 @@ class HuenDongMinAiAgent(
     /**
      * AI 응답 파싱 (여러 이벤트 지원)
      */
+    /**
+     * 1단계: 텍스트에서 일정 요약 추출
+     * 여러 일정이 있을 때 각 일정을 명확히 구분하여 추출
+     */
+    private suspend fun extractEventSummary(
+        text: String,
+        referenceTimestamp: Long,
+        sourceType: String
+    ): List<EventSummary> = withContext(dispatcher) {
+        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+        val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        val systemPrompt = """
+            당신은 텍스트에서 모든 일정을 찾아서 간단하게 요약하는 전문가입니다.
+            
+            📅 기준 시점:
+            - 기준 연도: ${referenceDate.year}년
+            - 기준 월: ${referenceDate.monthValue}월
+            - 기준 일: ${referenceDate.dayOfMonth}일
+            
+            📅 현재 시간:
+            - 현재 연도: ${now.year}년
+            - 현재 월: ${now.monthValue}월
+            - 현재 일: ${now.dayOfMonth}일
+            
+            **당신의 역할:**
+            - 텍스트에서 모든 일정을 찾아서 간단한 형식으로 요약하세요.
+            - 각 일정은 날짜와 제목만 추출하면 됩니다.
+            - 시간 계산은 하지 마세요. 날짜만 추출하세요.
+            
+            **출력 형식:**
+            ```json
+            {
+              "events": [
+                {
+                  "date": "2025-11-17",
+                  "title": "채용 설명회",
+                  "timeHint": "14:00"  // 시간이 있으면, 없으면 null
+                },
+                {
+                  "date": "2025-11-16",
+                  "title": "사전신청",
+                  "timeHint": null
+                }
+              ]
+            }
+            ```
+            
+            **중요 규칙:**
+            1. 여러 일정이 있으면 반드시 모두 추출하세요!
+            2. 날짜 형식: "YYYY-MM-DD" (예: "2025-11-17")
+            3. 연도가 생략된 날짜는 현재 연도(${now.year})를 사용하세요.
+            4. "11월 17일" → "2025-11-17"
+            5. "11.17" 또는 "11.17(일)" → "2025-11-17"
+            6. "~11.16" 또는 "~11.16(일)" → "2025-11-16" (기간의 마감일 사용)
+            7. "11월 17일부터" → "2025-11-17" (시작일 추출)
+            8. "신청 기간 : ~11.16" → 날짜: "2025-11-16", 제목: "신청 기간" 또는 "사전신청"
+            9. 같은 날짜에 여러 일정이 있으면 각각 별도로 추출하세요!
+            
+            **예시:**
+            - "11월 17일부터 진행하는 <대학원 동문선배 멘토링>" → date: "2025-11-17", title: "대학원 동문선배 멘토링"
+            - "신청 기간 : ~11.16(일)" → date: "2025-11-16", title: "신청 기간" 또는 "사전신청"
+        """.trimIndent()
+        
+        val userPrompt = """
+            다음 텍스트에서 모든 일정을 찾아서 요약하세요.
+            
+            📝 텍스트:
+            $text
+        """.trimIndent()
+        
+        val messages = listOf(
+            AiMessage(role = "system", content = systemPrompt),
+            AiMessage(role = "user", content = userPrompt)
+        )
+        
+        val response = callOpenAi(messages)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== 1단계: 일정 요약 추출 ===")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        
+        return@withContext try {
+            val cleanedJson = response
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            
+            val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
+            val eventsArray = jsonObj["events"]?.jsonArray ?: emptyList()
+            
+            eventsArray.map { eventElement ->
+                val eventObj = eventElement.jsonObject
+                EventSummary(
+                    date = eventObj["date"]?.jsonPrimitive?.content ?: "",
+                    title = eventObj["title"]?.jsonPrimitive?.content ?: "",
+                    timeHint = eventObj["timeHint"]?.jsonPrimitive?.content
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "일정 요약 추출 실패", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * 2단계: 각 일정별로 시간 계산 및 상세 정보 생성
+     */
+    private suspend fun createEventFromSummary(
+        summary: EventSummary,
+        originalText: String,
+        referenceTimestamp: Long,
+        sourceType: String
+    ): Map<String, JsonElement?> = withContext(dispatcher) {
+        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+        val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        // 날짜 파싱
+        val eventDate = try {
+            val dateParts = summary.date.split("-")
+            if (dateParts.size == 3) {
+                java.time.LocalDate.of(
+                    dateParts[0].toInt(),
+                    dateParts[1].toInt(),
+                    dateParts[2].toInt()
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "날짜 파싱 실패: ${summary.date}", e)
+            null
+        }
+        
+        if (eventDate == null) {
+            android.util.Log.w("HuenDongMinAiAgent", "날짜 파싱 실패, 기본값 사용")
+            return@withContext emptyMap()
+        }
+        
+        // 시간 계산
+        val timeStr = summary.timeHint ?: "00:00"
+        val timeParts = timeStr.split(":")
+        val hour = if (timeParts.size >= 1) timeParts[0].toIntOrNull() ?: 0 else 0
+        val minute = if (timeParts.size >= 2) timeParts[1].toIntOrNull() ?: 0 else 0
+        
+        val eventDateTime = eventDate
+            .atTime(hour, minute)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        val startAt = eventDateTime.toInstant().toEpochMilli()
+        val endAt = startAt + (60 * 60 * 1000) // 기본 1시간
+        
+        // 원본 텍스트에서 해당 일정의 상세 정보 추출
+        val systemPrompt = """
+            당신은 특정 일정에 대한 상세 정보를 추출하는 전문가입니다.
+            
+            📅 일정 정보:
+            - 날짜: ${summary.date}
+            - 제목: ${summary.title}
+            - 시간 힌트: ${summary.timeHint ?: "없음"}
+            
+            **당신의 역할:**
+            - 원본 텍스트에서 이 일정과 관련된 상세 정보를 추출하세요.
+            - 장소, 설명, 추가 정보 등을 찾으세요.
+            
+            **출력 형식:**
+            ```json
+            {
+              "location": "장소 정보 또는 빈 문자열",
+              "body": "일정에 대한 상세 설명",
+              "type": "일정 유형 (회의, 약속, 행사 등)"
+            }
+            ```
+        """.trimIndent()
+        
+        val userPrompt = """
+            다음 텍스트에서 "${summary.title}" (${summary.date}) 일정에 대한 상세 정보를 추출하세요.
+            
+            📝 원본 텍스트:
+            $originalText
+        """.trimIndent()
+        
+        val messages = listOf(
+            AiMessage(role = "system", content = systemPrompt),
+            AiMessage(role = "user", content = userPrompt)
+        )
+        
+        val response = callOpenAi(messages)
+        
+        android.util.Log.d("HuenDongMinAiAgent", "=== 2단계: 일정 상세 정보 추출 ===")
+        android.util.Log.d("HuenDongMinAiAgent", "일정: ${summary.title} (${summary.date})")
+        android.util.Log.d("HuenDongMinAiAgent", response)
+        
+        val detailInfo = try {
+            val cleanedJson = response
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            
+            json.parseToJsonElement(cleanedJson).jsonObject
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "상세 정보 추출 실패, 기본값 사용", e)
+            json.parseToJsonElement("""{"location":"","body":"${summary.title}","type":"일정"}""").jsonObject
+        }
+        
+        // 최종 이벤트 데이터 생성
+        mapOf(
+            "title" to JsonPrimitive(summary.title),
+            "startAt" to JsonPrimitive(startAt.toString()),
+            "endAt" to JsonPrimitive(endAt.toString()),
+            "location" to (detailInfo["location"] ?: JsonPrimitive("")),
+            "type" to (detailInfo["type"] ?: JsonPrimitive("일정")),
+            "body" to (detailInfo["body"] ?: JsonPrimitive(summary.title))
+        )
+    }
+    
     private fun parseAiResponse(response: String): AiProcessingResult {
         return try {
             // JSON 추출 (마크다운 코드 블록 제거)
@@ -2150,5 +2556,14 @@ data class AiProcessingResult(
     val type: String,  // "event", "contact", "note"
     val confidence: Double,
     val events: List<Map<String, JsonElement?>>  // 여러 이벤트를 배열로 저장
+)
+
+/**
+ * 1단계에서 추출한 일정 요약 정보
+ */
+private data class EventSummary(
+    val date: String,  // "YYYY-MM-DD" 형식
+    val title: String,
+    val timeHint: String?  // 시간 힌트 (예: "14:00"), 없으면 null
 )
 

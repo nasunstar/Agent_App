@@ -101,6 +101,9 @@ object SmsReader {
                 val dateIndex = it.getColumnIndex(Telephony.Sms.DATE)
                 val dateSentIndex = it.getColumnIndex(Telephony.Sms.DATE_SENT)
                 
+                // Cursor의 총 행 수 확인
+                val totalCount = it.count
+                Log.d("SmsReader", "SMS Cursor 총 행 수: $totalCount")
                 Log.d("SmsReader", "컬럼 인덱스: id=$idIndex, address=$addressIndex, body=$bodyIndex, date=$dateIndex, dateSent=$dateSentIndex")
                 
                 // 컬럼 인덱스 검증 (필수 컬럼만 체크)
@@ -123,8 +126,11 @@ object SmsReader {
                 
                 var successCount = 0
                 var errorCount = 0
+                var readCount = 0
                 
+                // 모든 행 읽기
                 while (it.moveToNext()) {
+                    readCount++
                     try {
                         val id = it.getString(idIndex)
                         val address = if (addressIndex >= 0) {
@@ -175,7 +181,12 @@ object SmsReader {
                     }
                 }
                 
-                Log.d("SmsReader", "SMS 읽기 완료: 성공=$successCount, 실패=$errorCount, 전체=${messages.size}")
+                Log.d("SmsReader", "SMS 읽기 완료: Cursor 총 행 수=$totalCount, 읽은 행 수=$readCount, 성공=$successCount, 실패=$errorCount, 메시지 리스트 크기=${messages.size}")
+                
+                // 읽은 행 수와 Cursor 총 행 수가 다르면 경고
+                if (readCount != totalCount) {
+                    Log.w("SmsReader", "⚠️ 경고: Cursor 총 행 수($totalCount)와 실제 읽은 행 수($readCount)가 다릅니다!")
+                }
                 
                 if (successCount == 0 && errorCount > 0) {
                     Log.w("SmsReader", "모든 SMS 메시지 읽기 실패")
@@ -192,7 +203,10 @@ object SmsReader {
                 )
             }
             
-            Log.d("SmsReader", "읽은 SMS 메시지 개수: ${messages.size}")
+            Log.d("SmsReader", "✅ 최종 읽은 SMS 메시지 개수: ${messages.size}")
+            if (messages.isEmpty() && sinceTimestamp == 0L) {
+                Log.w("SmsReader", "⚠️ 전체 스캔인데 SMS 메시지가 0개입니다. 권한이나 데이터 문제일 수 있습니다.")
+            }
             return SmsReadResult.Success(messages)
             
         } catch (e: SecurityException) {

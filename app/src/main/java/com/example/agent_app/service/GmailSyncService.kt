@@ -46,7 +46,7 @@ class GmailSyncService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "gmail_sync_channel"
-        private const val SYNC_INTERVAL_MINUTES = 5L // 5분마다 동기화
+        private const val SYNC_INTERVAL_HOURS = 6L // 6시간마다 동기화
         
         private const val EXTRA_ACCOUNT_EMAIL = "account_email"
         private const val EXTRA_SINCE_TIMESTAMP = "since_timestamp"
@@ -133,10 +133,10 @@ class GmailSyncService : Service() {
             while (true) {
                 try {
                     performSync()
-                    delay(TimeUnit.MINUTES.toMillis(SYNC_INTERVAL_MINUTES))
+                    delay(TimeUnit.HOURS.toMillis(SYNC_INTERVAL_HOURS))
                 } catch (e: Exception) {
                     Log.e("GmailSyncService", "동기화 오류", e)
-                    delay(TimeUnit.MINUTES.toMillis(1)) // 오류 시 1분 후 재시도
+                    delay(TimeUnit.HOURS.toMillis(1)) // 오류 시 1시간 후 재시도
                 }
             }
         }
@@ -239,30 +239,94 @@ class GmailSyncService : Service() {
     private suspend fun performSync() {
         Log.d("GmailSyncService", "주기적 동기화 수행 시작")
         
-        val token = authRepository.getGoogleToken()
-        if (token?.accessToken.isNullOrBlank()) {
-            Log.w("GmailSyncService", "토큰이 없어 동기화 건너뛰기")
+        // Gmail 자동 처리 활성화 여부 확인
+        val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(applicationContext)
+        if (!isAutoProcessEnabled) {
+            Log.d("GmailSyncService", "Gmail 자동 처리 비활성화 상태 - 동기화 건너뜀")
             return
         }
         
-        val result = gmailSyncManager.syncIncremental(token!!.accessToken)
+        // 자동 처리 기간 가져오기
+        val period = com.example.agent_app.util.AutoProcessSettings.getGmailAutoProcessPeriod(applicationContext)
+        if (period == null) {
+            Log.d("GmailSyncService", "Gmail 자동 처리 기간이 설정되지 않음 - 동기화 건너뜀")
+            return
+        }
         
-        when (result) {
-            is com.example.agent_app.data.repo.GmailSyncResult.Success -> {
-                Log.d("GmailSyncService", "동기화 성공: ${result.upsertedCount}개 메시지")
-                updateNotification("마지막 동기화: ${result.upsertedCount}개 새 메시지", 1.0f)
+        val sinceTimestamp = period.first
+        Log.d("GmailSyncService", "Gmail 자동 처리 기간 확인 - 시작: $sinceTimestamp, 종료: ${period.second}")
+        
+        // 모든 Google 계정에 대해 동기화
+        val accounts = authRepository.getAllGoogleTokens()
+        if (accounts.isEmpty()) {
+            Log.w("GmailSyncService", "동기화할 계정이 없음")
+            return
+        }
+        
+        for (account in accounts) {
+            val token = account
+            if (token.accessToken.isBlank()) {
+                Log.w("GmailSyncService", "계정 ${token.email}의 토큰이 없어 동기화 건너뛰기")
+                continue
             }
-            is com.example.agent_app.data.repo.GmailSyncResult.Unauthorized -> {
-                Log.w("GmailSyncService", "인증 실패 - 토큰 갱신 필요")
-                updateNotification("인증 실패 - 토큰 갱신 필요", 0f)
+            
+            var accessToken = token.accessToken
+            
+            // 토큰 만료 체크 및 갱신
+            if (token.expiresAt != null && token.expiresAt!! < System.currentTimeMillis()) {
+                if (!token.refreshToken.isNullOrBlank()) {
+                    try {
+                        val refresher = com.example.agent_app.auth.GoogleTokenRefresher()
+                        val clientId = com.example.agent_app.BuildConfig.GOOGLE_WEB_CLIENT_ID
+                        when (val refreshResult = refresher.refreshAccessToken(token.refreshToken, clientId)) {
+                            is com.example.agent_app.auth.TokenRefreshResult.Success -> {
+                                accessToken = refreshResult.accessToken
+                                authRepository.upsertGoogleToken(
+                                    accessToken = refreshResult.accessToken,
+                                    refreshToken = token.refreshToken,
+                                    scope = token.scope,
+                                    expiresAt = refreshResult.expiresAt,
+                                    email = token.email,
+                                )
+                            }
+                            else -> {
+                                Log.w("GmailSyncService", "계정 ${token.email}의 토큰 갱신 실패")
+                                continue
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("GmailSyncService", "계정 ${token.email}의 토큰 갱신 실패", e)
+                        continue
+                    }
+                }
             }
-            is com.example.agent_app.data.repo.GmailSyncResult.NetworkError -> {
-                Log.e("GmailSyncService", "네트워크 오류: ${result.message}")
-                updateNotification("동기화 오류: ${result.message}", 0f)
-            }
-            is com.example.agent_app.data.repo.GmailSyncResult.MissingToken -> {
-                Log.w("GmailSyncService", "토큰 없음")
-                updateNotification("토큰 없음", 0f)
+            
+            // 기간 기반 동기화 수행
+            val result = gmailRepository.syncRecentMessages(
+                accessToken = accessToken,
+                sinceTimestamp = sinceTimestamp,
+                onProgress = { progress, message ->
+                    updateNotification("${token.email}: $message", progress)
+                }
+            )
+            
+            when (result) {
+                is com.example.agent_app.data.repo.GmailSyncResult.Success -> {
+                    Log.d("GmailSyncService", "계정 ${token.email} 동기화 성공: ${result.upsertedCount}개 메시지, 일정 ${result.eventCount}개")
+                    updateNotification("${token.email}: ${result.upsertedCount}개 새 메시지, 일정 ${result.eventCount}개", 1.0f)
+                }
+                is com.example.agent_app.data.repo.GmailSyncResult.Unauthorized -> {
+                    Log.w("GmailSyncService", "계정 ${token.email} 인증 실패 - 토큰 갱신 필요")
+                    updateNotification("${token.email}: 인증 실패", 0f)
+                }
+                is com.example.agent_app.data.repo.GmailSyncResult.NetworkError -> {
+                    Log.e("GmailSyncService", "계정 ${token.email} 네트워크 오류: ${result.message}")
+                    updateNotification("${token.email}: 동기화 오류", 0f)
+                }
+                is com.example.agent_app.data.repo.GmailSyncResult.MissingToken -> {
+                    Log.w("GmailSyncService", "계정 ${token.email} 토큰 없음")
+                    updateNotification("${token.email}: 토큰 없음", 0f)
+                }
             }
         }
     }

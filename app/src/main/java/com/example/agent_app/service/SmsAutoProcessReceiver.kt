@@ -39,7 +39,23 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
             val timestamp = smsMessage.timestampMillis
             val smsId = smsMessage.indexOnIcc?.toString() ?: System.currentTimeMillis().toString()
             
-            Log.d(TAG, "SMS 처리 시작 - 발신자: $address, 본문 길이: ${body.length}")
+            Log.d(TAG, "SMS 처리 시작 - 발신자: $address, 본문 길이: ${body.length}, 타임스탬프: $timestamp")
+            
+            // 자동 처리 활성화 여부 및 기간 확인
+            val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
+            val isWithinPeriod = com.example.agent_app.util.AutoProcessSettings.isWithinSmsAutoProcessPeriod(context, timestamp)
+            
+            if (!isAutoProcessEnabled) {
+                Log.d(TAG, "SMS 자동 처리 비활성화 상태 - 처리 건너뜀")
+                return
+            }
+            
+            if (!isWithinPeriod) {
+                Log.d(TAG, "SMS 타임스탬프($timestamp)가 자동 처리 기간 범위 밖 - 처리 건너뜀")
+                return
+            }
+            
+            Log.d(TAG, "SMS 자동 처리 조건 충족 - 처리 진행")
             
             // 백그라운드에서 처리
             scope.launch {

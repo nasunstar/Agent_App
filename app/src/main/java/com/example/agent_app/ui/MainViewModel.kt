@@ -620,6 +620,7 @@ class MainViewModel(
                         recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
                         lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
                         progress = 0f,
+                        tokenExpired = true, // 토큰 만료 표시
                     )
                     gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
                     return@launch
@@ -636,6 +637,15 @@ class MainViewModel(
                     email = accountEmail,
                 )
                 android.util.Log.d("MainViewModel", "갱신된 Access Token 저장 완료")
+            }
+            
+            // 기간 선택 시 Gmail 자동 처리 활성화 및 기간 저장
+            if (sinceTimestamp > 0L) {
+                com.example.agent_app.util.AutoProcessSettings.enableGmailAutoProcess(
+                    context,
+                    sinceTimestamp,
+                    System.currentTimeMillis()
+                )
             }
             
             when (val result = gmailRepository.syncRecentMessages(accessToken, sinceTimestamp)) {
@@ -941,6 +951,13 @@ class MainViewModel(
             return
         }
         
+        // 기간 선택 시 자동 처리 활성화 및 기간 저장
+        com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcess(
+            context, 
+            sinceTimestamp, 
+            System.currentTimeMillis()
+        )
+        
         // Foreground Service로 백그라운드 처리 시작
         val intent = android.content.Intent(context, com.example.agent_app.service.SmsScanService::class.java).apply {
             putExtra("since_timestamp", sinceTimestamp)
@@ -1066,6 +1083,82 @@ class MainViewModel(
     }
     
     /**
+     * 인박스 데이터 새로고침
+     * Gmail, SMS, OCR, 푸시 알림 데이터와 이벤트를 모두 다시 로드
+     */
+    fun refreshInboxData() {
+        viewModelScope.launch {
+            // 분류된 데이터 새로고침
+            loadClassifiedData()
+            
+            // 각 소스별 이벤트 다시 로드
+            loadOcrEvents(ocrItemsState.value)
+            loadSmsEvents(smsItemsState.value)
+            loadPushNotificationEvents(pushNotificationItemsState.value)
+            
+            // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
+            android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")
+        }
+    }
+    
+    /**
+     * IngestItem에서 일정 생성
+     */
+    fun createEventFromItem(item: IngestItem) {
+        viewModelScope.launch {
+            try {
+                when (item.source) {
+                    "sms" -> {
+                        val result = aiAgent.processSMSForEvent(
+                            smsBody = item.body ?: "",
+                            smsAddress = item.title ?: "Unknown",
+                            receivedTimestamp = item.timestamp,
+                            originalSmsId = item.id
+                        )
+                        android.util.Log.d("MainViewModel", "SMS 일정 생성 완료: ${result.events.size}개")
+                    }
+                    "ocr" -> {
+                        val result = aiAgent.createEventFromImage(
+                            ocrText = item.body ?: "",
+                            currentTimestamp = item.timestamp,
+                            originalOcrId = item.id
+                        )
+                        android.util.Log.d("MainViewModel", "OCR 일정 생성 완료: ${result.events.size}개")
+                    }
+                    "gmail" -> {
+                        val result = aiAgent.processGmailForEvent(
+                            emailSubject = item.title ?: "",
+                            emailBody = item.body ?: "",
+                            receivedTimestamp = item.timestamp,
+                            originalEmailId = item.id
+                        )
+                        android.util.Log.d("MainViewModel", "Gmail 일정 생성 완료: ${result.events.size}개")
+                    }
+                    "push_notification" -> {
+                        val result = aiAgent.processPushNotificationForEvent(
+                            appName = item.title ?: "Unknown",
+                            notificationTitle = null,
+                            notificationText = item.body ?: "",
+                            notificationSubText = null,
+                            receivedTimestamp = item.timestamp,
+                            originalNotificationId = item.id
+                        )
+                        android.util.Log.d("MainViewModel", "푸시 알림 일정 생성 완료: ${result.events.size}개")
+                    }
+                    else -> {
+                        android.util.Log.w("MainViewModel", "지원하지 않는 소스 타입: ${item.source}")
+                    }
+                }
+                
+                // 일정 생성 후 데이터 새로고침
+                refreshInboxData()
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "일정 생성 실패", e)
+            }
+        }
+    }
+    
+    /**
      * 통화 녹음 텍스트 파일 스캔
      */
     fun scanCallRecordTexts(sinceTimestamp: Long) {
@@ -1171,6 +1264,7 @@ data class AccountSyncState(
     val lastSyncTimestamp: Long = 0L,
     val progressMessage: String? = null,
     val progress: Float = 0f,
+    val tokenExpired: Boolean = false, // 토큰 만료 여부
 )
 
 data class GmailUpdateRecord(
