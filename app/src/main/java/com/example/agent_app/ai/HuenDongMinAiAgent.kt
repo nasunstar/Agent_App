@@ -16,6 +16,7 @@ import com.example.agent_app.util.SmsReader
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -68,6 +69,10 @@ class HuenDongMinAiAgent(
         val relativeTimeExpressions: List<String>,  // 상대적 시간 표현 목록 (예: ["내일", "다음주 수요일"])
         val hasTime: Boolean,  // 시간이 명시되어 있는지
         val time: String?,  // 시간 (예: "14:00", "오후 3시")
+        val finalDate: String?,  // LLM이 계산한 최종 시작 날짜 (예: "2025-11-12") - YYYY-MM-DD 형식
+        val finalTime: String?,  // LLM이 계산한 최종 시작 시간 (예: "12:00") - HH:mm 형식
+        val finalEndDate: String?,  // LLM이 계산한 최종 종료 날짜 (예: "2025-11-12") - YYYY-MM-DD 형식 (없으면 null)
+        val finalEndTime: String?,  // LLM이 계산한 최종 종료 시간 (예: "14:00") - HH:mm 형식 (없으면 null)
         val referenceTimestamp: Long,  // 기준 시점 (메일 수신 시간 등)
         val currentTimestamp: Long,  // 현재 시간
         val timezone: String = "Asia/Seoul"  // 시간대
@@ -134,20 +139,30 @@ class HuenDongMinAiAgent(
                - "내일", "모레", "다음주", "담주", "다음주 수요일" 등
                - 기준 시점(${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일)을 기준으로 계산
                
-            3. 시간 찾기:
+            3. 시작 시간 찾기:
                - "14시", "오후 3시", "15:00", "3pm" 등
                
+            4. 종료 시간 찾기 (있으면):
+               - "14시~16시", "15:00-17:00", "오후 3시부터 5시까지" 등
+               - 시간 범위가 명시되어 있으면 종료 시간도 추출
+               - 종료 시간이 없으면 null 반환
+               
             ⚠️ 중요:
-            - 명시적 날짜가 있으면 그 날짜를 기준으로 사용 (최우선!)
-            - 명시적 날짜가 있으면 상대적 표현("내일", "다음주" 등)은 무시하세요!
-            - 명시적 날짜가 없을 때만 상대적 표현을 추출하세요!
-            - 명시적 날짜가 없으면 기준 시점을 사용
+            - 명시적 날짜가 있으면 그 날짜를 기준 시점으로 사용 (최우선!)
+            - 명시적 날짜와 상대적 표현이 함께 있으면, 명시적 날짜를 기준으로 상대적 표현을 계산하여 최종 날짜를 구하세요!
+              예: "11월 11일날 내일" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"] → 최종 날짜: "2025-11-12" (11월 11일 기준 +1일)
+            - 명시적 날짜가 없으면 기준 시점을 사용하고, 상대적 표현을 계산하여 최종 날짜를 구하세요
             - 모든 시간은 한국 표준시(KST, UTC+9) 기준
+            - 최종 시작 날짜는 반드시 "YYYY-MM-DD" 형식으로 계산하세요
+            - 최종 시작 시간은 "HH:mm" 형식으로 계산하세요 (시간이 없으면 "00:00")
+            - 종료 시간이 명시되어 있으면 finalEndDate와 finalEndTime도 계산하세요
+            - 종료 시간이 없으면 finalEndDate와 finalEndTime은 null로 설정하세요
             
-            🔴 예시:
-            - "9.30(화) 14시" → 명시적 날짜: "9.30", 상대적 표현: [] (없음) ✅
-            - "내일 오후 3시" → 명시적 날짜: null, 상대적 표현: ["내일"] ✅
-            - "9.30(화) 내일 14시" → 명시적 날짜: "9.30", 상대적 표현: [] (명시적 날짜가 있으므로 "내일" 무시) ✅
+            🔴 예시 (현재 기준: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일):
+            - "9.30(화) 14시" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료: null ✅
+            - "내일 오후 3시~5시" → 명시적 날짜: null, 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 최종 시간: "15:00", 종료 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 종료 시간: "17:00" ✅
+            - "11월 11일날 내일 점심" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.year}-11-12" (11월 11일 +1일), 최종 시간: "12:00", 종료: null ✅
+            - "9.30(화) 14:00-16:00" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료 날짜: "${referenceDate.year}-09-30", 종료 시간: "16:00" ✅
             
             출력 형식 (순수 JSON만):
             {
@@ -156,7 +171,11 @@ class HuenDongMinAiAgent(
               "hasRelativeTime": true/false,
               "relativeTimeExpressions": ["내일", "다음주 수요일"] 또는 [],
               "hasTime": true/false,
-              "time": "14:00" 또는 null
+              "time": "14:00" 또는 null,
+              "finalDate": "2025-11-12",  // 최종 계산된 시작 날짜 (YYYY-MM-DD 형식, 필수!)
+              "finalTime": "12:00",  // 최종 계산된 시작 시간 (HH:mm 형식, 시간이 없으면 "00:00")
+              "finalEndDate": "2025-11-12" 또는 null,  // 최종 계산된 종료 날짜 (YYYY-MM-DD 형식, 없으면 null)
+              "finalEndTime": "14:00" 또는 null  // 최종 계산된 종료 시간 (HH:mm 형식, 없으면 null)
             }
         """.trimIndent()
         
@@ -198,6 +217,10 @@ class HuenDongMinAiAgent(
             } ?: emptyList(),
             hasTime = jsonObj["hasTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
             time = jsonObj["time"]?.jsonPrimitive?.content,
+            finalDate = jsonObj["finalDate"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 시작 날짜
+            finalTime = jsonObj["finalTime"]?.jsonPrimitive?.content ?: "00:00",  // LLM이 계산한 최종 시작 시간
+            finalEndDate = jsonObj["finalEndDate"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 종료 날짜
+            finalEndTime = jsonObj["finalEndTime"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 종료 시간
             referenceTimestamp = referenceTimestamp,
             currentTimestamp = now.toInstant().toEpochMilli(),
             timezone = "Asia/Seoul"
@@ -207,70 +230,483 @@ class HuenDongMinAiAgent(
     /**
      * 시간 분석 결과를 JSON 형식의 이벤트 데이터로 변환하는 함수
      * 
-     * @param timeAnalysis 시간 분석 결과
+     * LLM이 계산한 최종 날짜/시간을 epoch milliseconds로 변환만 수행
+     * 
+     * @param timeAnalysis 시간 분석 결과 (LLM이 finalDate, finalTime 계산 완료)
      * @param title 이벤트 제목
      * @param body 이벤트 본문
      * @param location 장소 (선택)
+     * @param sourceType 데이터 소스 타입 ("ocr", "gmail", "sms", "push_notification")
      * @return JSON 형식의 이벤트 데이터 (Map<String, JsonElement?>)
      */
     private fun convertTimeAnalysisToJson(
         timeAnalysis: TimeAnalysisResult,
         title: String,
         body: String,
-        location: String? = null
+        location: String? = null,
+        sourceType: String = "gmail"
     ): Map<String, JsonElement?> {
-        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
         val referenceDate = java.time.Instant.ofEpochMilli(timeAnalysis.referenceTimestamp)
             .atZone(java.time.ZoneId.of("Asia/Seoul"))
         
-        // 기준 시점 결정: 명시적 날짜가 있으면 그 날짜, 없으면 기준 시점
-        val baseDate = if (timeAnalysis.hasExplicitDate && timeAnalysis.explicitDate != null) {
-            // 명시적 날짜 파싱
-            parseExplicitDate(timeAnalysis.explicitDate, referenceDate)
+        // 1단계: LLM 출력 검증 및 파싱
+        val (validatedDate, validatedTime) = validateLlmOutput(
+            finalDate = timeAnalysis.finalDate,
+            finalTime = timeAnalysis.finalTime,
+            explicitDate = timeAnalysis.explicitDate,
+            relativeExpressions = timeAnalysis.relativeTimeExpressions,
+            referenceDate = referenceDate,
+            sourceType = sourceType
+        )
+        
+        // 2단계: 이중 검증 (LLM 계산 vs 코드 재계산)
+        val crossValidationResult = crossValidateDate(
+            llmDate = validatedDate,
+            explicitDate = timeAnalysis.explicitDate,
+            relativeExpressions = timeAnalysis.relativeTimeExpressions,
+            referenceDate = referenceDate,
+            sourceType = sourceType
+        )
+        
+        // 3단계: 날짜/시간 파싱 및 범위 검증
+        val dateParts = crossValidationResult.finalDate.split("-")
+        if (dateParts.size != 3) {
+            android.util.Log.e("HuenDongMinAiAgent", "날짜 형식 오류: ${crossValidationResult.finalDate}")
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        
+        val year = dateParts[0].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "연도 파싱 실패: ${dateParts[0]}")
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        val month = dateParts[1].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "월 파싱 실패: ${dateParts[1]}")
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        val day = dateParts[2].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "일 파싱 실패: ${dateParts[2]}")
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        
+        // 날짜 유효성 검증
+        if (!isValidDate(year, month, day)) {
+            android.util.Log.e("HuenDongMinAiAgent", "유효하지 않은 날짜: $year-$month-$day")
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        
+        // 시간 파싱 및 범위 검증
+        val timeParts = validatedTime.split(":")
+        val hour = if (timeParts.size >= 1) {
+            val h = timeParts[0].toIntOrNull() ?: 0
+            if (h !in 0..23) {
+                android.util.Log.w("HuenDongMinAiAgent", "시간 범위 오류: $h, 0으로 설정")
+                0
+            } else h
+        } else 0
+        val minute = if (timeParts.size >= 2) {
+            val m = timeParts[1].toIntOrNull() ?: 0
+            if (m !in 0..59) {
+                android.util.Log.w("HuenDongMinAiAgent", "분 범위 오류: $m, 0으로 설정")
+                0
+            } else m
+        } else 0
+        
+        // 최종 날짜/시간 생성 및 epoch milliseconds 변환
+        val finalDateTime = try {
+            java.time.LocalDate.of(year, month, day)
+                .atTime(hour, minute)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "날짜/시간 생성 실패", e)
+            return createFallbackEvent(referenceDate, title, body, location)
+        }
+        
+        val startAt = finalDateTime.toInstant().toEpochMilli()
+        
+        // 종료 시간 계산: LLM이 계산한 종료 시간이 있으면 사용, 없으면 기본 1시간
+        val endAt = if (timeAnalysis.finalEndDate != null && timeAnalysis.finalEndTime != null) {
+            // LLM이 종료 시간을 계산한 경우
+            val (validatedEndDate, validatedEndTime) = validateLlmOutput(
+                finalDate = timeAnalysis.finalEndDate,
+                finalTime = timeAnalysis.finalEndTime,
+                explicitDate = null,  // 종료 날짜는 별도로 명시적 날짜가 없음
+                relativeExpressions = emptyList(),
+                referenceDate = referenceDate,
+                sourceType = sourceType
+            )
+            
+            val endDateParts = validatedEndDate.split("-")
+            if (endDateParts.size == 3) {
+                val endYear = endDateParts[0].toIntOrNull() ?: year
+                val endMonth = endDateParts[1].toIntOrNull() ?: month
+                val endDay = endDateParts[2].toIntOrNull() ?: day
+                
+                val endTimeParts = validatedEndTime.split(":")
+                val endHour = if (endTimeParts.size >= 1) {
+                    endTimeParts[0].toIntOrNull()?.takeIf { it in 0..23 } ?: hour
+                } else hour
+                val endMinute = if (endTimeParts.size >= 2) {
+                    endTimeParts[1].toIntOrNull()?.takeIf { it in 0..59 } ?: minute
+                } else minute
+                
+                try {
+                    val endDateTime = java.time.LocalDate.of(endYear, endMonth, endDay)
+                        .atTime(endHour, endMinute)
+                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    endDateTime.toInstant().toEpochMilli()
+                } catch (e: Exception) {
+                    android.util.Log.w("HuenDongMinAiAgent", "종료 시간 파싱 실패, 기본 1시간 사용", e)
+                    startAt + (60 * 60 * 1000)
+                }
+            } else {
+                android.util.Log.w("HuenDongMinAiAgent", "종료 날짜 형식 오류, 기본 1시간 사용")
+                startAt + (60 * 60 * 1000)
+            }
+        } else {
+            // 종료 시간이 없으면 기본 1시간
+            startAt + (60 * 60 * 1000)
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 결과 (LLM 계산 + 검증):")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - LLM 계산 최종 시작 날짜: ${timeAnalysis.finalDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - LLM 계산 최종 시작 시간: ${timeAnalysis.finalTime}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - LLM 계산 최종 종료 날짜: ${timeAnalysis.finalEndDate ?: "없음"}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - LLM 계산 최종 종료 시간: ${timeAnalysis.finalEndTime ?: "없음"}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 검증된 시작 날짜: ${crossValidationResult.finalDate}")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 검증된 시작 시간: $validatedTime")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 최종 시작 날짜/시간: $finalDateTime")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 시작 Epoch ms: $startAt")
+        android.util.Log.d("HuenDongMinAiAgent", "  - 종료 Epoch ms: $endAt")
+        if (crossValidationResult.hasMismatch) {
+            android.util.Log.w("HuenDongMinAiAgent", "  ⚠️ 이중 검증 불일치: ${crossValidationResult.mismatchReason}")
+        }
+        
+        // 불일치 정보를 JSON에 포함 (OCR에서 사용자가 시간을 선택할 수 있도록)
+        val resultMap = mutableMapOf<String, JsonElement?>(
+            "title" to JsonPrimitive(title),
+            "startAt" to JsonPrimitive(startAt.toString()),
+            "endAt" to JsonPrimitive(endAt.toString()),
+            "location" to (location?.let { JsonPrimitive(it) } ?: JsonPrimitive("")),
+            "type" to JsonPrimitive("이벤트"),
+            "body" to JsonPrimitive(body)
+        )
+        
+        // 이중 검증 불일치 정보 추가 (OCR에서만 사용)
+        if (crossValidationResult.hasMismatch && sourceType == "ocr") {
+            val llmDateTime = try {
+                val llmDateParts = crossValidationResult.llmDate.split("-")
+                val llmYear = llmDateParts[0].toInt()
+                val llmMonth = llmDateParts[1].toInt()
+                val llmDay = llmDateParts[2].toInt()
+                val llmTimeParts = validatedTime.split(":")
+                val llmHour = llmTimeParts[0].toIntOrNull() ?: 0
+                val llmMinute = llmTimeParts[1].toIntOrNull() ?: 0
+                java.time.LocalDate.of(llmYear, llmMonth, llmDay)
+                    .atTime(llmHour, llmMinute)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                null
+            }
+            
+            val codeDateTime = try {
+                val codeDateParts = crossValidationResult.codeDate.split("-")
+                val codeYear = codeDateParts[0].toInt()
+                val codeMonth = codeDateParts[1].toInt()
+                val codeDay = codeDateParts[2].toInt()
+                val codeTimeParts = validatedTime.split(":")
+                val codeHour = codeTimeParts[0].toIntOrNull() ?: 0
+                val codeMinute = codeTimeParts[1].toIntOrNull() ?: 0
+                java.time.LocalDate.of(codeYear, codeMonth, codeDay)
+                    .atTime(codeHour, codeMinute)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                null
+            }
+            
+            resultMap["validationMismatch"] = JsonPrimitive("true")
+            resultMap["llmCalculatedTime"] = llmDateTime?.let { JsonPrimitive(it.toString()) } ?: JsonNull
+            resultMap["codeCalculatedTime"] = codeDateTime?.let { JsonPrimitive(it.toString()) } ?: JsonNull
+            resultMap["chosenSource"] = JsonPrimitive(crossValidationResult.chosenSource)
+            resultMap["mismatchReason"] = JsonPrimitive(crossValidationResult.mismatchReason ?: "")
+        }
+        
+        return resultMap
+    }
+    
+    /**
+     * LLM 출력 검증 및 정규화
+     */
+    private fun validateLlmOutput(
+        finalDate: String?,
+        finalTime: String?,
+        explicitDate: String?,
+        relativeExpressions: List<String>,
+        referenceDate: java.time.ZonedDateTime,
+        sourceType: String
+    ): Pair<String, String> {
+        // 날짜 형식 검증 및 정규화
+        val validatedDate = when {
+            finalDate != null && finalDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
+                // YYYY-MM-DD 형식 검증 통과
+                finalDate
+            }
+            finalDate != null -> {
+                // 형식이 맞지 않으면 정규화 시도
+                android.util.Log.w("HuenDongMinAiAgent", "날짜 형식 정규화 필요: $finalDate")
+                normalizeDateString(finalDate, referenceDate) ?: run {
+                    // 정규화 실패 시 fallback
+                    createFallbackDate(explicitDate, relativeExpressions, referenceDate, sourceType)
+                }
+            }
+            else -> {
+                // LLM 출력이 없으면 fallback
+                createFallbackDate(explicitDate, relativeExpressions, referenceDate, sourceType)
+            }
+        }
+        
+        // 시간 형식 검증 및 정규화
+        val validatedTime = when {
+            finalTime != null && finalTime.matches(Regex("\\d{1,2}:\\d{2}")) -> {
+                // HH:mm 형식 검증 통과
+                val parts = finalTime.split(":")
+                val h = parts[0].toIntOrNull() ?: 0
+                val m = parts[1].toIntOrNull() ?: 0
+                "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
+            }
+            finalTime != null -> {
+                // 형식이 맞지 않으면 정규화 시도
+                android.util.Log.w("HuenDongMinAiAgent", "시간 형식 정규화 필요: $finalTime")
+                normalizeTimeString(finalTime) ?: "00:00"
+            }
+            else -> "00:00"
+        }
+        
+        return Pair(validatedDate, validatedTime)
+    }
+    
+    /**
+     * 이중 검증 결과 데이터 클래스
+     */
+    private data class CrossValidationResult(
+        val finalDate: String,
+        val hasMismatch: Boolean,
+        val llmDate: String,
+        val codeDate: String,
+        val chosenSource: String, // "llm", "code", "explicit", "match"
+        val mismatchReason: String? = null
+    )
+    
+    /**
+     * 이중 검증: LLM 계산 결과와 코드 재계산 결과 비교
+     * 불일치 시 상세 피드백 정보 반환
+     */
+    private fun crossValidateDate(
+        llmDate: String,
+        explicitDate: String?,
+        relativeExpressions: List<String>,
+        referenceDate: java.time.ZonedDateTime,
+        sourceType: String
+    ): CrossValidationResult {
+        // 코드로 재계산
+        val codeCalculatedDate = createFallbackDate(explicitDate, relativeExpressions, referenceDate, sourceType)
+        
+        // LLM 계산과 코드 계산 비교
+        if (llmDate != codeCalculatedDate) {
+            // 상세 로깅: 불일치 패턴 분석
+            android.util.Log.w("HuenDongMinAiAgent", "⚠️⚠️⚠️ 날짜 불일치 감지! ⚠️⚠️⚠️")
+            android.util.Log.w("HuenDongMinAiAgent", "  📊 소스 타입: $sourceType")
+            android.util.Log.w("HuenDongMinAiAgent", "  🤖 LLM 계산: $llmDate")
+            android.util.Log.w("HuenDongMinAiAgent", "  💻 코드 계산: $codeCalculatedDate")
+            android.util.Log.w("HuenDongMinAiAgent", "  📅 명시적 날짜: ${explicitDate ?: "없음"}")
+            android.util.Log.w("HuenDongMinAiAgent", "  ⏰ 상대적 표현: ${relativeExpressions.joinToString(", ").takeIf { it.isNotEmpty() } ?: "없음"}")
+            android.util.Log.w("HuenDongMinAiAgent", "  📍 기준 시점: ${referenceDate.year}-${referenceDate.monthValue.toString().padStart(2, '0')}-${referenceDate.dayOfMonth.toString().padStart(2, '0')}")
+            
+            // 명시적 날짜가 있으면 그것을 우선 사용
+            if (explicitDate != null) {
+                val explicitParsed = parseExplicitDate(explicitDate, referenceDate)
+                val explicitDateStr = "${explicitParsed.year}-${explicitParsed.monthValue.toString().padStart(2, '0')}-${explicitParsed.dayOfMonth.toString().padStart(2, '0')}"
+                
+                // 명시적 날짜와 LLM 계산 비교
+                if (llmDate == explicitDateStr) {
+                    android.util.Log.d("HuenDongMinAiAgent", "✅ LLM 계산이 명시적 날짜와 일치, LLM 결과 사용")
+                    return CrossValidationResult(
+                        finalDate = llmDate,
+                        hasMismatch = true,
+                        llmDate = llmDate,
+                        codeDate = codeCalculatedDate,
+                        chosenSource = "explicit",
+                        mismatchReason = "LLM이 명시적 날짜와 일치하지만 코드 계산과는 불일치"
+                    )
+                } else {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ LLM 계산이 명시적 날짜와 불일치, 코드 계산 사용")
+                    android.util.Log.w("HuenDongMinAiAgent", "  📅 명시적 날짜 파싱 결과: $explicitDateStr")
+                    return CrossValidationResult(
+                        finalDate = codeCalculatedDate,
+                        hasMismatch = true,
+                        llmDate = llmDate,
+                        codeDate = codeCalculatedDate,
+                        chosenSource = "code",
+                        mismatchReason = "LLM 계산이 명시적 날짜($explicitDateStr)와 불일치하여 코드 계산 사용"
+                    )
+                }
+            }
+            
+            // OCR의 경우 LLM 계산 우선, 다른 소스는 코드 계산 우선
+            if (sourceType == "ocr") {
+                android.util.Log.d("HuenDongMinAiAgent", "✅ OCR: LLM 계산 결과 사용 (문맥 이해 우선)")
+                android.util.Log.w("HuenDongMinAiAgent", "  ⚠️ 주의: 코드 계산($codeCalculatedDate)과 다르지만 LLM 결과($llmDate)를 신뢰")
+                return CrossValidationResult(
+                    finalDate = llmDate,
+                    hasMismatch = true,
+                    llmDate = llmDate,
+                    codeDate = codeCalculatedDate,
+                    chosenSource = "llm",
+                    mismatchReason = "OCR 소스: LLM의 문맥 이해를 우선시하여 LLM 결과 사용"
+                )
+            } else {
+                android.util.Log.d("HuenDongMinAiAgent", "✅ 다른 소스: 코드 계산 결과 사용 (정확성 우선)")
+                android.util.Log.w("HuenDongMinAiAgent", "  ⚠️ 주의: LLM 계산($llmDate)과 다르지만 코드 결과($codeCalculatedDate)를 신뢰")
+                return CrossValidationResult(
+                    finalDate = codeCalculatedDate,
+                    hasMismatch = true,
+                    llmDate = llmDate,
+                    codeDate = codeCalculatedDate,
+                    chosenSource = "code",
+                    mismatchReason = "${sourceType} 소스: 코드 계산의 정확성을 우선시하여 코드 결과 사용"
+                )
+            }
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "✅ LLM 계산과 코드 계산 일치: $llmDate")
+        return CrossValidationResult(
+            finalDate = llmDate,
+            hasMismatch = false,
+            llmDate = llmDate,
+            codeDate = codeCalculatedDate,
+            chosenSource = "match",
+            mismatchReason = null
+        )
+    }
+    
+    /**
+     * Fallback 날짜 생성 (기존 로직 사용)
+     */
+    private fun createFallbackDate(
+        explicitDate: String?,
+        relativeExpressions: List<String>,
+        referenceDate: java.time.ZonedDateTime,
+        sourceType: String
+    ): String {
+        val baseDate = if (explicitDate != null) {
+            parseExplicitDate(explicitDate, referenceDate)
         } else {
             referenceDate
         }
         
-        // 상대적 시간 표현 처리
-        // ⚠️ 중요: 명시적 날짜가 있으면 상대적 표현을 무시 (명시적 날짜가 최우선)
-        var targetDate = baseDate
-        if (!timeAnalysis.hasExplicitDate && timeAnalysis.hasRelativeTime && timeAnalysis.relativeTimeExpressions.isNotEmpty()) {
-            // 명시적 날짜가 없을 때만 상대적 표현 처리
-            targetDate = processRelativeTimeExpressions(
-                timeAnalysis.relativeTimeExpressions,
-                baseDate
-            )
-        }
-        
-        // 시간 처리
-        val hour = if (timeAnalysis.hasTime && timeAnalysis.time != null) {
-            parseTime(timeAnalysis.time)
+        val targetDate = if (relativeExpressions.isNotEmpty()) {
+            if (sourceType == "ocr") {
+                // OCR: 명시적 날짜를 기준으로 상대적 표현 계산
+                processRelativeTimeExpressions(relativeExpressions, baseDate)
+            } else {
+                // 다른 소스: 명시적 날짜가 없을 때만 상대적 표현 처리
+                if (explicitDate == null) {
+                    processRelativeTimeExpressions(relativeExpressions, baseDate)
+                } else {
+                    baseDate
+                }
+            }
         } else {
-            0  // 시간이 없으면 00:00:00
+            baseDate
         }
         
-        val minute = if (timeAnalysis.hasTime && timeAnalysis.time != null) {
-            parseMinute(timeAnalysis.time)
-        } else {
-            0
+        return "${targetDate.year}-${targetDate.monthValue.toString().padStart(2, '0')}-${targetDate.dayOfMonth.toString().padStart(2, '0')}"
+    }
+    
+    /**
+     * 날짜 문자열 정규화
+     */
+    private fun normalizeDateString(dateStr: String, referenceDate: java.time.ZonedDateTime): String? {
+        return try {
+            // "2025/11/12" → "2025-11-12"
+            if (dateStr.contains("/")) {
+                val parts = dateStr.split("/")
+                if (parts.size == 3) {
+                    val year = parts[0].toIntOrNull() ?: referenceDate.year
+                    val month = parts[1].toIntOrNull() ?: return null
+                    val day = parts[2].toIntOrNull() ?: return null
+                    "${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+                } else null
+            }
+            // "2025.11.12" → "2025-11-12"
+            else if (dateStr.contains(".")) {
+                val parts = dateStr.split(".")
+                if (parts.size == 3) {
+                    val year = parts[0].toIntOrNull() ?: referenceDate.year
+                    val month = parts[1].toIntOrNull() ?: return null
+                    val day = parts[2].toIntOrNull() ?: return null
+                    "${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+                } else null
+            }
+            else null
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "날짜 정규화 실패: $dateStr", e)
+            null
         }
+    }
+    
+    /**
+     * 시간 문자열 정규화
+     */
+    private fun normalizeTimeString(timeStr: String): String? {
+        return try {
+            // "14시" → "14:00"
+            if (timeStr.contains("시") && !timeStr.contains(":")) {
+                val hour = Regex("(\\d{1,2})시").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+                "$hour:00"
+            }
+            // "14시30분" → "14:30"
+            else if (timeStr.contains("시") && timeStr.contains("분")) {
+                val hour = Regex("(\\d{1,2})시").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+                val minute = Regex("(\\d{1,2})분").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+            }
+            else null
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "시간 정규화 실패: $timeStr", e)
+            null
+        }
+    }
+    
+    /**
+     * 날짜 유효성 검증
+     */
+    private fun isValidDate(year: Int, month: Int, day: Int): Boolean {
+        return try {
+            java.time.LocalDate.of(year, month, day)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Fallback 이벤트 생성
+     */
+    private fun createFallbackEvent(
+        referenceDate: java.time.ZonedDateTime,
+        title: String,
+        body: String,
+        location: String?
+    ): Map<String, JsonElement?> {
+        val fallbackDateTime = referenceDate.withHour(0).withMinute(0).withSecond(0).withNano(0)
+        val startAt = fallbackDateTime.toInstant().toEpochMilli()
+        val endAt = startAt + (60 * 60 * 1000)
         
-        // 최종 날짜/시간 생성
-        val finalDateTime = targetDate
-            .withHour(hour)
-            .withMinute(minute)
-            .withSecond(0)
-            .withNano(0)
-        
-        val startAt = finalDateTime.toInstant().toEpochMilli()
-        val endAt = startAt + (60 * 60 * 1000)  // 기본 1시간
-        
-        android.util.Log.d("HuenDongMinAiAgent", "시간 분석 결과:")
-        android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
-        android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
-        android.util.Log.d("HuenDongMinAiAgent", "  - 시간: ${timeAnalysis.time}")
-        android.util.Log.d("HuenDongMinAiAgent", "  - 최종 날짜/시간: $finalDateTime")
-        android.util.Log.d("HuenDongMinAiAgent", "  - Epoch ms: $startAt")
+        android.util.Log.w("HuenDongMinAiAgent", "⚠️ Fallback 이벤트 생성: ${fallbackDateTime}")
         
         return mapOf(
             "title" to JsonPrimitive(title),
@@ -823,7 +1259,8 @@ class HuenDongMinAiAgent(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
-                    location = location
+                    location = location,
+                    sourceType = "gmail"
                 )
                 
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 시간 분석 결과로 보정됨")
@@ -1292,7 +1729,8 @@ class HuenDongMinAiAgent(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
-                    location = location
+                    location = location,
+                    sourceType = "sms"
                 )
                 
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 시간 분석 결과로 보정됨")
@@ -1550,7 +1988,8 @@ class HuenDongMinAiAgent(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
-                    location = location
+                    location = location,
+                    sourceType = "push_notification"
                 )
                 
                 android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - 시간 분석 결과로 보정됨")
@@ -1928,12 +2367,13 @@ class HuenDongMinAiAgent(
                 val body = eventData["body"]?.jsonPrimitive?.content ?: ocrText
                 val location = eventData["location"]?.jsonPrimitive?.content
                 
-                // 시간 분석 결과를 사용하여 JSON 변환
+                // 시간 분석 결과를 사용하여 JSON 변환 (OCR만 특별 처리)
                 val correctedEventData = convertTimeAnalysisToJson(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
-                    location = location
+                    location = location,
+                    sourceType = "ocr"
                 )
                 
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 시간 분석 결과로 보정됨")
@@ -2103,29 +2543,63 @@ class HuenDongMinAiAgent(
         sourceType: String
     ): Event {
         val typeName = extractedData["type"]?.jsonPrimitive?.content ?: "일반"
-        val eventType = getOrCreateEventType(typeName)
+        val eventType = getOrCreateEventTypeInternal(typeName)
+        
+        // 불일치 정보가 있으면 body에 JSON으로 저장
+        val originalBody = extractedData["body"]?.jsonPrimitive?.content ?: ""
+        val validationMismatch = extractedData["validationMismatch"]?.jsonPrimitive?.content == "true"
+        val bodyWithMismatchInfo = if (validationMismatch && sourceType == "ocr") {
+            val mismatchJson = buildString {
+                append("{")
+                append("\"originalBody\":\"${originalBody.replace("\"", "\\\"")}\",")
+                append("\"validationMismatch\":true,")
+                extractedData["llmCalculatedTime"]?.jsonPrimitive?.content?.let {
+                    append("\"llmCalculatedTime\":$it,")
+                }
+                extractedData["codeCalculatedTime"]?.jsonPrimitive?.content?.let {
+                    append("\"codeCalculatedTime\":$it,")
+                }
+                extractedData["chosenSource"]?.jsonPrimitive?.content?.let {
+                    append("\"chosenSource\":\"$it\",")
+                }
+                extractedData["mismatchReason"]?.jsonPrimitive?.content?.let {
+                    append("\"mismatchReason\":\"${it.replace("\"", "\\\"")}\"")
+                }
+                append("}")
+            }
+            mismatchJson
+        } else {
+            originalBody
+        }
         
         return Event(
             userId = 1L,
             typeId = eventType.id,
             title = extractedData["title"]?.jsonPrimitive?.content ?: "제목 없음",
-            body = extractedData["body"]?.jsonPrimitive?.content,
+            body = bodyWithMismatchInfo.takeIf { it.isNotEmpty() },
             startAt = extractedData["startAt"]?.jsonPrimitive?.content?.toLongOrNull(),
             endAt = extractedData["endAt"]?.jsonPrimitive?.content?.toLongOrNull(),
             location = extractedData["location"]?.jsonPrimitive?.content,
-            status = "pending",
+            status = if (validationMismatch && sourceType == "ocr") "needs_review" else "pending",
             sourceType = sourceType,
             sourceId = sourceId
         )
     }
     
-    private suspend fun getOrCreateEventType(typeName: String): EventType {
+    private suspend fun getOrCreateEventTypeInternal(typeName: String): EventType {
         val existing = eventTypeDao.getByName(typeName)
         if (existing != null) return existing
         
         val newType = EventType(typeName = typeName)
         val id = eventTypeDao.upsert(newType)
         return newType.copy(id = id)
+    }
+    
+    /**
+     * EventType 가져오기 또는 생성 (public)
+     */
+    suspend fun getOrCreateEventType(typeName: String): EventType = withContext(dispatcher) {
+        getOrCreateEventTypeInternal(typeName)
     }
     
     /**

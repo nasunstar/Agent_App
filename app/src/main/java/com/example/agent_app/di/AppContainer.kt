@@ -95,6 +95,8 @@ class AppContainer(context: Context) {
     // AI 에이전트 "HuenDongMin" 기반 ChatGateway (TimeResolver 제거)
     private val chatGateway: ChatGateway = HuenDongMinChatGatewayImpl(
         hybridSearchEngine = hybridSearchEngine,
+        eventDao = eventDao,
+        huenDongMinAiAgent = huenDongMinAiAgent,
     )
 
     val executeChatUseCase: ExecuteChatUseCase = ExecuteChatUseCase(

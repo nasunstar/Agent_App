@@ -67,7 +67,7 @@ class HybridSearchEngine(
         val cachedEmbeddings = embeddingStore.getEmbeddings(combined.map(IngestItem::id))
         val cachedEventEmbeddings = embeddingStore.getEmbeddings(eventCandidates.map { "event_${it.id}" })
 
-        // IngestItem 결과 점수 계산
+        // IngestItem 결과 점수 계산 (개선된 하이브리드 검색)
         val scoredIngestItems = combined.mapIndexed { index, item ->
             val keywords = filters.keywords.ifEmpty { extractKeywords(sanitizedQuestion) }
             val keywordScore = keywordRelevance(item, keywords, index)
@@ -76,7 +76,14 @@ class HybridSearchEngine(
             }
             val vectorScore = cosineSimilarity(queryEmbedding, itemEmbedding)
             val recency = recencyBoost(item, filters)
-            val finalScore = keywordScore * 0.3 + vectorScore * 0.3 + recency * 0.4
+            
+            // 개선된 가중치: 키워드 매칭 강화 (정확한 매칭 중요), 벡터 유사도 유지, 최신성 조정
+            // 키워드가 명확히 매칭되면 높은 점수, 벡터는 의미 유사도, 최신성은 보조
+            val finalScore = when {
+                keywordScore > 0.7 -> keywordScore * 0.5 + vectorScore * 0.3 + recency * 0.2  // 키워드 강한 매칭
+                vectorScore > 0.7 -> keywordScore * 0.2 + vectorScore * 0.5 + recency * 0.3  // 벡터 강한 유사도
+                else -> keywordScore * 0.35 + vectorScore * 0.35 + recency * 0.3  // 균형
+            }
             ChatContextItem(
                 itemId = item.id,
                 title = item.title.orEmpty(),
@@ -88,7 +95,7 @@ class HybridSearchEngine(
             )
         }
 
-        // Event 결과 점수 계산 (Contextual Retrieval + Hybrid Search 적용)
+        // Event 결과 점수 계산 (Contextual Retrieval + Hybrid Search 적용, 개선된 가중치)
         val scoredEventItems = eventCandidates.mapIndexed { index, event ->
             val keywords = filters.keywords.ifEmpty { extractKeywords(sanitizedQuestion) }
             val keywordScore = keywordRelevanceForEvent(event, keywords, index)
@@ -97,7 +104,14 @@ class HybridSearchEngine(
             }
             val vectorScore = cosineSimilarity(queryEmbedding, eventEmbedding)
             val recency = recencyBoostForEvent(event, filters)
-            val finalScore = keywordScore * 0.3 + vectorScore * 0.3 + recency * 0.4
+            
+            // 일정 검색은 시간 관련성이 더 중요하므로 recency 가중치 증가
+            val finalScore = when {
+                keywordScore > 0.7 -> keywordScore * 0.5 + vectorScore * 0.25 + recency * 0.25  // 키워드 강한 매칭
+                recency > 0.6 -> keywordScore * 0.25 + vectorScore * 0.25 + recency * 0.5  // 시간 범위 내
+                vectorScore > 0.7 -> keywordScore * 0.2 + vectorScore * 0.5 + recency * 0.3  // 벡터 강한 유사도
+                else -> keywordScore * 0.3 + vectorScore * 0.3 + recency * 0.4  // 기본 균형
+            }
             
             ChatContextItem(
                 itemId = "event_${event.id}",

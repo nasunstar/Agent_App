@@ -1,11 +1,15 @@
 package com.example.agent_app.data.chat
 
 import com.example.agent_app.BuildConfig
+import com.example.agent_app.ai.HuenDongMinAiAgent
+import com.example.agent_app.data.dao.EventDao
+import com.example.agent_app.data.entity.Event
 import com.example.agent_app.data.search.HybridSearchEngine
 import com.example.agent_app.domain.chat.gateway.ChatGateway
 import com.example.agent_app.domain.chat.model.ChatContextItem
 import com.example.agent_app.domain.chat.model.ChatMessage
 import com.example.agent_app.domain.chat.model.QueryFilters
+import com.example.agent_app.service.EventNotificationService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,6 +34,8 @@ import java.util.concurrent.TimeUnit
  */
 class HuenDongMinChatGatewayImpl(
     private val hybridSearchEngine: HybridSearchEngine,
+    private val eventDao: EventDao,
+    private val huenDongMinAiAgent: HuenDongMinAiAgent,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ChatGateway {
     
@@ -91,6 +97,36 @@ class HuenDongMinChatGatewayImpl(
         android.util.Log.d("HuenDongMinChatGateway", "답변 생성 요청")
         
         try {
+            // 일정 생성 의도 감지
+            val questionText = userMessage.content
+            val shouldCreateEvent = detectEventCreationIntent(questionText)
+            
+            if (shouldCreateEvent) {
+                android.util.Log.d("HuenDongMinChatGateway", "일정 생성 의도 감지됨")
+                val eventCreationResult = tryCreateEventFromQuestion(questionText, messages)
+                if (eventCreationResult != null) {
+                    // 일정 생성 성공 시 답변에 포함
+                    val response = callOpenAiWithChatMessages(messages)
+                    val enhancedResponse = buildString {
+                        appendLine(response)
+                        appendLine()
+                        appendLine("✅ 일정이 생성되었습니다!")
+                        appendLine("📅 제목: ${eventCreationResult.title}")
+                        eventCreationResult.startAt?.let {
+                            val dateTime = java.time.Instant.ofEpochMilli(it)
+                                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일 HH:mm"))
+                            appendLine("🕐 시간: $dateTime")
+                        }
+                        eventCreationResult.location?.let {
+                            appendLine("📍 장소: $it")
+                        }
+                    }
+                    return@withContext ChatMessage(ChatMessage.Role.ASSISTANT, enhancedResponse)
+                }
+            }
+            
+            // 일반 답변 생성
             val response = callOpenAiWithChatMessages(messages)
             ChatMessage(ChatMessage.Role.ASSISTANT, response)
         } catch (e: Exception) {
@@ -99,6 +135,198 @@ class HuenDongMinChatGatewayImpl(
                 ChatMessage.Role.ASSISTANT,
                 "죄송합니다. 답변을 생성하는 중 오류가 발생했습니다: ${e.message}"
             )
+        }
+    }
+    
+    /**
+     * 사용자 질문에서 일정 생성 의도 감지
+     */
+    private fun detectEventCreationIntent(question: String): Boolean {
+        val lowerQuestion = question.lowercase()
+        val creationKeywords = listOf(
+            "약속 잡아줘", "약속 잡아", "일정 잡아줘", "일정 잡아", "일정 만들어줘", "일정 만들어",
+            "일정 추가해줘", "일정 추가해", "스케줄 잡아줘", "스케줄 잡아",
+            "예약해줘", "예약해", "잡아줘", "잡아"
+        )
+        return creationKeywords.any { lowerQuestion.contains(it) }
+    }
+    
+    /**
+     * 사용자 질문에서 일정 정보 추출 및 생성
+     */
+    private suspend fun tryCreateEventFromQuestion(
+        question: String,
+        conversationHistory: List<ChatMessage>
+    ): Event? = withContext(dispatcher) {
+        try {
+            val currentTimestamp = System.currentTimeMillis()
+            val currentDate = java.time.Instant.ofEpochMilli(currentTimestamp)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+            
+            val dayOfWeekKorean = when (currentDate.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> "월요일"
+                java.time.DayOfWeek.TUESDAY -> "화요일"
+                java.time.DayOfWeek.WEDNESDAY -> "수요일"
+                java.time.DayOfWeek.THURSDAY -> "목요일"
+                java.time.DayOfWeek.FRIDAY -> "금요일"
+                java.time.DayOfWeek.SATURDAY -> "토요일"
+                java.time.DayOfWeek.SUNDAY -> "일요일"
+            }
+            
+            // 이전 대화에서 참석자 정보 추출 (예: "친구", "김철수" 등)
+            val participants = extractParticipantsFromHistory(conversationHistory, question)
+            
+            val systemPrompt = """
+                당신은 사용자의 자연어 명령에서 일정 정보를 추출하는 AI입니다.
+                
+                ⚠️⚠️⚠️ 현재 시간 정보 (한국 표준시 KST, Asia/Seoul, UTC+9) ⚠️⚠️⚠️
+                - 현재 연도: ${currentDate.year}년
+                - 현재 월: ${currentDate.monthValue}월
+                - 현재 일: ${currentDate.dayOfMonth}일
+                - 현재 요일: $dayOfWeekKorean
+                - 현재 Epoch ms: ${currentTimestamp}ms
+                
+                📋 **일정 정보 추출 규칙:**
+                1. 날짜/시간: "다음주 수요일", "내일 오후 3시", "10월 30일 14시" 등을 epoch milliseconds로 변환
+                2. 제목: "친구랑 약속", "회의", "점심 약속" 등에서 추출
+                3. 참석자: "친구", "김철수", "팀원들" 등에서 추출
+                4. 장소: "카페", "회의실", "식당" 등에서 추출 (없으면 null)
+                
+                🔴🔴🔴 날짜 계산 규칙 🔴🔴🔴
+                - "다음주 수요일" → 현재 기준 다음 주 수요일
+                - "내일" → 현재 기준 다음날
+                - "모레" → 현재 기준 2일 후
+                - "10월 30일" → ${currentDate.year}년 10월 30일
+                - 시간이 없으면 14:00 (오후 2시)를 기본값으로 사용
+                
+                출력 형식 (순수 JSON만):
+                {
+                  "shouldCreate": true,
+                  "title": "일정 제목",
+                  "startAt": 1234567890123,
+                  "endAt": 1234567890123,
+                  "location": "장소 또는 null",
+                  "body": "일정 설명",
+                  "type": "약속"
+                }
+                
+                일정 생성 의도가 없으면:
+                {
+                  "shouldCreate": false
+                }
+            """.trimIndent()
+            
+            val userPrompt = """
+                다음 사용자 질문에서 일정 정보를 추출하세요:
+                
+                질문: $question
+                
+                ${if (participants.isNotEmpty()) "참석자 정보: ${participants.joinToString(", ")}\n" else ""}
+            """.trimIndent()
+            
+            val messages = listOf(
+                AiChatMessage(role = "system", content = systemPrompt),
+                AiChatMessage(role = "user", content = userPrompt)
+            )
+            
+            val response = callOpenAiInternal(messages)
+            val eventData = parseEventCreationResponse(response)
+            
+            if (eventData["shouldCreate"]?.jsonPrimitive?.content == "true") {
+                val title = eventData["title"]?.jsonPrimitive?.content ?: "약속"
+                val startAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                val endAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                val location = eventData["location"]?.jsonPrimitive?.content
+                val body = eventData["body"]?.jsonPrimitive?.content
+                val typeName = eventData["type"]?.jsonPrimitive?.content ?: "약속"
+                
+                if (startAt != null) {
+                    // EventType 가져오기 또는 생성
+                    val eventType = huenDongMinAiAgent.getOrCreateEventType(typeName)
+                    
+                    val event = Event(
+                        userId = 1L,
+                        typeId = eventType.id,
+                        title = title,
+                        body = body,
+                        startAt = startAt,
+                        endAt = endAt ?: startAt + (60 * 60 * 1000), // 기본 1시간
+                        location = location,
+                        status = "pending",
+                        sourceType = "chat",
+                        sourceId = "chat-${System.currentTimeMillis()}"
+                    )
+                    
+                    val eventId = eventDao.upsert(event)
+                    val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+                    
+                    // 알림 스케줄링
+                    try {
+                        EventNotificationService.scheduleNotificationForEvent(savedEvent, eventDao)
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinChatGateway", "알림 스케줄링 실패", e)
+                    }
+                    
+                    android.util.Log.d("HuenDongMinChatGateway", "일정 생성 완료: ${savedEvent.title}, ID: ${savedEvent.id}")
+                    return@withContext savedEvent
+                }
+            }
+            
+            null
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinChatGateway", "일정 생성 실패", e)
+            null
+        }
+    }
+    
+    /**
+     * 이전 대화에서 참석자 정보 추출
+     */
+    private fun extractParticipantsFromHistory(
+        conversationHistory: List<ChatMessage>,
+        currentQuestion: String
+    ): List<String> {
+        val participants = mutableListOf<String>()
+        val allText = (conversationHistory.map { it.content } + currentQuestion).joinToString(" ")
+        
+        // 일반적인 참석자 패턴
+        val patterns = listOf(
+            Regex("친구"),
+            Regex("([가-힣]+)랑"),
+            Regex("([가-힣]+)와"),
+            Regex("([가-힣]+)과"),
+            Regex("([가-힣]+)님"),
+        )
+        
+        patterns.forEach { pattern ->
+            pattern.findAll(allText).forEach { match ->
+                val participant = match.groupValues.getOrNull(1) ?: match.value
+                if (participant.isNotBlank() && participant !in participants) {
+                    participants.add(participant)
+                }
+            }
+        }
+        
+        return participants
+    }
+    
+    /**
+     * AI 응답에서 일정 생성 정보 파싱
+     */
+    private fun parseEventCreationResponse(response: String): Map<String, kotlinx.serialization.json.JsonElement> {
+        return try {
+            val cleanedJson = response
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            
+            val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
+            jsonObj.toMap()
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinChatGateway", "일정 정보 파싱 실패", e)
+            emptyMap()
         }
     }
     

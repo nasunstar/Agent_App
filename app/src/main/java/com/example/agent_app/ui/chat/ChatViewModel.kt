@@ -2,6 +2,7 @@ package com.example.agent_app.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.agent_app.domain.chat.model.ChatMessage
 import com.example.agent_app.domain.chat.model.ChatResult
 import com.example.agent_app.domain.chat.model.QueryFilters
 import com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase
@@ -41,7 +42,15 @@ class ChatViewModel(
         if (question.isBlank()) return
         _uiState.update { it.copy(isProcessing = true, error = null) }
         viewModelScope.launch {
-            runCatching { executeChatUseCase(question) }
+            // 이전 대화를 ChatMessage 리스트로 변환
+            val conversationHistory = _uiState.value.entries.flatMap { entry ->
+                listOf(
+                    ChatMessage(ChatMessage.Role.USER, entry.question),
+                    ChatMessage(ChatMessage.Role.ASSISTANT, entry.answer)
+                )
+            }
+            
+            runCatching { executeChatUseCase(question, conversationHistory) }
                 .onSuccess { result ->
                     _uiState.update { state ->
                         state.copy(

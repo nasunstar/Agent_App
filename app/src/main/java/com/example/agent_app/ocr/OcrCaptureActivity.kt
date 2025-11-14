@@ -53,6 +53,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class OcrCaptureActivity : ComponentActivity() {
 
@@ -260,6 +264,17 @@ private fun OcrSuccess(
     onUpdateEvent: (Event) -> Unit
 ) {
     val scrollState = rememberScrollState()
+    
+    // 이중 검증 불일치가 있는 Event 찾기
+    val eventWithMismatch = remember(state.allEvents) {
+        state.allEvents.firstOrNull { event ->
+            event.status == "needs_review" && event.body?.contains("\"validationMismatch\":true") == true
+        }
+    }
+    
+    // 불일치가 있으면 자동으로 시간 선택 다이얼로그 표시
+    var showTimeSelectionDialog by remember { mutableStateOf(eventWithMismatch != null) }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -329,6 +344,24 @@ private fun OcrSuccess(
         ) {
             Text(text = "완료")
         }
+    }
+    
+    // 이중 검증 불일치 시 시간 선택 다이얼로그
+    if (showTimeSelectionDialog && eventWithMismatch != null) {
+        TimeSelectionDialog(
+            event = eventWithMismatch,
+            onDismiss = { showTimeSelectionDialog = false },
+            onSelectTime = { selectedTime ->
+                val updatedEvent = eventWithMismatch.copy(
+                    startAt = selectedTime,
+                    endAt = selectedTime + (60 * 60 * 1000), // 1시간 후
+                    status = "pending", // 검토 완료
+                    body = extractOriginalBody(eventWithMismatch.body) // 원본 body 복원
+                )
+                onUpdateEvent(updatedEvent)
+                showTimeSelectionDialog = false
+            }
+        )
     }
 }
 
@@ -543,5 +576,161 @@ private fun OcrDetailRow(label: String, value: String) {
             text = value,
             style = MaterialTheme.typography.bodyMedium,
         )
+    }
+}
+
+/**
+ * 이중 검증 불일치 시 시간 선택 다이얼로그
+ */
+@Composable
+private fun TimeSelectionDialog(
+    event: Event,
+    onDismiss: () -> Unit,
+    onSelectTime: (Long) -> Unit
+) {
+    // Event의 body에서 불일치 정보 파싱
+    val mismatchInfo = remember(event.body) {
+        parseMismatchInfo(event.body)
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text("시간 확인 필요")
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "일정 시간 계산에서 불일치가 감지되었습니다. 올바른 시간을 선택해 주세요.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                
+                Divider()
+                
+                Text(
+                    text = "일정: ${event.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                if (mismatchInfo != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "🤖 LLM 계산 시간:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Button(
+                            onClick = { 
+                                mismatchInfo.llmCalculatedTime?.let { onSelectTime(it) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = mismatchInfo.llmCalculatedTime != null
+                        ) {
+                            Text(
+                                text = mismatchInfo.llmCalculatedTime?.let { 
+                                    TimeFormatter.format(it) 
+                                } ?: "사용 불가"
+                            )
+                        }
+                        
+                        Text(
+                            text = "💻 코드 계산 시간:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Button(
+                            onClick = { 
+                                mismatchInfo.codeCalculatedTime?.let { onSelectTime(it) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = mismatchInfo.codeCalculatedTime != null
+                        ) {
+                            Text(
+                                text = mismatchInfo.codeCalculatedTime?.let { 
+                                    TimeFormatter.format(it) 
+                                } ?: "사용 불가"
+                            )
+                        }
+                        
+                        if (mismatchInfo.mismatchReason != null) {
+                            Text(
+                                text = "이유: ${mismatchInfo.mismatchReason}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "불일치 정보를 파싱할 수 없습니다. 기본 시간을 사용합니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("나중에")
+            }
+        },
+        dismissButton = null
+    )
+}
+
+/**
+ * 불일치 정보 데이터 클래스
+ */
+private data class MismatchInfo(
+    val llmCalculatedTime: Long?,
+    val codeCalculatedTime: Long?,
+    val chosenSource: String?,
+    val mismatchReason: String?
+)
+
+/**
+ * Event의 body에서 불일치 정보 파싱
+ */
+private fun parseMismatchInfo(body: String?): MismatchInfo? {
+    if (body == null || !body.contains("\"validationMismatch\":true")) {
+        return null
+    }
+    
+    return try {
+        val json = Json.parseToJsonElement(body).jsonObject
+        val llmTime = json["llmCalculatedTime"]?.jsonPrimitive?.content?.toLongOrNull()
+        val codeTime = json["codeCalculatedTime"]?.jsonPrimitive?.content?.toLongOrNull()
+        val chosenSource = json["chosenSource"]?.jsonPrimitive?.content
+        val mismatchReason = json["mismatchReason"]?.jsonPrimitive?.content
+        
+        MismatchInfo(
+            llmCalculatedTime = llmTime,
+            codeCalculatedTime = codeTime,
+            chosenSource = chosenSource,
+            mismatchReason = mismatchReason
+        )
+    } catch (e: Exception) {
+        android.util.Log.e("OcrCaptureActivity", "불일치 정보 파싱 실패", e)
+        null
+    }
+}
+
+/**
+ * Event의 body에서 원본 body 추출
+ */
+private fun extractOriginalBody(body: String?): String? {
+    if (body == null || !body.contains("\"validationMismatch\":true")) {
+        return body
+    }
+    
+    return try {
+        val json = Json.parseToJsonElement(body).jsonObject
+        json["originalBody"]?.jsonPrimitive?.content
+    } catch (e: Exception) {
+        android.util.Log.e("OcrCaptureActivity", "원본 body 추출 실패", e)
+        body
     }
 }
