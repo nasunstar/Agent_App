@@ -7,6 +7,7 @@ import android.util.Log
 import com.example.agent_app.data.db.AppDatabase
 import com.example.agent_app.data.entity.PushNotification
 import com.example.agent_app.di.AppContainer
+import com.example.agent_app.util.PushNotificationFilterSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -61,6 +62,13 @@ class PushNotificationListenerService : NotificationListenerService() {
     ) {
         serviceScope.launch {
             try {
+                // 설정된 차단 목록에 있는 앱이면 저장/처리하지 않음
+                val ctx = applicationContext
+                if (PushNotificationFilterSettings.isPackageExcluded(ctx, packageName)) {
+                    Log.d(TAG, "차단된 앱의 푸시 알림, 저장/처리 건너뜀: $packageName")
+                    return@launch
+                }
+
                 val appName = getAppName(packageName)
                 val title = notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
                 val text = notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()

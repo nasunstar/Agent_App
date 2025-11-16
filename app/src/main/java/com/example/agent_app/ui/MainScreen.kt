@@ -1895,14 +1895,21 @@ private fun InboxContent(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-                // 기본 카테고리들
-                listOf(InboxCategory.All, InboxCategory.WithEvents, InboxCategory.OCR, InboxCategory.SMS, InboxCategory.Email, InboxCategory.PushNotification).forEach { category ->
-                    FilterChip(
-                        selected = selectedCategory == category,
-                        onClick = { selectedCategory = category },
-                        label = { Text(stringResource(category.labelResId)) },
-                    )
-                }
+            // 기본 카테고리들
+            listOf(
+                InboxCategory.All,
+                InboxCategory.WithEvents,
+                InboxCategory.OCR,
+                InboxCategory.SMS,
+                InboxCategory.Email,
+                InboxCategory.PushNotification,
+            ).forEach { category ->
+                FilterChip(
+                    selected = selectedCategory == category,
+                    onClick = { selectedCategory = category },
+                    label = { Text(stringResource(category.labelResId)) },
+                )
+            }
         }
         
         // 요약 통계 블록
@@ -1921,7 +1928,7 @@ private fun InboxContent(
         ) {
             when (selectedCategory) {
                 InboxCategory.All -> {
-                    // 전체: OCR, SMS, 이메일 모두 표시
+                    // 전체: OCR, SMS, 이메일만 표시 (푸시 알림은 제외)
                     if (ocrItems.isNotEmpty()) {
                         item {
                             CategorySection(
@@ -1932,8 +1939,8 @@ private fun InboxContent(
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
                                 onCreateEvent = { mainViewModel.createEventFromItem(it) },
                                 itemCard = { item, events, onUpdate, onDelete, onCreate ->
-                            OcrItemCard(
-                                item = item,
+                                    OcrItemCard(
+                                        item = item,
                                         events = events,
                                         onUpdateEvent = onUpdate,
                                         onDeleteEvent = onDelete,
@@ -1964,41 +1971,19 @@ private fun InboxContent(
                             )
                         }
                     }
-                           // 이메일 통합 표시
-                           if (gmailItems.isNotEmpty()) {
-                               item {
-                                   EmailCategorySection(
-                                       email = null, // 모든 이메일 통합 표시
-                                       items = gmailItems,
-                                       events = gmailEvents,
-                                       onUpdateEvent = { mainViewModel.updateEvent(it) },
-                                       onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                       onCreateEvent = { mainViewModel.createEventFromItem(it) },
-                                   )
-                               }
-                           }
-                           // 푸시 알림 통합 표시
-                           if (pushNotificationItems.isNotEmpty()) {
-                               item {
-                                   CategorySection(
-                                       titleResId = R.string.inbox_category_push,
-                                       items = pushNotificationItems,
-                                       events = pushNotificationEvents,
-                                       onUpdateEvent = { mainViewModel.updateEvent(it) },
-                                       onDeleteEvent = { mainViewModel.deleteEvent(it) },
-                                       onCreateEvent = { mainViewModel.createEventFromItem(it) },
-                                       itemCard = { item, events, onUpdate, onDelete, onCreate ->
-                                           PushNotificationItemCard(
-                                               item = item,
-                                               events = events,
-                                               onUpdateEvent = onUpdate,
-                                               onDeleteEvent = onDelete,
-                                               onCreateEvent = onCreate,
-                                           )
-                                       },
-                                   )
-                               }
-                           }
+                    // 이메일 통합 표시
+                    if (gmailItems.isNotEmpty()) {
+                        item {
+                            EmailCategorySection(
+                                email = null, // 모든 이메일 통합 표시
+                                items = gmailItems,
+                                events = gmailEvents,
+                                onUpdateEvent = { mainViewModel.updateEvent(it) },
+                                onDeleteEvent = { mainViewModel.deleteEvent(it) },
+                                onCreateEvent = { mainViewModel.createEventFromItem(it) },
+                            )
+                        }
+                    }
                 }
                 InboxCategory.OCR -> {
                     if (ocrItems.isEmpty()) {
@@ -4014,7 +3999,7 @@ private fun PushNotificationAnalysisCard(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     
-                    // 앱별 통계
+                    // 앱별 통계 + 저장 제외 액션
                     if (stats!!.appStatistics.isNotEmpty()) {
                         Divider()
                         Text(
@@ -4027,17 +4012,43 @@ private fun PushNotificationAnalysisCard(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = appStat.appName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = "${appStat.count}개",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = appStat.appName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        text = appStat.packageName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        // 이 앱의 푸시알림은 저장하지 않기
+                                        mainViewModel.togglePushNotificationExclusion(
+                                            packageName = appStat.packageName,
+                                            exclude = true,
+                                        )
+                                        // 설정 변경 후 통계 갱신
+                                        scope.launch {
+                                            isLoading = true
+                                            try {
+                                                stats = mainViewModel.getPushNotificationStats()
+                                            } finally {
+                                                isLoading = false
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = "저장 안 하기",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
                         }
                     }

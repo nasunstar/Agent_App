@@ -920,6 +920,18 @@ class MainViewModel(
             )
         }
     }
+
+    /**
+     * 특정 앱의 푸시 알림 저장 제외 설정 토글
+     */
+    fun togglePushNotificationExclusion(packageName: String, exclude: Boolean) {
+        if (packageName.isBlank()) return
+        if (exclude) {
+            com.example.agent_app.util.PushNotificationFilterSettings.addExcludedPackage(context, packageName)
+        } else {
+            com.example.agent_app.util.PushNotificationFilterSettings.removeExcludedPackage(context, packageName)
+        }
+    }
     
     /**
      * 특정 앱의 푸시 알림 목록 조회
