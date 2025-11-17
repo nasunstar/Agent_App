@@ -22,11 +22,14 @@ data class ShareCalendarUiState(
     val isLoadingProfile: Boolean = false,
     val myShareId: String? = null,
     val myCalendars: List<CalendarSummaryDto> = emptyList(),
+    val mySharedCalendars: List<CalendarSummaryDto> = emptyList(),  // 내 공유 캘린더 (자동 로드)
     val lastCreatedCalendarName: String? = null,
-    val searchInput: String = "",
-    val isSearching: Boolean = false,
-    val searchResult: ShareProfileResponse? = null,
-    val searchCalendarResult: CalendarDetailDto? = null,
+    val searchProfileInput: String = "",  // 남의 공유 ID 검색
+    val searchCalendarInput: String = "",  // 캘린더 공유 ID 검색
+    val isSearchingProfile: Boolean = false,
+    val isSearchingCalendar: Boolean = false,
+    val searchProfileResult: ShareProfileResponse? = null,  // 남의 프로필 검색 결과
+    val searchCalendarResult: CalendarDetailDto? = null,  // 캘린더 검색 결과
     val isLoadingMyCalendarPreview: Boolean = false,
     val myCalendarPreview: CalendarDetailDto? = null,
     val isSyncingInternalEvents: Boolean = false,
@@ -53,11 +56,20 @@ class ShareCalendarViewModel(
         _uiState.update { it.copy(description = value) }
     }
 
-    fun updateSearchInput(value: String) {
+    fun updateSearchProfileInput(value: String) {
         _uiState.update {
             it.copy(
-                searchInput = value,
-                searchResult = null,
+                searchProfileInput = value,
+                searchProfileResult = null,
+            )
+        }
+    }
+
+    fun updateSearchCalendarInput(value: String) {
+        _uiState.update {
+            it.copy(
+                searchCalendarInput = value,
+                searchCalendarResult = null,
             )
         }
     }
@@ -82,6 +94,7 @@ class ShareCalendarViewModel(
                             isLoadingProfile = false,
                             myShareId = profile.shareId,
                             myCalendars = profile.calendars,
+                            mySharedCalendars = profile.calendars,  // 내 공유 캘린더도 자동으로 설정
                         )
                     }
                 },
@@ -137,7 +150,7 @@ class ShareCalendarViewModel(
                             snackbarMessage = "공유 캘린더가 생성되었습니다.",
                         )
                     }
-                    loadMyProfile(email)
+                    loadMyProfile(email)  // 프로필 다시 로드하여 내 공유 캘린더도 업데이트
                 },
                 onFailure = { throwable ->
                     _uiState.update {
@@ -152,7 +165,7 @@ class ShareCalendarViewModel(
     }
 
     fun searchProfileByShareId() {
-        val shareId = _uiState.value.searchInput.trim()
+        val shareId = _uiState.value.searchProfileInput.trim()
         if (shareId.isEmpty()) {
             emitMessage("조회할 공유 ID를 입력해 주세요.")
             return
@@ -160,46 +173,66 @@ class ShareCalendarViewModel(
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
-                    isSearching = true,
+                    isSearchingProfile = true,
                     snackbarMessage = null,
-                    searchResult = null,
+                    searchProfileResult = null,
+                )
+            }
+            val profileResult = repository.getProfileByShareId(shareId)
+            profileResult.fold(
+                onSuccess = { profile ->
+                    _uiState.update {
+                        it.copy(
+                            isSearchingProfile = false,
+                            searchProfileResult = profile,
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isSearchingProfile = false,
+                            searchProfileResult = null,
+                            snackbarMessage = throwable.message ?: "공유 ID를 찾지 못했습니다.",
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun searchCalendarByShareId() {
+        val shareId = _uiState.value.searchCalendarInput.trim()
+        if (shareId.isEmpty()) {
+            emitMessage("조회할 캘린더 공유 ID를 입력해 주세요.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSearchingCalendar = true,
+                    snackbarMessage = null,
                     searchCalendarResult = null,
                 )
             }
-            // 먼저 캘린더 공유 ID로 조회 시도
             val calendarResult = repository.getCalendarByShareId(shareId)
             calendarResult.fold(
                 onSuccess = { calendar ->
                     _uiState.update {
                         it.copy(
-                            isSearching = false,
+                            isSearchingCalendar = false,
                             searchCalendarResult = calendar,
                         )
                     }
                 },
                 onFailure = { throwable ->
-                    // 캘린더 조회 실패 시 프로필 조회 시도 (하위 호환성)
-                    val profileResult = repository.getProfileByShareId(shareId)
-                    profileResult.fold(
-                        onSuccess = { profile ->
-                            _uiState.update {
-                                it.copy(
-                                    isSearching = false,
-                                    searchResult = profile,
-                                )
-                            }
-                        },
-                        onFailure = { profileThrowable ->
-                            _uiState.update {
-                                it.copy(
-                                    isSearching = false,
-                                    searchResult = null,
-                                    searchCalendarResult = null,
-                                    snackbarMessage = throwable.message ?: profileThrowable.message ?: "공유 ID를 찾지 못했습니다.",
-                                )
-                            }
-                        }
-                    )
+                    _uiState.update {
+                        it.copy(
+                            isSearchingCalendar = false,
+                            searchCalendarResult = null,
+                            snackbarMessage = throwable.message ?: "캘린더를 찾지 못했습니다.",
+                        )
+                    }
                 }
             )
         }

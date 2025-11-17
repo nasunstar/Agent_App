@@ -14,9 +14,10 @@ import com.example.agent_app.backend.data.calendar.SharedCalendarsTable
 import com.example.agent_app.backend.data.calendar.CalendarProfilesTable
 import com.example.agent_app.backend.config.ConfigLoader
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.isNull
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.update
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.exec
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import java.security.SecureRandom
 
 fun Application.configureDatabase() {
@@ -87,33 +88,38 @@ fun Application.configureDatabase() {
         // 컬럼이 없으면 수동으로 추가 시도 (기존 데이터 호환)
         // PostgreSQL과 H2 모두 지원하는 방식으로 컬럼 존재 여부 확인 후 추가
         try {
-            // 컬럼 존재 여부 확인
+            // 컬럼 존재 여부 확인 - 간단하게 select 시도로 확인
             val columnExists = try {
-                exec("""
-                    SELECT COUNT(*) as cnt
-                    FROM information_schema.columns 
-                    WHERE table_name = 'shared_calendars' AND column_name = 'share_id'
-                """.trimIndent()) { resultSet ->
-                    if (resultSet.next()) {
-                        resultSet.getInt("cnt") > 0
-                    } else {
-                        false
-                    }
-                }
-            } catch (e: Exception) {
-                // H2 데이터베이스이거나 정보 스키마 접근 실패 시 다른 방법 시도
+                SharedCalendarsTable.select { }.limit(1).firstOrNull()
+                // 테이블이 존재하면 shareId 컬럼 접근 시도
                 try {
-                    exec("SELECT share_id FROM shared_calendars LIMIT 1") { }
+                    SharedCalendarsTable.select { SharedCalendarsTable.shareId.isNull() }.limit(1).firstOrNull()
                     true
-                } catch (e2: Exception) {
+                } catch (e: Exception) {
                     false
                 }
+            } catch (e: Exception) {
+                // 테이블이 아직 없음
+                false
             }
             
             if (!columnExists) {
-                // 컬럼을 nullable로 추가
-                exec("ALTER TABLE shared_calendars ADD COLUMN share_id VARCHAR(64)")
-                log.info("Added share_id column manually")
+                // 컬럼을 nullable로 추가 - Exposed의 SchemaUtils 사용
+                try {
+                    SchemaUtils.createMissingTablesAndColumns(SharedCalendarsTable)
+                    log.info("Added share_id column via SchemaUtils")
+                } catch (e: Exception) {
+                    // SchemaUtils로 실패하면 raw SQL 시도
+                    try {
+                        val connection = TransactionManager.current().connection
+                        val statement = connection.createStatement()
+                        statement.executeUpdate("ALTER TABLE shared_calendars ADD COLUMN share_id VARCHAR(64)")
+                        statement.close()
+                        log.info("Added share_id column manually via raw SQL")
+                    } catch (e2: Exception) {
+                        log.debug("Could not add share_id column: ${e2.message}")
+                    }
+                }
             } else {
                 log.debug("share_id column already exists")
             }
@@ -123,50 +129,63 @@ fun Application.configureDatabase() {
         }
         
         // 기존 캘린더에 shareId가 없으면 생성하는 마이그레이션
-        val calendarsWithoutShareId = SharedCalendarsTable.select {
-            SharedCalendarsTable.shareId.isNull()
-        }
-        
-        if (calendarsWithoutShareId.count() > 0) {
-            log.info("Migrating ${calendarsWithoutShareId.count()} calendars to add shareId...")
-            
-            calendarsWithoutShareId.forEach { row ->
-                val calendarId = row[SharedCalendarsTable.id]
-                val newShareId = generateShareId()
-                
-                // 중복 체크 (거의 불가능하지만 안전을 위해)
-                var attempts = 0
-                var finalShareId = newShareId
-                while (attempts < 10) {
-                    val existing = SharedCalendarsTable.select {
-                        SharedCalendarsTable.shareId eq finalShareId
-                    }.firstOrNull()
-                    
-                    if (existing == null) {
-                        break
-                    }
-                    finalShareId = generateShareId()
-                    attempts++
-                }
-                
-                SharedCalendarsTable.update({ SharedCalendarsTable.id eq calendarId }) {
-                    it[SharedCalendarsTable.shareId] = finalShareId
-                }
+        try {
+            val calendarsWithoutShareId = SharedCalendarsTable.select {
+                SharedCalendarsTable.shareId.isNull()
             }
             
-            log.info("Migration completed: shareId added to existing calendars")
+            val count = calendarsWithoutShareId.count().toInt()
+            if (count > 0) {
+                log.info("Migrating $count calendars to add shareId...")
+                
+                calendarsWithoutShareId.forEach { row ->
+                    val calendarId = row[SharedCalendarsTable.id]
+                    var newShareId = generateShareId()
+                    
+                    // 중복 체크 (거의 불가능하지만 안전을 위해)
+                    var attempts = 0
+                    while (attempts < 10) {
+                        val existing = SharedCalendarsTable.select {
+                            SharedCalendarsTable.shareId eq newShareId
+                        }.firstOrNull()
+                        
+                        if (existing == null) {
+                            break
+                        }
+                        newShareId = generateShareId()
+                        attempts++
+                    }
+                    
+                    SharedCalendarsTable.update({ SharedCalendarsTable.id eq calendarId }) {
+                        it[SharedCalendarsTable.shareId] = newShareId
+                    }
+                }
+                
+                log.info("Migration completed: shareId added to existing calendars")
+            }
+        } catch (e: Exception) {
+            log.warn("Could not migrate calendars: ${e.message}")
         }
         
         // unique index 추가 (컬럼이 있고 데이터가 채워진 후)
         try {
-            exec("""
-                CREATE UNIQUE INDEX IF NOT EXISTS shared_calendars_share_id_unique 
-                ON shared_calendars(share_id) 
-                WHERE share_id IS NOT NULL
-            """.trimIndent())
-            log.info("Created unique index on share_id")
+            val connection = TransactionManager.current().connection
+            val statement = connection.createStatement()
+            try {
+                statement.executeUpdate("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS shared_calendars_share_id_unique 
+                    ON shared_calendars(share_id) 
+                    WHERE share_id IS NOT NULL
+                """.trimIndent())
+                log.info("Created unique index on share_id")
+            } catch (e: Exception) {
+                // PostgreSQL에서는 IF NOT EXISTS를 지원하지만, H2나 다른 DB에서는 다를 수 있음
+                log.warn("Failed to create unique index on share_id (may already exist): ${e.message}")
+            } finally {
+                statement.close()
+            }
         } catch (e: Exception) {
-            log.warn("Failed to create unique index on share_id (may already exist): ${e.message}")
+            log.warn("Could not create unique index on share_id: ${e.message}")
         }
     }
     
