@@ -31,7 +31,9 @@ class SharedCalendarService(
             .map { it.toSummaryDto() }
         
         // 고유 캘린더가 없으면 생성 (기존 사용자 대응)
-        val hasPersonalCalendar = calendars.any { it.description == "나의 고유 캘린더" }
+        val hasPersonalCalendar = calendars.any { 
+            it.description?.equals("나의 고유 캘린더") == true 
+        }
         if (!hasPersonalCalendar) {
             val personalCalendar = repository.createCalendar(
                 name = "${actorEmail.split("@")[0]}의 캘린더",
