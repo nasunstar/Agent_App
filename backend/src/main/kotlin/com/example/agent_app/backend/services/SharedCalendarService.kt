@@ -27,8 +27,23 @@ class SharedCalendarService(
 
     fun getOrCreateShareProfile(actorEmail: String): ShareProfileDto {
         val profile = repository.getOrCreateProfile(actorEmail)
-        val calendars = repository.calendarsOwnedBy(actorEmail)
+        var calendars = repository.calendarsOwnedBy(actorEmail)
             .map { it.toSummaryDto() }
+        
+        // 고유 캘린더가 없으면 생성 (기존 사용자 대응)
+        val hasPersonalCalendar = calendars.any { it.description == "나의 고유 캘린더" }
+        if (!hasPersonalCalendar) {
+            val personalCalendar = repository.createCalendar(
+                name = "${actorEmail.split("@")[0]}의 캘린더",
+                description = "나의 고유 캘린더",
+                ownerEmail = actorEmail,
+            )
+            repository.insertMember(personalCalendar.id, actorEmail, CalendarRole.OWNER)
+            // 캘린더 목록 다시 로드
+            calendars = repository.calendarsOwnedBy(actorEmail)
+                .map { it.toSummaryDto() }
+        }
+        
         return profile.toDto(calendars)
     }
 

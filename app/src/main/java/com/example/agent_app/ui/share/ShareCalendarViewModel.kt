@@ -21,8 +21,8 @@ data class ShareCalendarUiState(
     val isCreating: Boolean = false,
     val isLoadingProfile: Boolean = false,
     val myShareId: String? = null,
-    val myCalendars: List<CalendarSummaryDto> = emptyList(),
-    val mySharedCalendars: List<CalendarSummaryDto> = emptyList(),  // 내 공유 캘린더 (자동 로드)
+    val myCalendars: List<CalendarSummaryDto> = emptyList(),  // 팀 캘린더 (멤버로 있는 캘린더)
+    val myPersonalCalendar: CalendarSummaryDto? = null,  // 나의 고유 캘린더
     val lastCreatedCalendarName: String? = null,
     val searchProfileInput: String = "",  // 남의 공유 ID 검색
     val searchCalendarInput: String = "",  // 캘린더 공유 ID 검색
@@ -89,12 +89,21 @@ class ShareCalendarViewModel(
             val result = repository.getOrCreateProfile(email)
             result.fold(
                 onSuccess = { profile ->
+                    // 고유 캘린더 찾기 (description이 "나의 고유 캘린더"인 것)
+                    val personalCalendar = profile.calendars.firstOrNull { 
+                        it.description == "나의 고유 캘린더" 
+                    }
+                    // 팀 캘린더는 고유 캘린더를 제외한 나머지
+                    val teamCalendars = profile.calendars.filter { 
+                        it.description != "나의 고유 캘린더" 
+                    }
+                    
                     _uiState.update {
                         it.copy(
                             isLoadingProfile = false,
                             myShareId = profile.shareId,
-                            myCalendars = profile.calendars,
-                            mySharedCalendars = profile.calendars,  // 내 공유 캘린더도 자동으로 설정
+                            myCalendars = teamCalendars,
+                            myPersonalCalendar = personalCalendar,
                         )
                     }
                 },
@@ -150,7 +159,7 @@ class ShareCalendarViewModel(
                             snackbarMessage = "공유 캘린더가 생성되었습니다.",
                         )
                     }
-                    loadMyProfile(email)  // 프로필 다시 로드하여 내 공유 캘린더도 업데이트
+                    loadMyProfile(email)  // 프로필 다시 로드하여 캘린더 목록 업데이트
                 },
                 onFailure = { throwable ->
                     _uiState.update {

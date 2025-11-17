@@ -278,10 +278,21 @@ class SharedCalendarRepository {
                 it[CalendarProfilesTable.email] = email
                 it[CalendarProfilesTable.shareId] = shareId
             }
-            CalendarProfilesTable
+            val profile = CalendarProfilesTable
                 .select { CalendarProfilesTable.email eq email }
                 .first()
                 .toProfileRecord()
+            
+            // 프로필 생성 시 자동으로 "나의 고유 캘린더" 생성
+            val personalCalendar = createCalendar(
+                name = "${email.split("@")[0]}의 캘린더",
+                description = "나의 고유 캘린더",
+                ownerEmail = email,
+            )
+            // 소유자를 멤버로 추가
+            insertMember(personalCalendar.id, email, CalendarRole.OWNER)
+            
+            profile
         }
     }
 

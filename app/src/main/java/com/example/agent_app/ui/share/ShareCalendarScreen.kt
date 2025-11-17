@@ -91,10 +91,13 @@ fun ShareCalendarScreen(
                 )
             }
             item {
-                MySharedCalendarsSection(
+                MyPersonalCalendarSection(
                     uiState = uiState,
                     onCopyShareId = { shareId ->
                         clipboardManager.setText(AnnotatedString(shareId))
+                    },
+                    onCalendarClick = { calendarId ->
+                        onMyCalendarClick(calendarId)
                     },
                 )
             }
@@ -226,9 +229,10 @@ private fun MyShareIdSection(
 }
 
 @Composable
-private fun MySharedCalendarsSection(
+private fun MyPersonalCalendarSection(
     uiState: ShareCalendarUiState,
     onCopyShareId: (String) -> Unit,
+    onCalendarClick: (String) -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -242,70 +246,76 @@ private fun MySharedCalendarsSection(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "내 공유 캘린더",
+                text = "나의 고유 캘린더",
                 style = MaterialTheme.typography.titleMedium,
             )
+            Text(
+                text = "공유 ID를 발급하면 자동으로 생성되는 나만의 캘린더입니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             
-            if (uiState.isLoadingProfile && uiState.mySharedCalendars.isEmpty()) {
+            if (uiState.isLoadingProfile && uiState.myPersonalCalendar == null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 CircularProgressIndicator()
-            } else if (uiState.mySharedCalendars.isEmpty()) {
+            } else if (uiState.myPersonalCalendar == null) {
                 Text(
-                    text = "아직 공유한 캘린더가 없습니다.",
+                    text = "공유 ID를 발급하면 나의 고유 캘린더가 생성됩니다.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                Text(
-                    text = "내가 만든 공유 캘린더 ${uiState.mySharedCalendars.size}개",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                uiState.mySharedCalendars.forEach { calendar ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                val calendar = uiState.myPersonalCalendar
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = calendar.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        calendar.description?.takeIf { it.isNotBlank() }?.let { desc ->
                             Text(
-                                text = calendar.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
+                                text = desc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
                             )
-                            calendar.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                        }
+                        calendar.shareId?.let { shareId ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
                                 Text(
-                                    text = desc,
+                                    text = "캘린더 공유 ID: $shareId",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
                                 )
-                            }
-                            calendar.shareId?.let { shareId ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                IconButton(
+                                    onClick = { onCopyShareId(shareId) },
+                                    modifier = Modifier.height(24.dp),
                                 ) {
-                                    Text(
-                                        text = "공유 ID: $shareId",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "복사",
+                                        modifier = Modifier.height(16.dp),
                                     )
-                                    IconButton(
-                                        onClick = { onCopyShareId(shareId) },
-                                        modifier = Modifier.height(24.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "복사",
-                                            modifier = Modifier.height(16.dp),
-                                        )
-                                    }
                                 }
                             }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { onCalendarClick(calendar.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("공유 캘린더 확인하기")
                         }
                     }
                 }
