@@ -88,18 +88,12 @@ fun Application.configureDatabase() {
         // 컬럼이 없으면 수동으로 추가 시도 (기존 데이터 호환)
         // PostgreSQL과 H2 모두 지원하는 방식으로 컬럼 존재 여부 확인 후 추가
         try {
-            // 컬럼 존재 여부 확인 - 간단하게 select 시도로 확인
+            // 컬럼 존재 여부 확인 - shareId 컬럼 접근 시도
             val columnExists = try {
-                SharedCalendarsTable.select { }.limit(1).firstOrNull()
-                // 테이블이 존재하면 shareId 컬럼 접근 시도
-                try {
-                    SharedCalendarsTable.select { SharedCalendarsTable.shareId.isNull() }.limit(1).firstOrNull()
-                    true
-                } catch (e: Exception) {
-                    false
-                }
+                SharedCalendarsTable.select { SharedCalendarsTable.shareId.isNull() }.limit(1).firstOrNull()
+                true
             } catch (e: Exception) {
-                // 테이블이 아직 없음
+                // 컬럼이 없거나 테이블이 아직 없음
                 false
             }
             
@@ -111,7 +105,7 @@ fun Application.configureDatabase() {
                 } catch (e: Exception) {
                     // SchemaUtils로 실패하면 raw SQL 시도
                     try {
-                        val connection = TransactionManager.current().connection
+                        val connection = TransactionManager.current().connection as java.sql.Connection
                         val statement = connection.createStatement()
                         statement.executeUpdate("ALTER TABLE shared_calendars ADD COLUMN share_id VARCHAR(64)")
                         statement.close()
@@ -169,7 +163,7 @@ fun Application.configureDatabase() {
         
         // unique index 추가 (컬럼이 있고 데이터가 채워진 후)
         try {
-            val connection = TransactionManager.current().connection
+            val connection = TransactionManager.current().connection as java.sql.Connection
             val statement = connection.createStatement()
             try {
                 statement.executeUpdate("""
