@@ -26,6 +26,7 @@ data class ShareCalendarUiState(
     val searchInput: String = "",
     val isSearching: Boolean = false,
     val searchResult: ShareProfileResponse? = null,
+    val searchCalendarResult: CalendarDetailDto? = null,
     val isLoadingMyCalendarPreview: Boolean = false,
     val myCalendarPreview: CalendarDetailDto? = null,
     val isSyncingInternalEvents: Boolean = false,
@@ -161,26 +162,44 @@ class ShareCalendarViewModel(
                 it.copy(
                     isSearching = true,
                     snackbarMessage = null,
+                    searchResult = null,
+                    searchCalendarResult = null,
                 )
             }
-            val result = repository.getProfileByShareId(shareId)
-            result.fold(
-                onSuccess = { profile ->
+            // 먼저 캘린더 공유 ID로 조회 시도
+            val calendarResult = repository.getCalendarByShareId(shareId)
+            calendarResult.fold(
+                onSuccess = { calendar ->
                     _uiState.update {
                         it.copy(
                             isSearching = false,
-                            searchResult = profile,
+                            searchCalendarResult = calendar,
                         )
                     }
                 },
                 onFailure = { throwable ->
-                    _uiState.update {
-                        it.copy(
-                            isSearching = false,
-                            searchResult = null,
-                            snackbarMessage = throwable.message ?: "공유 ID를 찾지 못했습니다.",
-                        )
-                    }
+                    // 캘린더 조회 실패 시 프로필 조회 시도 (하위 호환성)
+                    val profileResult = repository.getProfileByShareId(shareId)
+                    profileResult.fold(
+                        onSuccess = { profile ->
+                            _uiState.update {
+                                it.copy(
+                                    isSearching = false,
+                                    searchResult = profile,
+                                )
+                            }
+                        },
+                        onFailure = { profileThrowable ->
+                            _uiState.update {
+                                it.copy(
+                                    isSearching = false,
+                                    searchResult = null,
+                                    searchCalendarResult = null,
+                                    snackbarMessage = throwable.message ?: profileThrowable.message ?: "공유 ID를 찾지 못했습니다.",
+                                )
+                            }
+                        }
+                    )
                 }
             )
         }

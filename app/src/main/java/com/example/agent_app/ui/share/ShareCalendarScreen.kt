@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,9 +89,22 @@ fun ShareCalendarScreen(
                 )
             }
             item {
+                ViewMySharedCalendarsSection(
+                    uiState = uiState,
+                    onSearchInputChange = onSearchInputChange,
+                    onSearchProfile = onSearchProfile,
+                    onCopyShareId = { shareId ->
+                        clipboardManager.setText(AnnotatedString(shareId))
+                    },
+                )
+            }
+            item {
                 MyCalendarsSection(
                     uiState = uiState,
                     onCalendarClick = onMyCalendarClick,
+                    onCopyShareId = { shareId ->
+                        clipboardManager.setText(AnnotatedString(shareId))
+                    },
                 )
             }
             item {
@@ -119,6 +133,9 @@ fun ShareCalendarScreen(
             isSyncing = uiState.isSyncingInternalEvents,
             onDismiss = onDismissPreview,
             onApplyInternalData = { preview?.id?.let(onApplyInternalData) },
+            onCopyShareId = { shareId ->
+                clipboardManager.setText(AnnotatedString(shareId))
+            },
         )
     }
 }
@@ -202,12 +219,135 @@ private fun MyShareIdSection(
 }
 
 @Composable
+private fun ViewMySharedCalendarsSection(
+    uiState: ShareCalendarUiState,
+    onSearchInputChange: (String) -> Unit,
+    onSearchProfile: () -> Unit,
+    onCopyShareId: (String) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 520.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "내 공유 캘린더 보기",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "내 공유 ID를 입력하면 내가 만든 모든 공유 캘린더를 볼 수 있습니다.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            
+            OutlinedTextField(
+                value = uiState.searchInput,
+                onValueChange = onSearchInputChange,
+                label = { Text("내 공유 ID 입력") },
+                placeholder = { Text("예: ABCDEF1234") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            
+            Button(
+                onClick = onSearchProfile,
+                enabled = uiState.searchInput.isNotBlank() && !uiState.isSearching,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (uiState.isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .height(20.dp)
+                            .padding(end = 12.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                Text(if (uiState.isSearching) "불러오는 중..." else "내 캘린더 보기")
+            }
+            
+            uiState.searchResult?.let { profile ->
+                if (profile.calendars.isNotEmpty()) {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "공유 중인 캘린더 ${profile.calendars.size}개",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    profile.calendars.forEach { calendar ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = calendar.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                calendar.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                                    Text(
+                                        text = desc,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                calendar.shareId?.let { shareId ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(
+                                            text = "공유 ID: $shareId",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        IconButton(
+                                            onClick = { onCopyShareId(shareId) },
+                                            modifier = Modifier.height(24.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ContentCopy,
+                                                contentDescription = "복사",
+                                                modifier = Modifier.height(16.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        text = "공유된 캘린더가 없습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MyCalendarsSection(
     uiState: ShareCalendarUiState,
     onCalendarClick: (String) -> Unit,
+    onCopyShareId: (String) -> Unit,
 ) {
     Text(
-        text = "내 공유 캘린더",
+        text = "팀 캘린더",
         style = MaterialTheme.typography.titleMedium,
     )
     if (uiState.isLoadingProfile && uiState.myCalendars.isEmpty()) {
@@ -216,7 +356,7 @@ private fun MyCalendarsSection(
     } else if (uiState.myCalendars.isEmpty()) {
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "아직 공유 캘린더가 없습니다. 아래에서 새로 만들어 보세요.",
+            text = "아직 팀 캘린더가 없습니다. 아래에서 새로 만들어 보세요.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -248,6 +388,31 @@ private fun MyCalendarsSection(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        calendar.shareId?.let { shareId ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "공유 ID: $shareId",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                IconButton(
+                                    onClick = { onCopyShareId(shareId) },
+                                    modifier = Modifier.height(24.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "복사",
+                                        modifier = Modifier.height(16.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -262,6 +427,7 @@ private fun MyCalendarPreviewDialog(
     isSyncing: Boolean,
     onDismiss: () -> Unit,
     onApplyInternalData: () -> Unit,
+    onCopyShareId: (String) -> Unit,
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -315,6 +481,29 @@ private fun MyCalendarPreviewDialog(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    calendar.shareId?.let { shareId ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "공유 ID: $shareId",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            IconButton(
+                                onClick = { onCopyShareId(shareId) },
+                                modifier = Modifier.height(24.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "복사",
+                                    modifier = Modifier.height(16.dp),
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "멤버 ${calendar.members.size}명, 일정 ${calendar.events.size}개",
                         style = MaterialTheme.typography.bodySmall,
@@ -344,11 +533,11 @@ private fun CreateCalendarSection(
     onSubmit: () -> Unit,
 ) {
     Text(
-        text = "새 공유 캘린더 만들기",
+        text = "새 팀 캘린더 만들기",
         style = MaterialTheme.typography.titleMedium,
     )
     Text(
-        text = "팀이나 가족과 나누고 싶은 일정 모음을 만들어 공유 ID 아래에 추가하세요.",
+        text = "팀이나 가족과 나누고 싶은 일정 모음을 만들어 각 캘린더마다 고유한 공유 ID가 생성됩니다.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -418,15 +607,20 @@ private fun SearchShareIdSection(
     onSearchProfile: () -> Unit,
 ) {
     Text(
-        text = "다른 사람의 공유 ID로 조회하기",
+        text = "캘린더 공유 ID로 조회하기",
         style = MaterialTheme.typography.titleMedium,
+    )
+    Text(
+        text = "캘린더의 공유 ID를 입력하면 해당 캘린더를 볼 수 있습니다.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(modifier = Modifier.height(12.dp))
 
     OutlinedTextField(
         value = uiState.searchInput,
         onValueChange = onSearchInputChange,
-        label = { Text("공유 ID 입력") },
+        label = { Text("캘린더 공유 ID 입력") },
         placeholder = { Text("예: ABCDEF1234") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
@@ -437,6 +631,7 @@ private fun SearchShareIdSection(
     Button(
         onClick = onSearchProfile,
         enabled = uiState.searchInput.isNotBlank() && !uiState.isSearching,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         if (uiState.isSearching) {
             CircularProgressIndicator(
@@ -446,10 +641,10 @@ private fun SearchShareIdSection(
                 strokeWidth = 2.dp,
             )
         }
-        Text(if (uiState.isSearching) "찾는 중..." else "공유 캘린더 열기")
+        Text(if (uiState.isSearching) "찾는 중..." else "캘린더 열기")
     }
 
-    uiState.searchResult?.let { profile ->
+    uiState.searchCalendarResult?.let { calendar ->
         Spacer(modifier = Modifier.height(16.dp))
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -459,28 +654,25 @@ private fun SearchShareIdSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "소유자: ${profile.ownerEmail}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = calendar.name,
+                    style = MaterialTheme.typography.titleMedium,
                 )
-                if (profile.calendars.isEmpty()) {
+                calendar.description?.takeIf { it.isNotBlank() }?.let { desc ->
                     Text(
-                        text = "공유된 캘린더가 없습니다.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = desc,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
-                } else {
-                    Text(
-                        text = "공유 중인 캘린더 ${profile.calendars.size}개",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    profile.calendars.forEach { calendar ->
-                        Text(
-                            text = "• ${calendar.name}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                 }
+                Text(
+                    text = "소유자: ${calendar.ownerEmail ?: "알 수 없음"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "멤버 ${calendar.members.size}명, 일정 ${calendar.events.size}개",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

@@ -14,6 +14,7 @@ data class CalendarSummaryDto(
     val id: String,
     val name: String,
     val description: String? = null,
+    val shareId: String? = null,  // 기존 데이터 호환성을 위해 nullable로 변경
 )
 
 @Serializable
@@ -27,6 +28,7 @@ data class CalendarDetailDto(
     val name: String,
     val description: String? = null,
     val ownerEmail: String? = null,
+    val shareId: String,
     val createdAt: String? = null,
     val updatedAt: String? = null,
     val members: List<CalendarMemberDto> = emptyList(),

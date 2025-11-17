@@ -24,7 +24,7 @@ data class SharedCalendarRecord(
     val name: String,
     val description: String?,
     val ownerEmail: String,
-    val shareId: String,
+    val shareId: String?,  // 기존 데이터 호환성을 위해 nullable로 변경
     val createdAt: Instant,
     val updatedAt: Instant,
 )

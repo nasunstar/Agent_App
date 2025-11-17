@@ -23,6 +23,11 @@ interface ShareCalendarApi {
         @Path("shareId") shareId: String,
     ): ShareProfileResponse
 
+    @GET("calendar/share/calendar/{shareId}")
+    suspend fun getCalendarByShareId(
+        @Path("shareId") shareId: String,
+    ): CalendarDetailDto
+
     @POST("calendar/groups")
     suspend fun createCalendar(
         @Header("X-User-Email") actorEmail: String,

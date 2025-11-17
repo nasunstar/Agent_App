@@ -62,5 +62,10 @@ class ShareCalendarRepository(
             )
         }.map { }
     }
+
+    suspend fun getCalendarByShareId(shareId: String): Result<CalendarDetailDto> =
+        withContext(ioDispatcher) {
+            runCatching { api.getCalendarByShareId(shareId) }
+        }
 }
 

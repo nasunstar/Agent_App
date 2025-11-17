@@ -20,7 +20,7 @@ object SharedCalendarsTable : Table("shared_calendars") {
     val name = varchar("name", 200)
     val description = text("description").nullable()
     val ownerEmail = varchar("owner_email", 255)
-    val shareId = varchar("share_id", 64).uniqueIndex()
+    val shareId = varchar("share_id", 64).nullable()  // 기존 데이터 호환성을 위해 nullable로 변경, unique index는 마이그레이션 후 수동 추가
     val createdAt = timestamp("created_at").clientDefault { Instant.now() }
     val updatedAt = timestamp("updated_at").clientDefault { Instant.now() }
 
