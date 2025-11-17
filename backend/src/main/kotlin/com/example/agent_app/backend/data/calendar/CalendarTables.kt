@@ -20,6 +20,7 @@ object SharedCalendarsTable : Table("shared_calendars") {
     val name = varchar("name", 200)
     val description = text("description").nullable()
     val ownerEmail = varchar("owner_email", 255)
+    val shareId = varchar("share_id", 64).uniqueIndex()
     val createdAt = timestamp("created_at").clientDefault { Instant.now() }
     val updatedAt = timestamp("updated_at").clientDefault { Instant.now() }
 
@@ -27,6 +28,7 @@ object SharedCalendarsTable : Table("shared_calendars") {
 
     init {
         index(false, ownerEmail)
+        index(false, shareId)
     }
 }
 

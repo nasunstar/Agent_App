@@ -24,6 +24,7 @@ data class SharedCalendarRecord(
     val name: String,
     val description: String?,
     val ownerEmail: String,
+    val shareId: String,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
@@ -76,11 +77,13 @@ class SharedCalendarRepository {
     ): SharedCalendarRecord = transaction {
         val now = Instant.now()
         val id = UUID.randomUUID()
+        val shareId = generateShareId()
         SharedCalendarsTable.insert {
             it[SharedCalendarsTable.id] = id
             it[SharedCalendarsTable.name] = name
             it[SharedCalendarsTable.description] = description
             it[SharedCalendarsTable.ownerEmail] = ownerEmail
+            it[SharedCalendarsTable.shareId] = shareId
             it[SharedCalendarsTable.createdAt] = now
             it[SharedCalendarsTable.updatedAt] = now
         }
@@ -89,6 +92,7 @@ class SharedCalendarRepository {
             name = name,
             description = description,
             ownerEmail = ownerEmail,
+            shareId = shareId,
             createdAt = now,
             updatedAt = now,
         )
@@ -96,6 +100,13 @@ class SharedCalendarRepository {
 
     fun findCalendar(id: UUID): SharedCalendarRecord? = transaction {
         SharedCalendarsTable.select { SharedCalendarsTable.id eq id }
+            .limit(1)
+            .firstOrNull()
+            ?.toCalendarRecord()
+    }
+
+    fun findCalendarByShareId(shareId: String): SharedCalendarRecord? = transaction {
+        SharedCalendarsTable.select { SharedCalendarsTable.shareId eq shareId }
             .limit(1)
             .firstOrNull()
             ?.toCalendarRecord()
@@ -286,6 +297,7 @@ class SharedCalendarRepository {
         name = this[SharedCalendarsTable.name],
         description = this[SharedCalendarsTable.description],
         ownerEmail = this[SharedCalendarsTable.ownerEmail],
+        shareId = this[SharedCalendarsTable.shareId],
         createdAt = this[SharedCalendarsTable.createdAt],
         updatedAt = this[SharedCalendarsTable.updatedAt],
     )

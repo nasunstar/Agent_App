@@ -139,11 +139,19 @@ class SharedCalendarService(
         return calendar.toDetailDto(members, events)
     }
 
+    fun getCalendarByShareId(shareId: String): CalendarDetailDto? {
+        val calendar = repository.findCalendarByShareId(shareId) ?: return null
+        val members = repository.members(calendar.id)
+        val events = repository.events(calendar.id)
+        return calendar.toDetailDto(members, events)
+    }
+
     private fun SharedCalendarRecord.toSummaryDto() = CalendarSummaryDto(
         id = id.toString(),
         name = name,
         description = description,
         ownerEmail = ownerEmail,
+        shareId = shareId,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -156,6 +164,7 @@ class SharedCalendarService(
         name = name,
         description = description,
         ownerEmail = ownerEmail,
+        shareId = shareId,
         createdAt = createdAt,
         updatedAt = updatedAt,
         members = members.map { it.toDto() },

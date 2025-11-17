@@ -98,6 +98,14 @@ fun Route.calendarRoutes(service: SharedCalendarService) {
             call.respond(calendar)
         }
 
+        get("/share/calendar/{shareId}") {
+            val shareId = call.parameters["shareId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing share id.")
+            val calendar = service.getCalendarByShareId(shareId)
+                ?: return@get call.respond(HttpStatusCode.NotFound, "Calendar not found.")
+            call.respond(calendar)
+        }
+
         get("/ui/groups/{id}") {
             val token = call.request.queryParameters["token"]
             val builder = StringBuilder()

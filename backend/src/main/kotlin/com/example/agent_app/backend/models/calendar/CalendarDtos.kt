@@ -17,6 +17,7 @@ data class CalendarSummaryDto(
     val name: String,
     val description: String?,
     val ownerEmail: String,
+    val shareId: String,
     @Serializable(with = InstantSerializer::class)
     val createdAt: Instant,
     @Serializable(with = InstantSerializer::class)
@@ -55,6 +56,7 @@ data class CalendarDetailDto(
     val name: String,
     val description: String?,
     val ownerEmail: String,
+    val shareId: String,
     @Serializable(with = InstantSerializer::class)
     val createdAt: Instant,
     @Serializable(with = InstantSerializer::class)
