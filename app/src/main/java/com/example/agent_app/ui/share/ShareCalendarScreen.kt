@@ -7,12 +7,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,8 +50,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import com.example.agent_app.ui.share.ShareCalendarUiState
+import com.example.agent_app.ui.theme.AgentAppTheme
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -78,6 +87,8 @@ fun ShareCalendarScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .imePadding()
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
@@ -179,13 +190,15 @@ private fun MyShareIdSection(
                 IconButton(
                     onClick = onLoadProfile,
                     enabled = !uiState.isLoadingProfile,
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     if (uiState.isLoadingProfile) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.height(20.dp))
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                     } else {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "불러오기",
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -200,10 +213,14 @@ private fun MyShareIdSection(
                         text = uiState.myShareId,
                         style = MaterialTheme.typography.headlineSmall,
                     )
-                    IconButton(onClick = { onCopyShareId(uiState.myShareId) }) {
+                    IconButton(
+                        onClick = { onCopyShareId(uiState.myShareId) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "복사",
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -300,12 +317,12 @@ private fun MyPersonalCalendarSection(
                                 )
                                 IconButton(
                                     onClick = { onCopyShareId(shareId) },
-                                    modifier = Modifier.height(24.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "복사",
-                                        modifier = Modifier.height(16.dp),
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
@@ -387,12 +404,12 @@ private fun MyCalendarsSection(
                                 )
                                 IconButton(
                                     onClick = { onCopyShareId(shareId) },
-                                    modifier = Modifier.height(24.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "복사",
-                                        modifier = Modifier.height(16.dp),
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
@@ -478,12 +495,12 @@ private fun MyCalendarPreviewDialog(
                             )
                             IconButton(
                                 onClick = { onCopyShareId(shareId) },
-                                modifier = Modifier.height(24.dp),
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "복사",
-                                    modifier = Modifier.height(16.dp),
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
@@ -813,16 +830,30 @@ private fun SharedCalendarMonthView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { selectedMonth = selectedMonth.minusMonths(1) }) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "이전 달")
+            IconButton(
+                onClick = { selectedMonth = selectedMonth.minusMonths(1) },
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
+                Icon(
+                    Icons.Filled.ArrowBack,
+                    contentDescription = "이전 달",
+                    modifier = Modifier.size(24.dp)
+                )
             }
             Text(
                 text = selectedMonth.format(DateTimeFormatter.ofPattern("yyyy년 MM월")),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
-            IconButton(onClick = { selectedMonth = selectedMonth.plusMonths(1) }) {
-                Icon(Icons.Filled.ArrowForward, contentDescription = "다음 달")
+            IconButton(
+                onClick = { selectedMonth = selectedMonth.plusMonths(1) },
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
+                Icon(
+                    Icons.Filled.ArrowForward,
+                    contentDescription = "다음 달",
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
 
@@ -918,61 +949,62 @@ private fun SharedCalendarMonthView(
             }
         }
 
-    val selectedEvents = eventsByDate[selectedDate] ?: emptyList()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 220.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (selectedEvents.isEmpty()) {
-            Text(
-                text = "선택한 날짜에 일정이 없습니다.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            selectedEvents.sortedBy { it.startTime }.forEach { event ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+        val selectedEvents = eventsByDate[selectedDate] ?: emptyList()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 220.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (selectedEvents.isEmpty()) {
+                Text(
+                    text = "선택한 날짜에 일정이 없습니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                selectedEvents.sortedBy { it.startTime }.forEach { event ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     ) {
-                        Text(
-                            text = event.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        val timeRange = buildString {
-                            event.startTime?.let {
-                                append(it.format(DateTimeFormatter.ofPattern("HH:mm")))
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = event.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            val timeRange = buildString {
+                                event.startTime?.let {
+                                    append(it.format(DateTimeFormatter.ofPattern("HH:mm")))
+                                }
+                                if (event.endTime != null) {
+                                    append(" - ")
+                                    append(event.endTime.format(DateTimeFormatter.ofPattern("HH:mm")))
+                                }
                             }
-                            if (event.endTime != null) {
-                                append(" - ")
-                                append(event.endTime.format(DateTimeFormatter.ofPattern("HH:mm")))
+                            if (timeRange.isNotEmpty()) {
+                                Text(
+                                    text = timeRange,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                        }
-                        if (timeRange.isNotEmpty()) {
-                            Text(
-                                text = timeRange,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        event.location?.takeIf { it.isNotBlank() }?.let { location ->
-                            Text(
-                                text = "장소: $location",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        event.description?.takeIf { it.isNotBlank() }?.let { description ->
-                            Text(
-                                text = description,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            event.location?.takeIf { it.isNotBlank() }?.let { location ->
+                                Text(
+                                    text = "장소: $location",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            event.description?.takeIf { it.isNotBlank() }?.let { description ->
+                                Text(
+                                    text = description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                     }
                 }
@@ -980,6 +1012,28 @@ private fun SharedCalendarMonthView(
         }
     }
 }
+
+// === Preview ===
+
+@Preview(name = "공유 캘린더 화면", showBackground = true)
+@Composable
+private fun ShareCalendarScreenPreview() {
+    AgentAppTheme {
+        ShareCalendarScreen(
+            uiState = ShareCalendarUiState(),
+            onNameChange = {},
+            onDescriptionChange = {},
+            onSubmit = {},
+            onLoadProfile = {},
+            onSearchProfileInputChange = {},
+            onSearchProfile = {},
+            onSearchCalendarInputChange = {},
+            onSearchCalendar = {},
+            onMyCalendarClick = {},
+            onDismissPreview = {},
+            onApplyInternalData = {}
+        )
+    }
 }
 
 private data class SharedCalendarEventInfo(

@@ -61,8 +61,10 @@ class ChatViewModel(
                     }
                 }
                 .onFailure { throwable ->
+                    android.util.Log.e("ChatViewModel", "챗 실행 실패", throwable)
+                    val errorMessage = throwable.message ?: "제가 처리하지 못했어요. 다시 시도해주세요."
                     _uiState.update { state ->
-                        state.copy(isProcessing = false, error = throwable.message ?: "알 수 없는 오류가 발생했습니다.")
+                        state.copy(isProcessing = false, error = errorMessage)
                     }
                 }
         }
@@ -87,11 +89,31 @@ class ChatViewModel(
     )
 
     private fun buildFiltersDescription(filters: QueryFilters): String = buildString {
-        filters.startTimeMillis?.let { append("시작: $it ") }
-        filters.endTimeMillis?.let { append("끝: $it ") }
-        filters.source?.let { append("출처: $it ") }
-        if (filters.keywords.isNotEmpty()) {
-            append("키워드: ${filters.keywords.joinToString(", ")}")
+        val parts = mutableListOf<String>()
+        
+        // 날짜/시간 형식으로 변환
+        filters.startTimeMillis?.let { start ->
+            filters.endTimeMillis?.let { end ->
+                val startDate = java.time.Instant.ofEpochMilli(start)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                val endDate = java.time.Instant.ofEpochMilli(end)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                parts.add("기간: $startDate ~ $endDate")
+            } ?: run {
+                val startDate = java.time.Instant.ofEpochMilli(start)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                parts.add("시작: $startDate")
+            }
         }
+        
+        filters.source?.let { parts.add("출처: $it") }
+        if (filters.keywords.isNotEmpty()) {
+            parts.add("키워드: ${filters.keywords.joinToString(", ")}")
+        }
+        
+        append(parts.joinToString(" • "))
     }.ifBlank { "필터 없음" }
 }

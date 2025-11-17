@@ -3,6 +3,7 @@ package com.example.agent_app.ui
 import android.Manifest
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
@@ -16,9 +17,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -293,10 +298,14 @@ private fun AssistantScaffold(
                 TopAppBar(
                     title = { Text(text = stringResource(id = R.string.app_name)) },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(
+                            onClick = { scope.launch { drawerState.open() } },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.Menu,
-                                contentDescription = "메뉴"
+                                contentDescription = "메뉴",
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     },
@@ -481,8 +490,18 @@ internal fun DeveloperContent(
             onGoogleLogin = {
                 // 코루틴 스코프에서 Intent 가져오기 (계정 선택 화면 표시를 위해)
                 scope.launch {
-                    val intent = mainViewModel.getGoogleSignInIntent()
-                    googleSignInLauncher.launch(intent)
+                    try {
+                        android.util.Log.d("MainScreen", "Google Sign-In Intent 생성 시작")
+                        val intent = mainViewModel.getGoogleSignInIntent()
+                        android.util.Log.d("MainScreen", "Google Sign-In Intent 생성 완료 - Intent: ${intent != null}")
+                        if (intent != null) {
+                            googleSignInLauncher.launch(intent)
+                        } else {
+                            android.util.Log.e("MainScreen", "Google Sign-In Intent가 null입니다")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainScreen", "Google Sign-In Intent 생성 실패", e)
+                    }
                 }
             },
             onOAuth2Login = {
@@ -985,12 +1004,14 @@ private fun TestUserManagementCard() {
                                 onClick = {
                                     TestUserManager.removeTestUser(context, email)
                                     testUsers = TestUserManager.getTestUsers(context)
-                                }
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
                                     contentDescription = "삭제",
                                     tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -1249,14 +1270,18 @@ private fun GoogleAccountsCard(
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
-                        IconButton(onClick = { 
-                            val emailKey = if (account.email.isEmpty()) null else account.email
-                            onAccountDeleted(emailKey)
-                        }) {
+                        IconButton(
+                            onClick = { 
+                                val emailKey = if (account.email.isEmpty()) null else account.email
+                                onAccountDeleted(emailKey)
+                            },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "삭제",
                                 tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
@@ -1884,12 +1909,16 @@ private fun InboxContent(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
-            IconButton(onClick = { 
-                mainViewModel.refreshInboxData()
-            }) {
+            IconButton(
+                onClick = { 
+                    mainViewModel.refreshInboxData()
+                },
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Refresh,
                     contentDescription = stringResource(R.string.inbox_refresh),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -2781,10 +2810,17 @@ private fun CalendarContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        selectedMonth = selectedMonth.minusMonths(1)
-                    }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "이전 달")
+                    IconButton(
+                        onClick = {
+                            selectedMonth = selectedMonth.minusMonths(1)
+                        },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            Icons.Filled.ArrowBack,
+                            contentDescription = "이전 달",
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                     
                     Text(
@@ -2793,10 +2829,17 @@ private fun CalendarContent(
                         fontWeight = FontWeight.Bold,
                     )
                     
-                    IconButton(onClick = {
-                        selectedMonth = selectedMonth.plusMonths(1)
-                    }) {
-                        Icon(Icons.Filled.ArrowForward, contentDescription = "다음 달")
+                    IconButton(
+                        onClick = {
+                            selectedMonth = selectedMonth.plusMonths(1)
+                        },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            Icons.Filled.ArrowForward,
+                            contentDescription = "다음 달",
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
                 
@@ -3543,6 +3586,7 @@ private fun EventEditDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {

@@ -100,6 +100,10 @@ class MainActivity : ComponentActivity() {
     private val googleSignInActivityLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        android.util.Log.d("MainActivity", "Google Sign-In 결과 받음 - resultCode: ${result.resultCode}, data: ${result.data != null}")
+        if (result.data != null) {
+            android.util.Log.d("MainActivity", "Intent data: ${result.data?.dataString}")
+        }
         mainViewModel.handleGoogleSignInResult(result.data)
     }
     

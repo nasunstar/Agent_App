@@ -26,9 +26,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.agent_app.R
 import com.example.agent_app.data.entity.Event
@@ -58,13 +63,21 @@ fun DashboardScreen(
     }.sortedBy { it.startAt }
     
     // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
     
     Column(
         modifier = modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
             .verticalScroll(rememberScrollState())
-            .padding(Dimens.spacingMD),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+            .padding(
+                horizontal = Dimens.spacingMD,
+                vertical = if (isLandscape) Dimens.spacingSM else Dimens.spacingMD
+            ),
+        verticalArrangement = Arrangement.spacedBy(
+            if (isLandscape) Dimens.spacingSM else Dimens.spacingMD
+        )
     ) {
         // 환영 메시지 (1인칭 화법)
         WelcomeHeader()

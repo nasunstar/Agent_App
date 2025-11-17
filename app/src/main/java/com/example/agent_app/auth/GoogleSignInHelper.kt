@@ -41,12 +41,27 @@ class GoogleSignInHelper(private val context: Context) {
      */
     suspend fun getSignInIntentWithAccountSelection(): Intent {
         // 기존 로그인 상태를 먼저 로그아웃하여 계정 선택 화면이 나타나도록 함
+        // 백그라운드 스레드에서 실행하여 메인 스레드 블로킹 방지
         try {
-            getSignInClient().signOut().await()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                getSignInClient().signOut().await()
+            }
+            android.util.Log.d("GoogleSignInHelper", "기존 로그인 상태 로그아웃 완료")
         } catch (e: Exception) {
             // 로그아웃 실패 무시 (이미 로그아웃 상태일 수 있음)
+            android.util.Log.d("GoogleSignInHelper", "로그아웃 실패 (무시): ${e.message}")
         }
-        return getSignInClient().signInIntent
+        
+        // Sign-In Intent 생성
+        val signInIntent = try {
+            getSignInClient().signInIntent
+        } catch (e: Exception) {
+            android.util.Log.e("GoogleSignInHelper", "Sign-In Intent 생성 실패", e)
+            throw e
+        }
+        
+        android.util.Log.d("GoogleSignInHelper", "Sign-In Intent 생성 완료")
+        return signInIntent
     }
     
     /**
@@ -93,8 +108,15 @@ class GoogleSignInHelper(private val context: Context) {
      */
     suspend fun getSignInResultFromIntentAsync(data: Intent?): GoogleSignInAccount? {
         return try {
-            GoogleSignIn.getSignedInAccountFromIntent(data).await()
+            if (data == null) {
+                android.util.Log.w("GoogleSignInHelper", "Sign-In 결과 Intent가 null입니다")
+                return null
+            }
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data).await()
+            android.util.Log.d("GoogleSignInHelper", "계정 정보 가져오기 성공: ${account.email}")
+            account
         } catch (e: Exception) {
+            android.util.Log.e("GoogleSignInHelper", "계정 정보 가져오기 실패", e)
             null
         }
     }
