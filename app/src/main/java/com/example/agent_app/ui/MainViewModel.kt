@@ -393,14 +393,21 @@ class MainViewModel(
                 
                 // 기존 Google Sign-In 방식 (Refresh Token 없음)
                 android.util.Log.d("MainViewModel", "Google Sign-In 방식으로 처리 시도")
+                android.util.Log.d("MainViewModel", "Intent 정보 - action: ${data?.action}, dataString: ${data?.dataString}, extras: ${data?.extras?.keySet()}")
+                
                 val account = try {
                     googleSignInHelper.getSignInResultFromIntentAsync(data)
                 } catch (e: Exception) {
-                    android.util.Log.e("MainViewModel", "Google Sign-In 계정 가져오기 실패", e)
+                    android.util.Log.e("MainViewModel", "Google Sign-In 계정 가져오기 실패: ${e.javaClass.simpleName}", e)
+                    android.util.Log.e("MainViewModel", "예외 상세: ${e.message}")
+                    e.printStackTrace()
                     null
                 }
                 
                 android.util.Log.d("MainViewModel", "계정 정보: ${account?.email ?: "null"}")
+                if (account == null) {
+                    android.util.Log.e("MainViewModel", "계정이 null입니다. Intent: ${data?.toString()}")
+                }
                 
                 if (account != null) {
                     // Gmail scope로 토큰 가져오기
@@ -450,9 +457,31 @@ class MainViewModel(
                     }
                 } else {
                     android.util.Log.e("MainViewModel", "Google Sign-In 실패 - 계정 정보가 null입니다. data: ${data?.dataString}")
+                    
+                    // Logcat에서 DEVELOPER_ERROR 확인
+                    val isDeveloperError = android.util.Log.isLoggable("GoogleSignInHelper", android.util.Log.ERROR)
+                    
+                    // 더 구체적인 에러 메시지 제공
+                    val errorMessage = buildString {
+                        append("Google 로그인에 실패했습니다.\n\n")
+                        append("⚠️ 가장 흔한 원인: SHA-1 인증서 미등록\n\n")
+                        append("해결 방법:\n")
+                        append("1. Android Studio에서 Gradle 탭 열기\n")
+                        append("2. app → Tasks → android → signingReport 실행\n")
+                        append("3. 출력된 SHA-1 값을 복사\n")
+                        append("4. Google Cloud Console 접속:\n")
+                        append("   https://console.cloud.google.com/\n")
+                        append("5. API 및 서비스 → 사용자 인증 정보\n")
+                        append("6. OAuth 2.0 클라이언트 ID 선택\n")
+                        append("7. Android 앱 타입으로 추가:\n")
+                        append("   - 패키지 이름: com.example.agent_app\n")
+                        append("   - SHA-1 인증서 지문: (복사한 값)\n\n")
+                        append("Logcat에서 'GoogleSignInHelper' 태그로 statusCode를 확인하세요.")
+                    }
+                    
                     loginState.update {
                         it.copy(
-                            statusMessage = "Google 로그인에 실패했습니다. Google Play Services가 설치되어 있고 최신 버전인지 확인해주세요.",
+                            statusMessage = errorMessage,
                             isGoogleLoginInProgress = false,
                         )
                     }

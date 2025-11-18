@@ -35,7 +35,7 @@ fun LoadingState(
                 modifier = Modifier.size(16.dp),
                 color = MaterialTheme.colorScheme.primary,
                 strokeWidth = 2.dp,
-                progress = progress
+                progress = { progress ?: 0f }
             )
             Text(
                 text = message ?: stringResource(R.string.state_me_loading),
@@ -56,7 +56,7 @@ fun LoadingState(
                 modifier = Modifier.size(Dimens.iconLarge),
                 color = MaterialTheme.colorScheme.primary,
                 strokeWidth = 3.dp,
-                progress = progress
+                progress = { progress ?: 0f }
             )
             
             Text(

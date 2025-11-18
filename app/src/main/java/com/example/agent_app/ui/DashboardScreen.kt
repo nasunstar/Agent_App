@@ -22,7 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.FlowRow
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ import java.util.*
 /**
  * 대시보드 메인 화면
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -43,6 +44,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,8 +89,16 @@ import java.time.temporal.ChronoUnit
 import com.example.agent_app.ui.theme.AgentAppTheme
 import com.example.agent_app.ui.theme.Dimens
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 
 @Composable
 fun ChatScreen(
@@ -98,6 +108,7 @@ fun ChatScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     Box(
         modifier = modifier
@@ -169,7 +180,9 @@ private fun ChatHistory(
     entries: List<ChatThreadEntry>,
     modifier: Modifier = Modifier,
     onNewMessage: () -> Unit = {},
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    failedEntryIndex: Int? = null,
+    onRetry: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     
@@ -485,7 +498,8 @@ private fun ChatScreenEmptyPreview() {
                 CurrentTimeHeader()
                 ChatHistory(
                     entries = emptyList(),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    snackbarHostState = remember { SnackbarHostState() }
                 )
                 ChatInput(
                     value = "",
@@ -519,7 +533,8 @@ private fun ChatScreenWithMessagesPreview() {
                             filtersDescription = "필터: 이번 주"
                         )
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    snackbarHostState = remember { SnackbarHostState() }
                 )
                 ChatInput(
                     value = "안녕하세요",
@@ -539,22 +554,30 @@ private fun ChatInput(
     onSend: () -> Unit,
     enabled: Boolean,
 ) {
-    Column(
+    // semantics 블록에서 사용할 문자열을 미리 가져옴 (@Composable 함수 내에서만 호출 가능)
+    val sendButtonDescription = stringResource(R.string.chat_send_button)
+    
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
             .windowInsetsPadding(WindowInsets.ime)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(Dimens.spacingMD)
+            .windowInsetsPadding(WindowInsets.navigationBars),
+        color = MaterialTheme.colorScheme.surface
     ) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.spacingMD, vertical = 0.dp),
             placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
             enabled = enabled,
             singleLine = false,
             maxLines = 4,
+            contentPadding = PaddingValues(
+                horizontal = Dimens.spacingSM,
+                vertical = 8.dp
+            ),
             trailingIcon = {
                 IconButton(
                     onClick = onSend,
@@ -562,13 +585,13 @@ private fun ChatInput(
                     modifier = Modifier
                         .minimumInteractiveComponentSize() // 최소 48dp 보장
                         .semantics {
-                            role = androidx.compose.ui.semantics.Role.Button
-                            contentDescription = stringResource(R.string.chat_send_button)
+                            role = Role.Button
+                            contentDescription = sendButtonDescription
                         }
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Send,
-                        contentDescription = stringResource(R.string.chat_send_button),
+                        contentDescription = sendButtonDescription,
                         tint = if (enabled && value.isNotBlank()) {
                             MaterialTheme.colorScheme.primary
                         } else {

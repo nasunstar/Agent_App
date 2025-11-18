@@ -51,6 +51,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -118,6 +119,7 @@ import com.example.agent_app.ui.share.ShareCalendarScreen
 import com.example.agent_app.ui.share.ShareCalendarViewModel
 import com.example.agent_app.ui.share.ShareCalendarUiState
 import com.example.agent_app.ui.common.components.EmptyState
+import com.example.agent_app.ui.theme.Dimens
 import androidx.compose.ui.platform.LocalContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -321,7 +323,7 @@ private fun AssistantScaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             NavigationBar(
-                modifier = Modifier.height(72.dp)  // 기본 높이(64dp)에서 8dp 증가
+                modifier = Modifier.height(96.dp)  // 높이를 96dp로 더 증가하여 텍스트 잘림 완전 방지
             ) {
                 AssistantTab.values().forEach { tab ->
                     NavigationBarItem(
@@ -336,15 +338,24 @@ private fun AssistantScaffold(
                         label = { 
                             Text(
                                 text = stringResource(tab.labelResId),
-                                modifier = Modifier.padding(vertical = 2.dp)  // 텍스트에 약간의 여유 공간 추가
+                                style = MaterialTheme.typography.labelSmall,  // 텍스트 크기를 작게 조정
+                                modifier = Modifier.padding(vertical = 8.dp),  // 텍스트 상하 여유 공간 더 증가
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis  // 텍스트가 길 경우 말줄임표 표시
                             )
                         },
                         icon = {
                             Icon(
                                 imageVector = getTabIcon(tab),
-                                contentDescription = stringResource(tab.labelResId)
+                                contentDescription = stringResource(tab.labelResId),
+                                modifier = Modifier.size(22.dp)  // 아이콘 크기를 약간 줄여 공간 확보
                             )
                         },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     )
                 }
             }
@@ -3090,6 +3101,7 @@ private fun CalendarContent(
                     }
                 }
             }
+            }
         }
         
         // FAB (Floating Action Button)
@@ -4429,3 +4441,4 @@ private fun PushNotificationAnalysisCard(
         }
     }
 }
+
