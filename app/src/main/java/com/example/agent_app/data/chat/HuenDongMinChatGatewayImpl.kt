@@ -541,7 +541,34 @@ class HuenDongMinChatGatewayImpl(
                 ?: throw Exception("Empty response from OpenAI")
             
             if (!response.isSuccessful) {
-                throw Exception("OpenAI API 오류: ${response.code} - $responseBody")
+                // 에러 응답 JSON 파싱 시도
+                val errorMessage = try {
+                    val errorJson = Json.parseToJsonElement(responseBody).jsonObject
+                    val errorObj = errorJson["error"]?.jsonObject
+                    val message = errorObj?.get("message")?.jsonPrimitive?.content
+                    
+                    when (response.code) {
+                        429 -> {
+                            if (message?.contains("quota", ignoreCase = true) == true) {
+                                "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요.\n\n자세한 내용은 다음 문서를 참고하세요:\nhttps://platform.openai.com/docs/guides/rate-limits"
+                            } else {
+                                "OpenAI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+                            }
+                        }
+                        401 -> "OpenAI API 키가 유효하지 않습니다. API 키를 확인해주세요."
+                        403 -> "OpenAI API 접근이 거부되었습니다. 권한을 확인해주세요."
+                        500, 502, 503, 504 -> "OpenAI 서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                        else -> message ?: "OpenAI API 오류: ${response.code}"
+                    }
+                } catch (e: Exception) {
+                    // JSON 파싱 실패 시 기본 메시지 사용
+                    when (response.code) {
+                        429 -> "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요."
+                        else -> "OpenAI API 오류: ${response.code} - ${responseBody.take(200)}"
+                    }
+                }
+                
+                throw Exception(errorMessage)
             }
             
             val chatResponse = json.decodeFromString(AiChatResponse.serializer(), responseBody)

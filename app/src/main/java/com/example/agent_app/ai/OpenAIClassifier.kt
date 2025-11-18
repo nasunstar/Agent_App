@@ -1,12 +1,16 @@
+@file:OptIn(InternalSerializationApi::class)
+
 package com.example.agent_app.ai
 
 import com.example.agent_app.BuildConfig
 import com.example.agent_app.util.JsonCleaner
+import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,7 +23,8 @@ data class OpenAIRequest(
     val model: String,
     val messages: List<OpenAIMessage>,
     val temperature: Double = 0.3,
-    val max_tokens: Int = 500
+    @SerialName("max_tokens")
+    val maxTokens: Int = 500
 )
 
 @Serializable
@@ -110,7 +115,8 @@ class OpenAIClassifier {
                     role = "user",
                     content = content
                 )
-            )
+            ),
+            maxTokens = 500
         )
 
         return executeClassification(request)
@@ -154,7 +160,8 @@ class OpenAIClassifier {
                     role = "user",
                     content = content
                 )
-            )
+            ),
+            maxTokens = 500
         )
 
         return executeClassification(request)
@@ -195,7 +202,8 @@ class OpenAIClassifier {
                     role = "user",
                     content = content
                 )
-            )
+            ),
+            maxTokens = 500
         )
 
         return executeClassification(request)
@@ -216,6 +224,37 @@ class OpenAIClassifier {
         return try {
             val response = client.newCall(httpRequest).execute()
             val responseBody = response.body?.string() ?: throw Exception("Empty response")
+
+            if (!response.isSuccessful) {
+                // 에러 응답 JSON 파싱 시도
+                val errorMessage = try {
+                    val errorJson = Json.parseToJsonElement(responseBody) as JsonObject
+                    val errorObj = errorJson["error"] as? JsonObject
+                    val message = (errorObj?.get("message") as? JsonPrimitive)?.content
+                    
+                    when (response.code) {
+                        429 -> {
+                            if (message?.contains("quota", ignoreCase = true) == true) {
+                                "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요."
+                            } else {
+                                "OpenAI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+                            }
+                        }
+                        401 -> "OpenAI API 키가 유효하지 않습니다. API 키를 확인해주세요."
+                        403 -> "OpenAI API 접근이 거부되었습니다. 권한을 확인해주세요."
+                        500, 502, 503, 504 -> "OpenAI 서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                        else -> message ?: "OpenAI API 오류: ${response.code}"
+                    }
+                } catch (e: Exception) {
+                    // JSON 파싱 실패 시 기본 메시지 사용
+                    when (response.code) {
+                        429 -> "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요."
+                        else -> "OpenAI API 오류: ${response.code}"
+                    }
+                }
+                
+                throw Exception(errorMessage)
+            }
 
             val openAIResponse = json.decodeFromString(OpenAIResponse.serializer(), responseBody)
             val aiResponse = openAIResponse.choices.firstOrNull()?.message?.content
