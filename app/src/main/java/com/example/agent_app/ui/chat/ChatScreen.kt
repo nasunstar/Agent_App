@@ -72,6 +72,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Snackbar
@@ -91,7 +92,6 @@ import com.example.agent_app.ui.theme.Dimens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -110,29 +110,10 @@ fun ChatScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
-            // 상단 시간 표시
-            CurrentTimeHeader()
-            
-            ChatHistory(
-                entries = state.entries,
-                modifier = Modifier.weight(1f),
-                onNewMessage = {
-                    // 새 메시지 전송 시 키보드 닫기
-                    keyboardController?.hide()
-                },
-                snackbarHostState = snackbarHostState,
-                failedEntryIndex = state.failedEntryIndex,
-                onRetry = { index -> viewModel.retryFailedMessage(index) }
-            )
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
             ChatInput(
                 value = input,
                 onValueChange = { input = it },
@@ -143,34 +124,54 @@ fun ChatScreen(
                     }
                 },
                 enabled = !state.isProcessing,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
             )
-            
-            // 인라인 로딩 상태 (채팅 리스트 하단에 표시)
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .windowInsetsPadding(WindowInsets.statusBars)
+        ) {
+            CurrentTimeHeader()
+
+            ChatHistory(
+                entries = state.entries,
+                modifier = Modifier.weight(1f),
+                onNewMessage = {
+                    keyboardController?.hide()
+                },
+                snackbarHostState = snackbarHostState,
+                failedEntryIndex = state.failedEntryIndex,
+                onRetry = { index -> viewModel.retryFailedMessage(index) }
+            )
+
             if (state.isProcessing) {
                 LoadingState(
                     message = stringResource(R.string.chat_processing),
                     inline = true,
-                    modifier = Modifier.padding(Dimens.spacingMD)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingSM)
                 )
             }
         }
-        if (state.error != null) {
-            AlertDialog(
-                onDismissRequest = viewModel::consumeError,
-                title = { Text(stringResource(R.string.chat_error_title)) },
-                text = { Text(state.error ?: stringResource(R.string.error_me_retry)) },
-                confirmButton = {
-                    TextButton(onClick = viewModel::consumeError) {
-                        Text(stringResource(R.string.chat_confirm))
-                    }
+    }
+
+    if (state.error != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::consumeError,
+            title = { Text(stringResource(R.string.chat_error_title)) },
+            text = { Text(state.error ?: stringResource(R.string.error_me_retry)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::consumeError) {
+                    Text(stringResource(R.string.chat_confirm))
                 }
-            )
-        }
-        
-        // Snackbar Host
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter)
+            }
         )
     }
 }
@@ -553,15 +554,13 @@ private fun ChatInput(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     enabled: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     // semantics 블록에서 사용할 문자열을 미리 가져옴 (@Composable 함수 내에서만 호출 가능)
     val sendButtonDescription = stringResource(R.string.chat_send_button)
     
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.ime)
-            .windowInsetsPadding(WindowInsets.navigationBars),
+        modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface
     ) {
         OutlinedTextField(
@@ -569,15 +568,11 @@ private fun ChatInput(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingMD, vertical = 0.dp),
+                .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingXS),
             placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
             enabled = enabled,
             singleLine = false,
             maxLines = 4,
-            contentPadding = PaddingValues(
-                horizontal = Dimens.spacingSM,
-                vertical = 8.dp
-            ),
             trailingIcon = {
                 IconButton(
                     onClick = onSend,
