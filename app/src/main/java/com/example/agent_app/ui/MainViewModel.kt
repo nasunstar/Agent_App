@@ -64,7 +64,9 @@ class MainViewModel(
     private val googleAuthTokenProvider = GoogleAuthTokenProvider(context)
     
     // Google Sign-In Intent는 동적으로 생성 (계정 선택 화면 표시를 위해)
+    // 참고: Google Sign-In SDK 방식(Refresh Token 없음)에서는 서버 클라이언트 ID가 필요 없습니다.
     suspend fun getGoogleSignInIntent(): Intent {
+        android.util.Log.d("MainViewModel", "Google Sign-In Intent 생성 (기본 방식 - Refresh Token 없음)")
         return googleSignInHelper.getSignInIntentWithAccountSelection()
     }
     
@@ -80,6 +82,21 @@ class MainViewModel(
                 loginState.update { it.copy(isGoogleLoginInProgress = true) }
                 
                 val clientId = com.example.agent_app.BuildConfig.GOOGLE_WEB_CLIENT_ID
+                
+                // Client ID 검증
+                if (clientId.isBlank() || clientId == "YOUR_GOOGLE_WEB_CLIENT_ID") {
+                    android.util.Log.e("MainViewModel", "GOOGLE_WEB_CLIENT_ID가 설정되지 않았습니다. local.properties 파일을 확인하세요.")
+                    loginState.update {
+                        it.copy(
+                            statusMessage = "오류: GOOGLE_WEB_CLIENT_ID가 설정되지 않았습니다.\nlocal.properties 파일에 GOOGLE_WEB_CLIENT_ID를 추가하세요.",
+                            isGoogleLoginInProgress = false,
+                        )
+                    }
+                    return@launch
+                }
+                
+                android.util.Log.d("MainViewModel", "OAuth 2.0 플로우 시작 - Client ID: ${clientId.take(20)}...")
+                
                 val state = java.util.UUID.randomUUID().toString()
                 
                 // OAuth 2.0 인증 URL 생성
@@ -95,6 +112,8 @@ class MainViewModel(
                 val oauthFlow = com.example.agent_app.auth.GoogleOAuth2Flow(context)
                 oauthFlow.openAuthorizationUrl(context, authUrl)
                 
+                android.util.Log.d("MainViewModel", "OAuth 2.0 인증 URL 열기 완료")
+                
                 // State는 나중에 검증을 위해 저장 (현재는 간단히 처리)
                 // 실제로는 SharedPreferences 등에 저장하고 redirect URI에서 검증해야 함
                 
@@ -102,7 +121,7 @@ class MainViewModel(
                 android.util.Log.e("MainViewModel", "OAuth 2.0 플로우 시작 실패", e)
                 loginState.update {
                     it.copy(
-                        statusMessage = "OAuth 2.0 플로우 시작 실패: ${e.message}",
+                        statusMessage = "OAuth 2.0 플로우 시작 실패: ${e.message}\n\n가능한 원인:\n1. local.properties에 GOOGLE_WEB_CLIENT_ID가 설정되지 않음\n2. Google Cloud Console에서 redirect URI가 등록되지 않음\n3. 네트워크 연결 문제",
                         isGoogleLoginInProgress = false,
                     )
                 }
@@ -387,8 +406,49 @@ class MainViewModel(
                 }
                 
                 // 기존 Google Sign-In 방식 (Refresh Token 없음)
-                val account = googleSignInHelper.getSignInResultFromIntentAsync(data)
+                android.util.Log.d("MainViewModel", "Google Sign-In SDK 방식으로 처리 시도")
+                
+                // Intent 확인
+                if (data == null) {
+                    loginState.update {
+                        it.copy(
+                            statusMessage = "오류: 로그인 결과 데이터가 없습니다.\n다시 시도해주세요.",
+                            isGoogleLoginInProgress = false,
+                        )
+                    }
+                    return@launch
+                }
+                
+                val account = try {
+                    googleSignInHelper.getSignInResultFromIntentAsync(data)
+                } catch (e: com.google.android.gms.common.api.ApiException) {
+                    // ApiException의 경우 상세 정보 표시
+                    val errorMessage = when (e.statusCode) {
+                        10 -> "개발자 오류: Google Sign-In이 제대로 설정되지 않았습니다."
+                        12501 -> "사용자가 로그인을 취소했습니다."
+                        7 -> "네트워크 연결 오류입니다. 인터넷 연결을 확인해주세요."
+                        8 -> "앱 내부 오류가 발생했습니다."
+                        else -> "Google 로그인 오류 (코드: ${e.statusCode})\n${e.status?.statusMessage ?: e.message}"
+                    }
+                    loginState.update {
+                        it.copy(
+                            statusMessage = errorMessage,
+                            isGoogleLoginInProgress = false,
+                        )
+                    }
+                    return@launch
+                } catch (e: Exception) {
+                    loginState.update {
+                        it.copy(
+                            statusMessage = "로그인 처리 중 오류 발생:\n${e.javaClass.simpleName}: ${e.message ?: "알 수 없는 오류"}",
+                            isGoogleLoginInProgress = false,
+                        )
+                    }
+                    return@launch
+                }
+                
                 if (account != null) {
+                    android.util.Log.d("MainViewModel", "Google 계정 정보 받음: ${account.email}")
                     // Gmail scope로 토큰 가져오기
                     val result = googleAuthTokenProvider.fetchAccessToken(
                         account = account,
@@ -397,6 +457,7 @@ class MainViewModel(
                     
                     when (result) {
                         is com.example.agent_app.auth.GoogleTokenFetchResult.Success -> {
+                            android.util.Log.d("MainViewModel", "Access Token 가져오기 성공")
                             // ⚠️ Google Sign-In SDK는 refresh token을 제공하지 않습니다.
                             // Refresh token이 필요하면 OAuth 2.0 플로우를 사용하세요.
                             
@@ -417,27 +478,30 @@ class MainViewModel(
                             }
                         }
                         is com.example.agent_app.auth.GoogleTokenFetchResult.NeedsConsent -> {
+                            android.util.Log.w("MainViewModel", "권한 동의 필요")
                             // 권한 동의 필요 - Activity에서 처리해야 함
                             loginState.update {
                                 it.copy(
-                                    statusMessage = "권한 동의가 필요합니다. 다시 시도해주세요.",
+                                    statusMessage = "권한 동의가 필요합니다.\nGmail 읽기 권한을 허용해주세요.",
                                     isGoogleLoginInProgress = false,
                                 )
                             }
                         }
                         is com.example.agent_app.auth.GoogleTokenFetchResult.Failure -> {
+                            android.util.Log.e("MainViewModel", "토큰 가져오기 실패: ${result.message}")
                             loginState.update {
                                 it.copy(
-                                    statusMessage = "토큰 가져오기 실패: ${result.message}",
+                                    statusMessage = "토큰 가져오기 실패:\n${result.message}\n\nOAuth 2.0 로그인(Refresh Token 포함) 버튼을 사용해보세요.",
                                     isGoogleLoginInProgress = false,
                                 )
                             }
                         }
                     }
                 } else {
+                    android.util.Log.e("MainViewModel", "Google Sign-In 계정 정보를 받지 못함. Intent: ${data?.data}")
                     loginState.update {
                         it.copy(
-                            statusMessage = "Google 로그인에 실패했습니다.",
+                            statusMessage = "Google 로그인에 실패했습니다.\n\n가능한 원인:\n• 계정 선택을 취소함\n• 네트워크 연결 문제\n• Google Play Services 문제\n\n다시 시도하거나 OAuth 2.0 로그인을 사용해보세요.",
                             isGoogleLoginInProgress = false,
                         )
                     }

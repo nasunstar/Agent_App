@@ -145,16 +145,31 @@ class GoogleOAuth2Flow(private val context: Context) {
      * Custom Tab으로 인증 URL 열기
      */
     fun openAuthorizationUrl(context: Context, url: String) {
-        val customTabsIntent = CustomTabsIntent.Builder()
-            .build()
-        
-        // ViewModel에서 호출될 수 있으므로 항상 FLAG_ACTIVITY_NEW_TASK 플래그 추가
-        val intent = customTabsIntent.intent.apply {
-            data = Uri.parse(url)
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            val customTabsIntent = CustomTabsIntent.Builder()
+                .build()
+            
+            // ViewModel에서 호출될 수 있으므로 항상 FLAG_ACTIVITY_NEW_TASK 플래그 추가
+            val intent = customTabsIntent.intent.apply {
+                data = Uri.parse(url)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            
+            // Activity context든 Application context든 모두 작동하도록 처리
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "인증 URL 열기 실패", e)
+            // 대체 방법: 기본 브라우저로 열기
+            try {
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(browserIntent)
+            } catch (e2: Exception) {
+                Log.e(TAG, "브라우저로 열기 실패", e2)
+                throw e2
+            }
         }
-        
-        context.startActivity(intent)
     }
     
     /**

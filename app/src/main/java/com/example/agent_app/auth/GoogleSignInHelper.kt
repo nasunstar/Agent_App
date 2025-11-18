@@ -22,12 +22,25 @@ class GoogleSignInHelper(private val context: Context) {
     }
     
     /**
-     * Google Sign-In Client 생성
+     * Google Sign-In Client 생성 (기본 방식 - Refresh Token 없음)
      */
-    fun getSignInClient(): GoogleSignInClient {
+    private fun getSignInClient(): GoogleSignInClient {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestScopes(Scope(GMAIL_SCOPE))
+            .build()
+        
+        return GoogleSignIn.getClient(context, gso)
+    }
+    
+    /**
+     * Google Sign-In Client 생성 (서버 클라이언트 ID 포함 - ID 토큰 요청용)
+     */
+    private fun getSignInClientWithServerId(serverClientId: String): GoogleSignInClient {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(GMAIL_SCOPE))
+            .requestIdToken(serverClientId)
             .build()
         
         return GoogleSignIn.getClient(context, gso)
@@ -40,13 +53,15 @@ class GoogleSignInHelper(private val context: Context) {
      * Refresh token이 필요하면 GoogleOAuth2Flow를 사용하세요.
      */
     suspend fun getSignInIntentWithAccountSelection(): Intent {
+        // 같은 클라이언트 인스턴스를 재사용
+        val client = getSignInClient()
         // 기존 로그인 상태를 먼저 로그아웃하여 계정 선택 화면이 나타나도록 함
         try {
-            getSignInClient().signOut().await()
+            client.signOut().await()
         } catch (e: Exception) {
             // 로그아웃 실패 무시 (이미 로그아웃 상태일 수 있음)
         }
-        return getSignInClient().signInIntent
+        return client.signInIntent
     }
     
     /**
@@ -92,9 +107,22 @@ class GoogleSignInHelper(private val context: Context) {
      * Sign-In 결과에서 계정 정보 가져오기 (비동기)
      */
     suspend fun getSignInResultFromIntentAsync(data: Intent?): GoogleSignInAccount? {
+        if (data == null) {
+            android.util.Log.e("GoogleSignInHelper", "Google Sign-In 실패: Intent가 null입니다")
+            return null
+        }
+        
         return try {
-            GoogleSignIn.getSignedInAccountFromIntent(data).await()
+            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+            // await()는 task가 완료될 때까지 기다리고, 실패하면 자동으로 예외를 던집니다
+            val account = task.await()
+            android.util.Log.d("GoogleSignInHelper", "Google Sign-In 성공: ${account.email ?: "이메일 없음"}")
+            account
+        } catch (e: com.google.android.gms.common.api.ApiException) {
+            android.util.Log.e("GoogleSignInHelper", "Google Sign-In ApiException: ${e.statusCode} - ${e.status?.statusMessage}", e)
+            null
         } catch (e: Exception) {
+            android.util.Log.e("GoogleSignInHelper", "Google Sign-In 실패: ${e.javaClass.simpleName} - ${e.message}", e)
             null
         }
     }
