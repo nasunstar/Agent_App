@@ -448,77 +448,7 @@ class MainViewModel(
                 
                 android.util.Log.d("MainViewModel", "계정 정보: ${account?.email ?: "null"}")
                 if (account == null) {
-                    android.util.Log.e("MainViewModel", "계정이 null입니다. Intent: ${data?.toString()}")
-                    loginState.update {
-                        it.copy(
-                            statusMessage = "Google 로그인에 실패했습니다.\n\n가능한 원인:\n• 계정 선택을 취소함\n• 네트워크 연결 문제\n• Google Play Services 문제\n\n다시 시도하거나 OAuth 2.0 로그인을 사용해보세요.",
-                            isGoogleLoginInProgress = false,
-                        )
-                    }
-                    return@launch
-                }
-                
-                if (account != null) {
-                    android.util.Log.d("MainViewModel", "Google 계정 정보 받음: ${account.email}")
-                    // Gmail scope로 토큰 가져오기
-                    val result = googleAuthTokenProvider.fetchAccessToken(
-                        account = account,
-                        scope = DEFAULT_GMAIL_SCOPE
-                    )
-                    
-                    when (result) {
-                        is com.example.agent_app.auth.GoogleTokenFetchResult.Success -> {
-                            android.util.Log.d("MainViewModel", "Access Token 가져오기 성공")
-                            // ⚠️ Google Sign-In SDK는 refresh token을 제공하지 않습니다.
-                            // Refresh token이 필요하면 OAuth 2.0 플로우를 사용하세요.
-                            
-                            // 토큰 저장 (expiresAt은 1시간 후로 설정)
-                            val expiresAt = System.currentTimeMillis() + (3600 * 1000) // 1시간
-                            authRepository.upsertGoogleToken(
-                                accessToken = result.accessToken,
-                                refreshToken = null, // ⚠️ Google Sign-In은 refresh token을 제공하지 않음
-                                scope = DEFAULT_GMAIL_SCOPE,
-                                expiresAt = expiresAt,
-                                email = account.email,
-                            )
-                            loginState.update {
-                                it.copy(
-                                    statusMessage = "Google 계정이 추가되었습니다: ${account.email}\n⚠️ Refresh Token이 없어 수동 입력이 필요합니다.",
-                                    isGoogleLoginInProgress = false,
-                                )
-                            }
-                        }
-                        is com.example.agent_app.auth.GoogleTokenFetchResult.NeedsConsent -> {
-                            android.util.Log.w("MainViewModel", "권한 동의 필요")
-                            // 권한 동의 필요 - Activity에서 처리해야 함
-                            loginState.update {
-                                it.copy(
-                                    statusMessage = "권한 동의가 필요합니다.\nGmail 읽기 권한을 허용해주세요.",
-                                    isGoogleLoginInProgress = false,
-                                )
-                            }
-                        }
-                        is com.example.agent_app.auth.GoogleTokenFetchResult.Failure -> {
-                            android.util.Log.e("MainViewModel", "토큰 가져오기 실패: ${result.message}")
-                            loginState.update {
-                                it.copy(
-                                    statusMessage = "토큰 가져오기 실패:\n${result.message}\n\nOAuth 2.0 로그인(Refresh Token 포함) 버튼을 사용해보세요.",
-                                    isGoogleLoginInProgress = false,
-                                )
-                            }
-                        }
-                    }
-                } else {
-<<<<<<< HEAD
-                    android.util.Log.e("MainViewModel", "Google Sign-In 계정 정보를 받지 못함. Intent: ${data?.data}")
-                    loginState.update {
-                        it.copy(
-                            statusMessage = "Google 로그인에 실패했습니다.\n\n가능한 원인:\n• 계정 선택을 취소함\n• 네트워크 연결 문제\n• Google Play Services 문제\n\n다시 시도하거나 OAuth 2.0 로그인을 사용해보세요.",
-=======
                     android.util.Log.e("MainViewModel", "Google Sign-In 실패 - 계정 정보가 null입니다. data: ${data?.dataString}")
-                    
-                    // Logcat에서 DEVELOPER_ERROR 확인
-                    val isDeveloperError = android.util.Log.isLoggable("GoogleSignInHelper", android.util.Log.ERROR)
                     
                     // 더 구체적인 에러 메시지 제공
                     val errorMessage = buildString {
@@ -535,15 +465,66 @@ class MainViewModel(
                         append("7. Android 앱 타입으로 추가:\n")
                         append("   - 패키지 이름: com.example.agent_app\n")
                         append("   - SHA-1 인증서 지문: (복사한 값)\n\n")
-                        append("Logcat에서 'GoogleSignInHelper' 태그로 statusCode를 확인하세요.")
+                        append("또는 OAuth 2.0 로그인(Refresh Token 포함) 버튼을 사용해보세요.")
                     }
                     
                     loginState.update {
                         it.copy(
                             statusMessage = errorMessage,
->>>>>>> moa/main
                             isGoogleLoginInProgress = false,
                         )
+                    }
+                    return@launch
+                }
+                
+                // account가 null이 아니므로 바로 사용
+                android.util.Log.d("MainViewModel", "Google 계정 정보 받음: ${account.email}")
+                // Gmail scope로 토큰 가져오기
+                val result = googleAuthTokenProvider.fetchAccessToken(
+                    account = account,
+                    scope = DEFAULT_GMAIL_SCOPE
+                )
+                
+                when (result) {
+                    is com.example.agent_app.auth.GoogleTokenFetchResult.Success -> {
+                        android.util.Log.d("MainViewModel", "Access Token 가져오기 성공")
+                        // ⚠️ Google Sign-In SDK는 refresh token을 제공하지 않습니다.
+                        // Refresh token이 필요하면 OAuth 2.0 플로우를 사용하세요.
+                        
+                        // 토큰 저장 (expiresAt은 1시간 후로 설정)
+                        val expiresAt = System.currentTimeMillis() + (3600 * 1000) // 1시간
+                        authRepository.upsertGoogleToken(
+                            accessToken = result.accessToken,
+                            refreshToken = null, // ⚠️ Google Sign-In은 refresh token을 제공하지 않음
+                            scope = DEFAULT_GMAIL_SCOPE,
+                            expiresAt = expiresAt,
+                            email = account.email,
+                        )
+                        loginState.update {
+                            it.copy(
+                                statusMessage = "Google 계정이 추가되었습니다: ${account.email}\n⚠️ Refresh Token이 없어 수동 입력이 필요합니다.",
+                                isGoogleLoginInProgress = false,
+                            )
+                        }
+                    }
+                    is com.example.agent_app.auth.GoogleTokenFetchResult.NeedsConsent -> {
+                        android.util.Log.w("MainViewModel", "권한 동의 필요")
+                        // 권한 동의 필요 - Activity에서 처리해야 함
+                        loginState.update {
+                            it.copy(
+                                statusMessage = "권한 동의가 필요합니다.\nGmail 읽기 권한을 허용해주세요.",
+                                isGoogleLoginInProgress = false,
+                            )
+                        }
+                    }
+                    is com.example.agent_app.auth.GoogleTokenFetchResult.Failure -> {
+                        android.util.Log.e("MainViewModel", "토큰 가져오기 실패: ${result.message}")
+                        loginState.update {
+                            it.copy(
+                                statusMessage = "토큰 가져오기 실패:\n${result.message}\n\nOAuth 2.0 로그인(Refresh Token 포함) 버튼을 사용해보세요.",
+                                isGoogleLoginInProgress = false,
+                            )
+                        }
                     }
                 }
             } catch (e: Exception) {
