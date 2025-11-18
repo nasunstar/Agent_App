@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -121,6 +122,7 @@ import com.example.agent_app.ui.share.ShareCalendarUiState
 import com.example.agent_app.ui.common.components.EmptyState
 import com.example.agent_app.ui.theme.Dimens
 import androidx.compose.ui.platform.LocalContext
+import com.example.agent_app.util.PushNotificationFilterSettings
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -360,6 +362,7 @@ private fun AssistantScaffold(
                 }
             }
         },
+        contentWindowInsets = WindowInsets.systemBars
         ) { paddingValues ->
             // 사이드바 메뉴에 따른 화면 표시
             when (selectedDrawerMenu) {
@@ -549,7 +552,6 @@ internal fun DeveloperContent(
                 )
             }
         }
-        val context = LocalContext.current
         SmsScanCard(
             smsScanState = uiState.smsScanState,
             onScanClick = { sinceTimestamp ->
@@ -565,8 +567,7 @@ internal fun DeveloperContent(
                 } else {
                     permissionLauncher.launch(Manifest.permission.READ_SMS)
                 }
-            },
-            context = context,
+            }
         )
         
         // 최근 업데이트 기록 표시
@@ -667,22 +668,7 @@ private fun SmsScanCard(
     smsScanState: com.example.agent_app.ui.SmsScanState,
     onScanClick: (Long) -> Unit,
     onDatePickerClick: () -> Unit,
-    context: android.content.Context,
 ) {
-    // 자동 처리 활성화 여부 확인 (실시간 업데이트)
-    val isAutoProcessEnabled = androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(
-            com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
-        )
-    }
-    
-    // 상태 업데이트를 위해 LaunchedEffect 사용
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) {
-            isAutoProcessEnabled.value = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
-            kotlinx.coroutines.delay(1000) // 1초마다 확인
-        }
-    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -697,54 +683,53 @@ private fun SmsScanCard(
                 fontWeight = FontWeight.SemiBold,
             )
             
-            // 자동 처리 활성화 시 기간 선택 버튼 숨기고 메시지 표시
-            if (isAutoProcessEnabled.value) {
+            if (smsScanState.isScanning) {
                 Text(
                     text = "최신 메시지를 수집하고 있습니다",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
-                ) {
-                    // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
-                    Button(
-                        onClick = { 
-                            val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
-                                smsScanState.lastScanTimestamp
-                            } else {
-                                // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
-                                // 그것도 없으면 0L (전체 스캔)
-                                smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
-                            }
-                            onScanClick(sinceTimestamp)
-                        },
-                        enabled = !smsScanState.isScanning,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        if (smsScanState.isScanning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                            Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
-                            Text(text = stringResource(R.string.sms_scan_progress))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
+            ) {
+                // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
+                Button(
+                    onClick = { 
+                        val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
+                            smsScanState.lastScanTimestamp
                         } else {
-                            Text(text = stringResource(R.string.sms_scan_recent))
+                            // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
+                            // 그것도 없으면 0L (전체 스캔)
+                            smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
                         }
+                        onScanClick(sinceTimestamp)
+                    },
+                    enabled = !smsScanState.isScanning,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (smsScanState.isScanning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
+                        Text(text = stringResource(R.string.sms_scan_progress))
+                    } else {
+                        Text(text = stringResource(R.string.sms_scan_recent))
                     }
-                    // 기간 선택 버튼
-                    Button(
-                        onClick = onDatePickerClick,
-                        enabled = !smsScanState.isScanning,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(text = stringResource(R.string.sms_scan_date_picker))
-                    }
+                }
+                // 기간 선택 버튼
+                Button(
+                    onClick = onDatePickerClick,
+                    enabled = !smsScanState.isScanning,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = stringResource(R.string.sms_scan_date_picker))
                 }
             }
             
@@ -4315,6 +4300,7 @@ private fun PushNotificationAnalysisCard(
                             fontWeight = FontWeight.Bold,
                         )
                         stats!!.appStatistics.take(10).forEach { appStat ->
+                            val isExcluded = PushNotificationFilterSettings.isPackageExcluded(context, appStat.packageName)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -4331,13 +4317,20 @@ private fun PushNotificationAnalysisCard(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                     )
+                                    if (isExcluded) {
+                                        Text(
+                                            text = "저장 제외 중",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                                 TextButton(
                                     onClick = {
-                                        // 이 앱의 푸시알림은 저장하지 않기
+                                        val newExclude = !isExcluded
                                         mainViewModel.togglePushNotificationExclusion(
                                             packageName = appStat.packageName,
-                                            exclude = true,
+                                            exclude = newExclude,
                                         )
                                         // 설정 변경 후 통계 갱신
                                         scope.launch {
@@ -4348,12 +4341,17 @@ private fun PushNotificationAnalysisCard(
                                                 isLoading = false
                                             }
                                         }
-                                    }
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = if (isExcluded)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.error
+                                    )
                                 ) {
                                     Text(
-                                        text = "저장 안 하기",
+                                        text = if (isExcluded) "다시 저장하기" else "저장 안 하기",
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.error,
                                     )
                                 }
                             }

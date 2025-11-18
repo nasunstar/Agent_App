@@ -111,6 +111,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
+        contentWindowInsets = WindowInsets.statusBars,
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
@@ -134,7 +135,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .windowInsetsPadding(WindowInsets.statusBars)
         ) {
             CurrentTimeHeader()
 
@@ -493,7 +493,6 @@ private fun ChatScreenEmptyPreview() {
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
-                    .imePadding()
             ) {
                 CurrentTimeHeader()
                 ChatHistory(
@@ -521,7 +520,6 @@ private fun ChatScreenWithMessagesPreview() {
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
-                    .imePadding()
             ) {
                 CurrentTimeHeader()
                 ChatHistory(
@@ -567,7 +565,7 @@ private fun ChatInput(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingXS),
+                        .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingXS),
             placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
             enabled = enabled,
             singleLine = false,

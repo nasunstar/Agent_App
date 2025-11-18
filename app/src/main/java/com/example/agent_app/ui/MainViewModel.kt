@@ -1070,8 +1070,10 @@ class MainViewModel(
         if (packageName.isBlank()) return
         if (exclude) {
             com.example.agent_app.util.PushNotificationFilterSettings.addExcludedPackage(context, packageName)
+            com.example.agent_app.util.PushNotificationFilterSettings.removeAllowedPackage(context, packageName)
         } else {
             com.example.agent_app.util.PushNotificationFilterSettings.removeExcludedPackage(context, packageName)
+            com.example.agent_app.util.PushNotificationFilterSettings.addAllowedPackage(context, packageName)
         }
     }
     
@@ -1104,13 +1106,6 @@ class MainViewModel(
             )
             return
         }
-        
-        // 기간 선택 시 자동 처리 활성화 및 기간 저장
-        com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcess(
-            context, 
-            sinceTimestamp, 
-            System.currentTimeMillis()
-        )
         
         // Foreground Service로 백그라운드 처리 시작
         val intent = android.content.Intent(context, com.example.agent_app.service.SmsScanService::class.java).apply {
