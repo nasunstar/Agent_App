@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             appContainer.eventDao,
             appContainer.ocrRepository,
+            appContainer.executeChatUseCase,
         )
     }
 
@@ -261,13 +262,14 @@ private class MainViewModelFactory(
     private val context: android.content.Context,
     private val eventDao: com.example.agent_app.data.dao.EventDao,
     private val ocrRepository: com.example.agent_app.data.repo.OcrRepositoryWithAi,
+    private val executeChatUseCase: com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(MainViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
-        return MainViewModel(authRepository, ingestRepository, gmailRepository, classifiedDataRepository, aiAgent, context, eventDao, ocrRepository) as T
+        return MainViewModel(authRepository, ingestRepository, gmailRepository, classifiedDataRepository, aiAgent, context, eventDao, ocrRepository, executeChatUseCase) as T
     }
 }
 

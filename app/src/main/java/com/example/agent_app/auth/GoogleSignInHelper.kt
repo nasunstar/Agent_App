@@ -3,6 +3,7 @@ package com.example.agent_app.auth
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import com.example.agent_app.BuildConfig
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
@@ -25,10 +26,22 @@ class GoogleSignInHelper(private val context: Context) {
      * Google Sign-In Client 생성
      */
     fun getSignInClient(): GoogleSignInClient {
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(GMAIL_SCOPE))
-            .build()
+        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        
+        val gso = if (webClientId.isNotBlank() && webClientId != "YOUR_GOOGLE_WEB_CLIENT_ID") {
+            // 웹 클라이언트 ID가 설정된 경우
+            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestIdToken(webClientId)  // 웹 클라이언트 ID 사용
+                .requestScopes(Scope(GMAIL_SCOPE))
+                .build()
+        } else {
+            // 웹 클라이언트 ID가 없는 경우 기본 설정 사용
+            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestScopes(Scope(GMAIL_SCOPE))
+                .build()
+        }
         
         return GoogleSignIn.getClient(context, gso)
     }

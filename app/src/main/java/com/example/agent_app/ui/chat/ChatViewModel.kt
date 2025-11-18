@@ -17,6 +17,7 @@ data class ChatThreadEntry(
     val answer: String,
     val context: List<ContextItemUi>,
     val filtersDescription: String,
+    val timestamp: Long = System.currentTimeMillis(), // 메시지 생성 시간 (UI 레이어에서만 사용)
 )
 
 data class ContextItemUi(
@@ -30,6 +31,7 @@ data class ChatUiState(
     val entries: List<ChatThreadEntry> = emptyList(),
     val isProcessing: Boolean = false,
     val error: String? = null,
+    val failedEntryIndex: Int? = null, // 실패한 메시지 인덱스 (UI 레이어에서만 사용)
 )
 
 class ChatViewModel(
@@ -40,7 +42,7 @@ class ChatViewModel(
 
     fun submit(question: String) {
         if (question.isBlank()) return
-        _uiState.update { it.copy(isProcessing = true, error = null) }
+        _uiState.update { it.copy(isProcessing = true, error = null, failedEntryIndex = null) }
         viewModelScope.launch {
             // 이전 대화를 ChatMessage 리스트로 변환
             val conversationHistory = _uiState.value.entries.flatMap { entry ->
@@ -50,6 +52,8 @@ class ChatViewModel(
                 )
             }
             
+            val currentIndex = _uiState.value.entries.size
+            
             runCatching { executeChatUseCase(question, conversationHistory) }
                 .onSuccess { result ->
                     _uiState.update { state ->
@@ -57,6 +61,7 @@ class ChatViewModel(
                             entries = state.entries + result.toThreadEntry(),
                             isProcessing = false,
                             error = null,
+                            failedEntryIndex = null,
                         )
                     }
                 }
@@ -64,10 +69,26 @@ class ChatViewModel(
                     android.util.Log.e("ChatViewModel", "챗 실행 실패", throwable)
                     val errorMessage = throwable.message ?: "제가 처리하지 못했어요. 다시 시도해주세요."
                     _uiState.update { state ->
-                        state.copy(isProcessing = false, error = errorMessage)
+                        state.copy(
+                            isProcessing = false,
+                            error = errorMessage,
+                            failedEntryIndex = currentIndex // 실패한 메시지 인덱스 저장
+                        )
                     }
                 }
         }
+    }
+    
+    /**
+     * 실패한 메시지 재시도
+     * @param entryIndex 실패한 메시지 인덱스
+     */
+    fun retryFailedMessage(entryIndex: Int) {
+        val entries = _uiState.value.entries
+        if (entryIndex < 0 || entryIndex >= entries.size) return
+        
+        val failedEntry = entries[entryIndex]
+        submit(failedEntry.question)
     }
 
     fun consumeError() {
@@ -86,6 +107,7 @@ class ChatViewModel(
             )
         },
         filtersDescription = buildFiltersDescription(filters),
+        timestamp = System.currentTimeMillis(), // 메시지 생성 시간 저장
     )
 
     private fun buildFiltersDescription(filters: QueryFilters): String = buildString {

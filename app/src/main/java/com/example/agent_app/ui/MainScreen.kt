@@ -31,7 +31,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -70,11 +69,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
@@ -90,7 +89,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
@@ -112,6 +117,7 @@ import com.example.agent_app.ui.chat.ChatViewModel
 import com.example.agent_app.ui.share.ShareCalendarScreen
 import com.example.agent_app.ui.share.ShareCalendarViewModel
 import com.example.agent_app.ui.share.ShareCalendarUiState
+import com.example.agent_app.ui.common.components.EmptyState
 import androidx.compose.ui.platform.LocalContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -314,7 +320,9 @@ private fun AssistantScaffold(
             },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                modifier = Modifier.height(72.dp)  // 기본 높이(64dp)에서 8dp 증가
+            ) {
                 AssistantTab.values().forEach { tab ->
                     NavigationBarItem(
                         selected = tab == selectedTab,
@@ -325,7 +333,12 @@ private fun AssistantScaffold(
                                 onDrawerMenuSelected(DrawerMenu.Menu)
                             }
                         },
-                        label = { Text(stringResource(tab.labelResId)) },
+                        label = { 
+                            Text(
+                                text = stringResource(tab.labelResId),
+                                modifier = Modifier.padding(vertical = 2.dp)  // 텍스트에 약간의 여유 공간 추가
+                            )
+                        },
                         icon = {
                             Icon(
                                 imageVector = getTabIcon(tab),
@@ -360,6 +373,7 @@ private fun AssistantScaffold(
                             contentPadding = paddingValues,
                             onUpdateEvent = { event -> mainViewModel.updateEvent(event) },
                             onDeleteEvent = { event -> mainViewModel.deleteEvent(event) },
+                            mainViewModel = mainViewModel,
                         )
 
                         AssistantTab.Inbox -> InboxContent(
@@ -1880,6 +1894,14 @@ private fun InboxContent(
     mainViewModel: MainViewModel,
 ) {
     var selectedCategory by remember { mutableStateOf<InboxCategory?>(InboxCategory.All) }
+    var searchQuery by remember { mutableStateOf("") }
+    var debouncedQuery by remember { mutableStateOf("") }
+    
+    // Debounce 검색 쿼리 (500ms)
+    LaunchedEffect(searchQuery) {
+        kotlinx.coroutines.delay(500)
+        debouncedQuery = searchQuery
+    }
     
     // Gmail 이벤트를 UI State에서 가져오기 (AssistantUiState의 events 필드 사용)
     val uiState = mainViewModel.uiState.collectAsStateWithLifecycle().value
@@ -1890,6 +1912,24 @@ private fun InboxContent(
             }
         }
     }
+    
+    // 검색 쿼리로 필터링 (UI 레이어에서만 필터링)
+    val filterItems = { items: List<IngestItem> ->
+        if (debouncedQuery.isBlank()) {
+            items
+        } else {
+            val queryLower = debouncedQuery.lowercase()
+            items.filter { item ->
+                (item.title?.lowercase()?.contains(queryLower) == true) ||
+                (item.body?.lowercase()?.contains(queryLower) == true)
+            }
+        }
+    }
+    
+    val filteredOcrItems = remember(ocrItems, debouncedQuery) { filterItems(ocrItems) }
+    val filteredSmsItems = remember(smsItems, debouncedQuery) { filterItems(smsItems) }
+    val filteredGmailItems = remember(gmailItems, debouncedQuery) { filterItems(gmailItems) }
+    val filteredPushNotificationItems = remember(pushNotificationItems, debouncedQuery) { filterItems(pushNotificationItems) }
     
     Column(
         modifier = Modifier
@@ -1923,6 +1963,31 @@ private fun InboxContent(
             }
         }
         
+        // 검색 바
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("키워드로 검색하기") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "검색"
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Filled.Clear,
+                            contentDescription = "검색 지우기"
+                        )
+                    }
+                }
+            },
+            singleLine = true
+        )
+        
         // 카테고리 탭
         Row(
             modifier = Modifier
@@ -1947,13 +2012,17 @@ private fun InboxContent(
             }
         }
         
-        // 요약 통계 블록
+        // 요약 통계 블록 (검색 중일 때는 필터링된 개수 표시)
         InboxSummaryBlock(
-            ocrCount = ocrItems.size,
-            smsCount = smsItems.size,
-            gmailCount = gmailItems.size,
-            pushNotificationCount = pushNotificationItems.size,
-            totalCount = ocrItems.size + smsItems.size + gmailItems.size + pushNotificationItems.size,
+            ocrCount = if (debouncedQuery.isBlank()) ocrItems.size else filteredOcrItems.size,
+            smsCount = if (debouncedQuery.isBlank()) smsItems.size else filteredSmsItems.size,
+            gmailCount = if (debouncedQuery.isBlank()) gmailItems.size else filteredGmailItems.size,
+            pushNotificationCount = if (debouncedQuery.isBlank()) pushNotificationItems.size else filteredPushNotificationItems.size,
+            totalCount = if (debouncedQuery.isBlank()) {
+                ocrItems.size + smsItems.size + gmailItems.size + pushNotificationItems.size
+            } else {
+                filteredOcrItems.size + filteredSmsItems.size + filteredGmailItems.size + filteredPushNotificationItems.size
+            },
         )
         
         // 카테고리별 컨텐츠
@@ -1964,11 +2033,11 @@ private fun InboxContent(
             when (selectedCategory) {
                 InboxCategory.All -> {
                     // 전체: OCR, SMS, 이메일만 표시 (푸시 알림은 제외)
-                    if (ocrItems.isNotEmpty()) {
+                    if (filteredOcrItems.isNotEmpty()) {
                         item {
                             CategorySection(
                                 titleResId = R.string.inbox_category_ocr,
-                                items = ocrItems,
+                                items = filteredOcrItems,
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -1985,11 +2054,11 @@ private fun InboxContent(
                             )
                         }
                     }
-                    if (smsItems.isNotEmpty()) {
+                    if (filteredSmsItems.isNotEmpty()) {
                         item {
                             CategorySection(
                                 titleResId = R.string.inbox_category_sms,
-                                items = smsItems,
+                                items = filteredSmsItems,
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2007,11 +2076,11 @@ private fun InboxContent(
                         }
                     }
                     // 이메일 통합 표시
-                    if (gmailItems.isNotEmpty()) {
+                    if (filteredGmailItems.isNotEmpty()) {
                         item {
                             EmailCategorySection(
                                 email = null, // 모든 이메일 통합 표시
-                                items = gmailItems,
+                                items = filteredGmailItems,
                                 events = gmailEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2021,7 +2090,7 @@ private fun InboxContent(
                     }
                 }
                 InboxCategory.OCR -> {
-                    if (ocrItems.isEmpty()) {
+                    if (filteredOcrItems.isEmpty()) {
                         item {
                             EmptyStateCard(messageResId = R.string.inbox_empty_ocr)
                         }
@@ -2029,7 +2098,7 @@ private fun InboxContent(
                         item {
                             CategorySection(
                                 titleResId = R.string.inbox_category_ocr,
-                                items = ocrItems,
+                                items = filteredOcrItems,
                                 events = ocrEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2048,7 +2117,7 @@ private fun InboxContent(
                     }
                 }
                 InboxCategory.SMS -> {
-                    if (smsItems.isEmpty()) {
+                    if (filteredSmsItems.isEmpty()) {
                         item {
                             EmptyStateCard(messageResId = R.string.inbox_empty_sms)
                         }
@@ -2056,7 +2125,7 @@ private fun InboxContent(
                         item {
                             CategorySection(
                                 titleResId = R.string.inbox_category_sms,
-                                items = smsItems,
+                                items = filteredSmsItems,
                                 events = smsEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2075,7 +2144,7 @@ private fun InboxContent(
                     }
                 }
                 InboxCategory.Email -> {
-                    if (gmailItems.isEmpty()) {
+                    if (filteredGmailItems.isEmpty()) {
                         item {
                             EmptyStateCard(messageResId = R.string.inbox_empty_email)
                         }
@@ -2083,7 +2152,7 @@ private fun InboxContent(
                         item {
                             EmailCategorySection(
                                 email = null, // 모든 이메일 통합 표시
-                                items = gmailItems,
+                                items = filteredGmailItems,
                                 events = gmailEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2093,7 +2162,7 @@ private fun InboxContent(
                     }
                 }
                 InboxCategory.PushNotification -> {
-                    if (pushNotificationItems.isEmpty()) {
+                    if (filteredPushNotificationItems.isEmpty()) {
                         item {
                             EmptyStateCard(messageResId = R.string.inbox_empty_push)
                         }
@@ -2101,7 +2170,7 @@ private fun InboxContent(
                         item {
                             CategorySection(
                                 titleResId = R.string.inbox_category_push,
-                                items = pushNotificationItems,
+                                items = filteredPushNotificationItems,
                                 events = pushNotificationEvents,
                                 onUpdateEvent = { mainViewModel.updateEvent(it) },
                                 onDeleteEvent = { mainViewModel.deleteEvent(it) },
@@ -2769,7 +2838,10 @@ private fun CalendarContent(
     contentPadding: PaddingValues,
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
+    mainViewModel: MainViewModel? = null,
 ) {
+    var showAddEventDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
     val currentDate = LocalDate.now()
     var selectedMonth by remember { mutableStateOf(YearMonth.from(currentDate)) }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -2788,15 +2860,19 @@ private fun CalendarContent(
         } ?: emptyList()
     }
     
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        Card(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
@@ -2915,14 +2991,22 @@ private fun CalendarContent(
                                         .size(48.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    // 배경 (오늘 날짜)
+                                    // 배경 (오늘 날짜) - 더 명확한 강조
                                     if (isToday) {
                                         Box(
                                             modifier = Modifier
-                                                .size(36.dp)
+                                                .size(40.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.primary,
                                                     shape = RoundedCornerShape(50)
+                                                )
+                                                .then(
+                                                    Modifier
+                                                        .border(
+                                                            width = 2.dp,
+                                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                                            shape = RoundedCornerShape(50)
+                                                        )
                                                 )
                                         )
                                     }
@@ -2956,13 +3040,18 @@ private fun CalendarContent(
                                             },
                                             fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                                         )
+                                        // 이벤트 마커 (더 명확한 표시)
                                         if (hasEvent) {
-                                            Spacer(modifier = Modifier.height(1.dp))
+                                            Spacer(modifier = Modifier.height(2.dp))
                                             Box(
                                                 modifier = Modifier
                                                     .size(6.dp)
                                                     .background(
-                                                        Color.Red,
+                                                        if (isToday) {
+                                                            Color.White
+                                                        } else {
+                                                            MaterialTheme.colorScheme.primary
+                                                        },
                                                         shape = RoundedCornerShape(50)
                                                     )
                                             )
@@ -2984,13 +3073,12 @@ private fun CalendarContent(
                     )
                     
                     if (selectedDateEvents.isEmpty()) {
-                        Text(
-                            text = "일정이 없습니다.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        EmptyState(
+                            messageResId = R.string.empty_events_today,
+                            icon = Icons.Filled.Event
                         )
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)) {
                             selectedDateEvents.forEach { event ->
                                 EventDetailRow(
                                     event = event,
@@ -3003,7 +3091,108 @@ private fun CalendarContent(
                 }
             }
         }
+        
+        // FAB (Floating Action Button)
+        if (mainViewModel != null) {
+            FloatingActionButton(
+                onClick = { showAddEventDialog = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .minimumInteractiveComponentSize(),
+                containerColor = MaterialTheme.colorScheme.primary
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "일정 추가",
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+        
+        // Snackbar Host
+        androidx.compose.material3.SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
+    
+    // 자연어 일정 추가 다이얼로그
+    if (showAddEventDialog && mainViewModel != null) {
+        AddEventFromNaturalLanguageDialog(
+            onDismiss = { showAddEventDialog = false },
+            onSuccess = {
+                showAddEventDialog = false
+                // Snackbar는 다이얼로그 내부에서 처리
+            },
+            onFailure = {
+                // Snackbar는 다이얼로그 내부에서 처리
+            },
+            snackbarHostState = snackbarHostState,
+            mainViewModel = mainViewModel
+        )
+    }
+}
+
+@Composable
+private fun AddEventFromNaturalLanguageDialog(
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit,
+    onFailure: () -> Unit,
+    mainViewModel: MainViewModel,
+    snackbarHostState: androidx.compose.material3.SnackbarHostState
+) {
+    var inputText by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("일정 추가하기") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+            ) {
+                Text(
+                    text = "자연어로 일정을 입력해주세요.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("예: 내일 오후 3시에 회의") },
+                    singleLine = false,
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (inputText.isNotBlank()) {
+                        coroutineScope.launch {
+                            try {
+                                mainViewModel.createEventFromNaturalLanguage(inputText.trim())
+                                onDismiss()
+                                snackbarHostState.showSnackbar("제가 일정을 만들어두었어요!")
+                            } catch (e: Exception) {
+                                onDismiss()
+                                snackbarHostState.showSnackbar("조금 더 구체적으로 말씀해 주실래요?")
+                            }
+                        }
+                    }
+                },
+                enabled = inputText.isNotBlank()
+            ) {
+                Text("추가하기")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("취소")
+            }
+        }
+    )
 }
 
 @Composable
@@ -3156,42 +3345,98 @@ private fun EventDetailRow(
 ) {
     var showDetailDialog by remember { mutableStateOf(false) }
     
-    Column(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                RoundedCornerShape(8.dp)
-            )
-            .clickable { showDetailDialog = true }
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .clickable { showDetailDialog = true },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(Dimens.badgeCornerRadius)
     ) {
-        Text(
-            text = "• ${event.title}",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        
-        if (event.startAt != null) {
-            Text(
-                text = "시작: ${TimeFormatter.format(event.startAt)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        
-        if (event.endAt != null) {
-            Text(
-                text = "종료: ${TimeFormatter.format(event.endAt)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        
-        if (event.location != null) {
-            Text(
-                text = "장소: ${event.location}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Dimens.spacingMD),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingXS)
+        ) {
+            // 제목 (아이콘과 함께)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Event,
+                    contentDescription = null,
+                    modifier = Modifier.size(Dimens.iconSmall),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            
+            // 시간 정보 (한 줄로)
+            if (event.startAt != null || event.endAt != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMD),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (event.startAt != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Schedule,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = TimeFormatter.format(event.startAt).split(" ").getOrNull(1) ?: TimeFormatter.format(event.startAt),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (event.endAt != null && event.startAt != null) {
+                        Text(
+                            text = "~",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = TimeFormatter.format(event.endAt).split(" ").getOrNull(1) ?: TimeFormatter.format(event.endAt),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            
+            // 장소 정보
+            if (event.location != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = event.location,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
     

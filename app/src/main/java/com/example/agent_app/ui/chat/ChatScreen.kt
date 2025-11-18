@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -49,28 +50,44 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Snackbar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.agent_app.R
 import com.example.agent_app.ui.common.UiState
 import com.example.agent_app.ui.common.components.LoadingState
 import com.example.agent_app.ui.common.components.StatusIndicator
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import com.example.agent_app.ui.theme.AgentAppTheme
 import com.example.agent_app.ui.theme.Dimens
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -90,7 +107,6 @@ fun ChatScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
         ) {
             // 상단 시간 표시
             CurrentTimeHeader()
@@ -101,7 +117,10 @@ fun ChatScreen(
                 onNewMessage = {
                     // 새 메시지 전송 시 키보드 닫기
                     keyboardController?.hide()
-                }
+                },
+                snackbarHostState = snackbarHostState,
+                failedEntryIndex = state.failedEntryIndex,
+                onRetry = { index -> viewModel.retryFailedMessage(index) }
             )
             ChatInput(
                 value = input,
@@ -114,9 +133,15 @@ fun ChatScreen(
                 },
                 enabled = !state.isProcessing,
             )
-        }
-        if (state.isProcessing) {
-            LoadingState(message = stringResource(R.string.chat_processing))
+            
+            // 인라인 로딩 상태 (채팅 리스트 하단에 표시)
+            if (state.isProcessing) {
+                LoadingState(
+                    message = stringResource(R.string.chat_processing),
+                    inline = true,
+                    modifier = Modifier.padding(Dimens.spacingMD)
+                )
+            }
         }
         if (state.error != null) {
             AlertDialog(
@@ -130,6 +155,12 @@ fun ChatScreen(
                 }
             )
         }
+        
+        // Snackbar Host
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -137,7 +168,8 @@ fun ChatScreen(
 private fun ChatHistory(
     entries: List<ChatThreadEntry>,
     modifier: Modifier = Modifier,
-    onNewMessage: () -> Unit = {}
+    onNewMessage: () -> Unit = {},
+    snackbarHostState: SnackbarHostState
 ) {
     val listState = rememberLazyListState()
     
@@ -164,7 +196,6 @@ private fun ChatHistory(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .imePadding()
             .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingSM),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD),
     ) {
@@ -198,55 +229,214 @@ private fun ChatHistory(
                 }
             }
         } else {
-            items(entries) { entry ->
-                ChatEntryCard(entry)
+            itemsIndexed(entries) { index, entry ->
+                ChatEntryCard(
+                    entry = entry,
+                    snackbarHostState = snackbarHostState,
+                    isFailed = failedEntryIndex == index,
+                    onRetry = { onRetry(index) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ChatEntryCard(entry: ChatThreadEntry) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(Dimens.cardCornerRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = Dimens.cardElevation)
+private fun ChatEntryCard(
+    entry: ChatThreadEntry,
+    snackbarHostState: SnackbarHostState,
+    isFailed: Boolean = false,
+    onRetry: () -> Unit = {}
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Dimens.spacingSM),
+        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
     ) {
-        Column(
-            modifier = Modifier.padding(Dimens.cardPadding),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        // 사용자 질문 카드 (오른쪽 정렬, Primary Container 색상)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .align(Alignment.End)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            clipboardManager.setText(AnnotatedString(entry.question))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("제가 메시지를 복사해두었어요.")
+                            }
+                        }
+                    )
+                },
+            shape = RoundedCornerShape(
+                topStart = Dimens.cardCornerRadius,
+                topEnd = Dimens.cardCornerRadius,
+                bottomStart = Dimens.cardCornerRadius,
+                bottomEnd = Dimens.spacingXS
+            ),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = Dimens.cardElevation)
         ) {
-            Text(
-                text = stringResource(R.string.chat_question_label),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(text = entry.question, style = MaterialTheme.typography.bodyLarge)
-
-            Text(
-                text = stringResource(R.string.chat_answer_label),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(text = entry.answer, style = MaterialTheme.typography.bodyMedium)
-
-            if (entry.context.isNotEmpty()) {
+            Column(
+                modifier = Modifier.padding(Dimens.cardPadding),
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingXS)
+            ) {
                 Text(
-                    text = stringResource(R.string.chat_context_label),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
+                    text = stringResource(R.string.chat_question_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
-                entry.context.forEach { contextItem ->
-                    ContextChip(contextItem)
+                Text(
+                    text = entry.question,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+                )
+                // 타임스탬프
+                Text(
+                    text = formatMessageTimestamp(entry.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = Dimens.spacingXS)
+                )
+            }
+        }
+        
+        // MOA 답변 카드 (왼쪽 정렬, Surface Variant 색상)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .align(Alignment.Start)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            clipboardManager.setText(AnnotatedString(entry.answer))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("제가 메시지를 복사해두었어요.")
+                            }
+                        }
+                    )
+                },
+            shape = RoundedCornerShape(
+                topStart = Dimens.cardCornerRadius,
+                topEnd = Dimens.cardCornerRadius,
+                bottomStart = Dimens.spacingXS,
+                bottomEnd = Dimens.cardCornerRadius
+            ),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = Dimens.cardElevation)
+        ) {
+            Column(
+                modifier = Modifier.padding(Dimens.cardPadding),
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_answer_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+                Text(
+                    text = entry.answer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+                )
+
+                if (entry.context.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                    Text(
+                        text = stringResource(R.string.chat_context_label),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    entry.context.forEach { contextItem ->
+                        ContextChip(contextItem)
+                    }
+                }
+
+                Text(
+                    text = entry.filtersDescription,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+                
+                // 타임스탬프
+                Text(
+                    text = formatMessageTimestamp(entry.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = Dimens.spacingXS)
+                )
+                
+                // 실패한 메시지 재시도 버튼
+                if (isFailed) {
+                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                    TextButton(
+                        onClick = onRetry,
+                        modifier = Modifier.padding(top = Dimens.spacingXS)
+                    ) {
+                        Text(
+                            text = "다시 보내기",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
+        }
+    }
+}
 
-            Text(
-                text = entry.filtersDescription,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+/**
+ * 메시지 타임스탬프를 자연스러운 형식으로 포맷팅
+ * - 오늘: "오후 3:21"
+ * - 어제: "어제 오후 9:10"
+ * - 이번 주: "월요일 오후 2:30"
+ * - 그 외: "12월 15일 오후 3:21"
+ */
+@Composable
+private fun formatMessageTimestamp(timestamp: Long): String {
+    val now = Instant.now()
+    val messageTime = Instant.ofEpochMilli(timestamp)
+    val koreanZone = ZoneId.of("Asia/Seoul")
+    
+    val nowLocal = now.atZone(koreanZone)
+    val messageLocal = messageTime.atZone(koreanZone)
+    
+    val daysDiff = ChronoUnit.DAYS.between(messageLocal.toLocalDate(), nowLocal.toLocalDate())
+    
+    val timeFormatter = DateTimeFormatter.ofPattern("a h:mm", java.util.Locale("ko", "KR"))
+    val timeStr = messageLocal.format(timeFormatter)
+    
+    return when {
+        daysDiff == 0L -> timeStr // 오늘
+        daysDiff == 1L -> "어제 $timeStr"
+        daysDiff in 2..6 -> {
+            val dayOfWeek = when (messageLocal.dayOfWeek.value) {
+                1 -> "월요일"
+                2 -> "화요일"
+                3 -> "수요일"
+                4 -> "목요일"
+                5 -> "금요일"
+                6 -> "토요일"
+                7 -> "일요일"
+                else -> ""
+            }
+            "$dayOfWeek $timeStr"
+        }
+        else -> {
+            val dateFormatter = DateTimeFormatter.ofPattern("M월 d일", java.util.Locale("ko", "KR"))
+            "${messageLocal.format(dateFormatter)} $timeStr"
         }
     }
 }
@@ -353,8 +543,8 @@ private fun ChatInput(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .imePadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.ime)
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(Dimens.spacingMD)
     ) {
         OutlinedTextField(
@@ -365,19 +555,39 @@ private fun ChatInput(
             enabled = enabled,
             singleLine = false,
             maxLines = 4,
+            trailingIcon = {
+                IconButton(
+                    onClick = onSend,
+                    enabled = enabled && value.isNotBlank(),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize() // 최소 48dp 보장
+                        .semantics {
+                            role = androidx.compose.ui.semantics.Role.Button
+                            contentDescription = stringResource(R.string.chat_send_button)
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Send,
+                        contentDescription = stringResource(R.string.chat_send_button),
+                        tint = if (enabled && value.isNotBlank()) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        }
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Send
+            ),
+            keyboardActions = KeyboardActions(
+                onSend = {
+                    if (value.isNotBlank() && enabled) {
+                        onSend()
+                    }
+                }
+            )
         )
-        Spacer(modifier = Modifier.height(Dimens.spacingMD))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            Button(
-                onClick = onSend,
-                enabled = enabled && value.isNotBlank(),
-            ) {
-                Text(stringResource(R.string.chat_send_button))
-            }
-        }
     }
 }
 

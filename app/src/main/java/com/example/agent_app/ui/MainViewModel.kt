@@ -47,6 +47,7 @@ class MainViewModel(
     private val context: Context,
     private val eventDao: EventDao? = null,
     private val ocrRepository: OcrRepositoryWithAi? = null,
+    private val executeChatUseCase: com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase? = null,
 ) : ViewModel() {
 
     private val loginState = MutableStateFlow(LoginUiState())
@@ -1232,11 +1233,38 @@ class MainViewModel(
                         android.util.Log.w("MainViewModel", "지원하지 않는 소스 타입: ${item.source}")
                     }
                 }
-                
-                // 일정 생성 후 데이터 새로고침
-                refreshInboxData()
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "일정 생성 실패", e)
+            }
+        }
+    }
+    
+    /**
+     * 자연어 텍스트에서 일정 생성 (UI 레이어에서만 사용)
+     * 기존 ChatGateway의 tryCreateEventFromQuestion 로직을 재사용
+     */
+    fun createEventFromNaturalLanguage(text: String) {
+        viewModelScope.launch {
+            try {
+                if (executeChatUseCase == null) {
+                    android.util.Log.e("MainViewModel", "ExecuteChatUseCase가 주입되지 않았습니다.")
+                    throw IllegalStateException("ExecuteChatUseCase가 필요합니다.")
+                }
+                
+                // ExecuteChatUseCase를 통해 일정 생성 의도가 감지되도록 질문 구성
+                // ChatGateway의 detectEventCreationIntent가 감지할 수 있도록 명시적 키워드 추가
+                val question = if (text.contains("약속") || text.contains("일정") || text.contains("회의")) {
+                    text
+                } else {
+                    "일정 잡아줘: $text" // 일정 생성 의도가 명확하도록 키워드 추가
+                }
+                
+                // ExecuteChatUseCase를 통해 일정 생성 (내부적으로 tryCreateEventFromQuestion 호출)
+                val result = executeChatUseCase(question, emptyList())
+                android.util.Log.d("MainViewModel", "자연어 일정 생성 완료: ${result.answer.content}")
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "자연어 일정 생성 실패", e)
+                throw e
             }
         }
     }
