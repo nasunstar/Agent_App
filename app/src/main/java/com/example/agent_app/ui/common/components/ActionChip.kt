@@ -8,6 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.agent_app.ui.theme.Dimens
 
@@ -27,7 +31,12 @@ fun ActionChip(
     Surface(
         modifier = modifier
             .height(Dimens.chipHeight)
-            .clickable { onClick() },
+            .minimumInteractiveComponentSize() // 최소 48dp 보장
+            .clickable { onClick() }
+            .semantics {
+                role = Role.Button
+                contentDescription = text
+            },
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -41,7 +50,7 @@ fun ActionChip(
             if (icon != null) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = null,
+                    contentDescription = null, // 텍스트가 있으므로 null
                     modifier = Modifier.size(Dimens.iconSmall)
                 )
             }

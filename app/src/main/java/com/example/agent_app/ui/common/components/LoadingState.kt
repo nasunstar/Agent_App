@@ -20,27 +20,63 @@ import com.example.agent_app.ui.theme.Dimens
 @Composable
 fun LoadingState(
     message: String? = null,
+    inline: Boolean = false, // 인라인 모드 (기본값 false로 기존 동작 유지)
+    progress: Float? = null, // 진행률 (0.0 ~ 1.0, null이면 무한 로딩)
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(Dimens.spacingXL),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
-    ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(Dimens.iconLarge),
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 3.dp
-        )
-        
-        Text(
-            text = message ?: stringResource(R.string.state_me_loading),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+    if (inline) {
+        // 인라인 로딩: Row 형태로 작은 크기
+        Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 2.dp,
+                progress = { progress ?: 0f }
+            )
+            Text(
+                text = message ?: stringResource(R.string.state_me_loading),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        // 전체 화면 로딩: 기존 동작 유지
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(Dimens.spacingXL),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(Dimens.iconLarge),
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 3.dp,
+                progress = { progress ?: 0f }
+            )
+            
+            Text(
+                text = message ?: stringResource(R.string.state_me_loading),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            
+            // 진행률이 있으면 LinearProgressIndicator 추가 표시
+            if (progress != null) {
+                Spacer(modifier = Modifier.height(Dimens.spacingSM))
+                LinearProgressIndicator(
+                    progress = progress,
+                    modifier = Modifier.fillMaxWidth(0.6f),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
+        }
     }
 }
 

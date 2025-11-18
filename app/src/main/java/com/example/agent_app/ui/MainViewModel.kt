@@ -47,6 +47,7 @@ class MainViewModel(
     private val context: Context,
     private val eventDao: EventDao? = null,
     private val ocrRepository: OcrRepositoryWithAi? = null,
+    private val executeChatUseCase: com.example.agent_app.domain.chat.usecase.ExecuteChatUseCase? = null,
 ) : ViewModel() {
 
     private val loginState = MutableStateFlow(LoginUiState())
@@ -353,10 +354,14 @@ class MainViewModel(
         viewModelScope.launch {
             loginState.update { it.copy(isGoogleLoginInProgress = true) }
             try {
+                android.util.Log.d("MainViewModel", "Google Sign-In 결과 처리 시작 - data: ${data != null}")
+                
                 // OAuth 2.0 redirect URI로 돌아온 경우 처리
                 val oauthFlow = com.example.agent_app.auth.GoogleOAuth2Flow(context)
                 val authorizationCode = oauthFlow.extractAuthorizationCode(data)
                 val error = oauthFlow.extractError(data)
+                
+                android.util.Log.d("MainViewModel", "OAuth 2.0 체크 - authorizationCode: ${authorizationCode != null}, error: $error")
                 
                 if (authorizationCode != null) {
                     // OAuth 2.0 플로우로 받은 authorization code를 토큰으로 교환
@@ -406,23 +411,14 @@ class MainViewModel(
                 }
                 
                 // 기존 Google Sign-In 방식 (Refresh Token 없음)
-                android.util.Log.d("MainViewModel", "Google Sign-In SDK 방식으로 처리 시도")
-                
-                // Intent 확인
-                if (data == null) {
-                    loginState.update {
-                        it.copy(
-                            statusMessage = "오류: 로그인 결과 데이터가 없습니다.\n다시 시도해주세요.",
-                            isGoogleLoginInProgress = false,
-                        )
-                    }
-                    return@launch
-                }
+                android.util.Log.d("MainViewModel", "Google Sign-In 방식으로 처리 시도")
+                android.util.Log.d("MainViewModel", "Intent 정보 - action: ${data?.action}, dataString: ${data?.dataString}, extras: ${data?.extras?.keySet()}")
                 
                 val account = try {
                     googleSignInHelper.getSignInResultFromIntentAsync(data)
                 } catch (e: com.google.android.gms.common.api.ApiException) {
                     // ApiException의 경우 상세 정보 표시
+                    android.util.Log.e("MainViewModel", "Google Sign-In ApiException: ${e.statusCode}", e)
                     val errorMessage = when (e.statusCode) {
                         10 -> "개발자 오류: Google Sign-In이 제대로 설정되지 않았습니다."
                         12501 -> "사용자가 로그인을 취소했습니다."
@@ -438,9 +434,24 @@ class MainViewModel(
                     }
                     return@launch
                 } catch (e: Exception) {
+                    android.util.Log.e("MainViewModel", "Google Sign-In 계정 가져오기 실패: ${e.javaClass.simpleName}", e)
+                    android.util.Log.e("MainViewModel", "예외 상세: ${e.message}")
+                    e.printStackTrace()
                     loginState.update {
                         it.copy(
                             statusMessage = "로그인 처리 중 오류 발생:\n${e.javaClass.simpleName}: ${e.message ?: "알 수 없는 오류"}",
+                            isGoogleLoginInProgress = false,
+                        )
+                    }
+                    return@launch
+                }
+                
+                android.util.Log.d("MainViewModel", "계정 정보: ${account?.email ?: "null"}")
+                if (account == null) {
+                    android.util.Log.e("MainViewModel", "계정이 null입니다. Intent: ${data?.toString()}")
+                    loginState.update {
+                        it.copy(
+                            statusMessage = "Google 로그인에 실패했습니다.\n\n가능한 원인:\n• 계정 선택을 취소함\n• 네트워크 연결 문제\n• Google Play Services 문제\n\n다시 시도하거나 OAuth 2.0 로그인을 사용해보세요.",
                             isGoogleLoginInProgress = false,
                         )
                     }
@@ -498,10 +509,39 @@ class MainViewModel(
                         }
                     }
                 } else {
+<<<<<<< HEAD
                     android.util.Log.e("MainViewModel", "Google Sign-In 계정 정보를 받지 못함. Intent: ${data?.data}")
                     loginState.update {
                         it.copy(
                             statusMessage = "Google 로그인에 실패했습니다.\n\n가능한 원인:\n• 계정 선택을 취소함\n• 네트워크 연결 문제\n• Google Play Services 문제\n\n다시 시도하거나 OAuth 2.0 로그인을 사용해보세요.",
+=======
+                    android.util.Log.e("MainViewModel", "Google Sign-In 실패 - 계정 정보가 null입니다. data: ${data?.dataString}")
+                    
+                    // Logcat에서 DEVELOPER_ERROR 확인
+                    val isDeveloperError = android.util.Log.isLoggable("GoogleSignInHelper", android.util.Log.ERROR)
+                    
+                    // 더 구체적인 에러 메시지 제공
+                    val errorMessage = buildString {
+                        append("Google 로그인에 실패했습니다.\n\n")
+                        append("⚠️ 가장 흔한 원인: SHA-1 인증서 미등록\n\n")
+                        append("해결 방법:\n")
+                        append("1. Android Studio에서 Gradle 탭 열기\n")
+                        append("2. app → Tasks → android → signingReport 실행\n")
+                        append("3. 출력된 SHA-1 값을 복사\n")
+                        append("4. Google Cloud Console 접속:\n")
+                        append("   https://console.cloud.google.com/\n")
+                        append("5. API 및 서비스 → 사용자 인증 정보\n")
+                        append("6. OAuth 2.0 클라이언트 ID 선택\n")
+                        append("7. Android 앱 타입으로 추가:\n")
+                        append("   - 패키지 이름: com.example.agent_app\n")
+                        append("   - SHA-1 인증서 지문: (복사한 값)\n\n")
+                        append("Logcat에서 'GoogleSignInHelper' 태그로 statusCode를 확인하세요.")
+                    }
+                    
+                    loginState.update {
+                        it.copy(
+                            statusMessage = errorMessage,
+>>>>>>> moa/main
                             isGoogleLoginInProgress = false,
                         )
                     }
@@ -586,101 +626,58 @@ class MainViewModel(
         }
     }
 
-    fun syncGmail(accountEmail: String, sinceTimestamp: Long = 0L) {
+    fun syncGmail(accountEmail: String, sinceTimestamp: Long = 0L, useBackgroundService: Boolean = true) {
         viewModelScope.launch {
-            android.util.Log.d("MainViewModel", "syncGmail 호출 - accountEmail: $accountEmail, sinceTimestamp: $sinceTimestamp")
-            
             val emailKey = accountEmail.takeIf { it.isNotEmpty() } ?: ""
             val currentStates = gmailSyncState.value.syncStatesByEmail.toMutableMap()
             
-            // 계정별 동기화 상태 업데이트
-            currentStates[emailKey] = AccountSyncState(
-                isSyncing = true,
-                message = null,
-                recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
-                lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
-                progressMessage = "Gmail 메시지 목록 조회 중...",
-                progress = 0.1f
-            )
-            gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
-            
-            val token = authRepository.getGoogleTokenByEmail(accountEmail)
-            
-            android.util.Log.d("MainViewModel", "계정: $accountEmail")
-            android.util.Log.d("MainViewModel", "토큰 조회 결과: $token")
-            android.util.Log.d("MainViewModel", "동기화 시작 시간: $sinceTimestamp")
-            
-            if (token?.accessToken.isNullOrBlank()) {
+            try {
+                android.util.Log.d("MainViewModel", "syncGmail 호출 - accountEmail: $accountEmail, sinceTimestamp: $sinceTimestamp, useBackgroundService: $useBackgroundService")
+                
+                // 백그라운드 서비스 사용 시
+                if (useBackgroundService) {
+                    android.util.Log.d("MainViewModel", "백그라운드 서비스로 동기화 시작")
+                    com.example.agent_app.service.GmailSyncService.startService(
+                        context = context,
+                        accountEmail = accountEmail,
+                        sinceTimestamp = sinceTimestamp,
+                        manualSync = true
+                    )
+                    
+                    // 상태 업데이트 (백그라운드에서 진행 중)
+                    currentStates[emailKey] = AccountSyncState(
+                        isSyncing = true,
+                        message = null,
+                        recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
+                        lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
+                        progressMessage = "백그라운드에서 동기화 중...",
+                        progress = 0.1f
+                    )
+                    gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                    return@launch
+                }
+                
+                // 계정별 동기화 상태 업데이트
                 currentStates[emailKey] = AccountSyncState(
-                    isSyncing = false,
-                    message = "저장된 토큰이 없어 Gmail을 동기화할 수 없습니다.",
+                    isSyncing = true,
+                    message = null,
                     recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
                     lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
-                    progress = 0f,
+                    progressMessage = "Gmail 메시지 목록 조회 중...",
+                    progress = 0.1f
                 )
                 gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
-                return@launch
-            }
-            
-            // 동기화 진행 상태 업데이트
-            currentStates[emailKey] = currentStates[emailKey]!!.copy(
-                progressMessage = "메시지 처리 중...",
-                progress = 0.3f
-            )
-            gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
-            
-            // Access Token 만료 체크 및 갱신
-            var accessToken = token!!.accessToken
-            var shouldUpdateToken = false
-            var newExpiresAt: Long? = token.expiresAt
-            
-            // 토큰 만료 체크 (expiresAt이 있고 현재 시간보다 이전이면 만료)
-            if (token.expiresAt != null && token.expiresAt!! < System.currentTimeMillis()) {
-                android.util.Log.d("MainViewModel", "Access Token 만료됨, Refresh Token으로 갱신 시도")
                 
-                // Refresh Token이 있으면 갱신 시도
-                if (!token.refreshToken.isNullOrBlank()) {
-                    try {
-                        val refresher = com.example.agent_app.auth.GoogleTokenRefresher()
-                        val clientId = com.example.agent_app.BuildConfig.GOOGLE_WEB_CLIENT_ID
-                        
-                        when (val refreshResult = refresher.refreshAccessToken(token.refreshToken, clientId)) {
-                            is com.example.agent_app.auth.TokenRefreshResult.Success -> {
-                                accessToken = refreshResult.accessToken
-                                newExpiresAt = refreshResult.expiresAt
-                                shouldUpdateToken = true
-                                android.util.Log.d("MainViewModel", "Access Token 갱신 성공")
-                            }
-                            is com.example.agent_app.auth.TokenRefreshResult.Failure -> {
-                                android.util.Log.e("MainViewModel", "Access Token 갱신 실패: ${refreshResult.message}")
-                                currentStates[emailKey] = AccountSyncState(
-                                    isSyncing = false,
-                                    message = "토큰 갱신 실패: ${refreshResult.message}. 다시 로그인해주세요.",
-                                    recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
-                                    lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
-                                    progress = 0f,
-                                )
-                                gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
-                                return@launch
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("MainViewModel", "토큰 갱신 중 오류", e)
-                        currentStates[emailKey] = AccountSyncState(
-                            isSyncing = false,
-                            message = "토큰 갱신 중 오류가 발생했습니다: ${e.message}",
-                            recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
-                            lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
-                            progress = 0f,
-                        )
-                        gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
-                        return@launch
-                    }
-                } else {
-                    android.util.Log.w("MainViewModel", "Refresh Token이 없어 토큰을 갱신할 수 없습니다")
+                val token = authRepository.getGoogleTokenByEmail(accountEmail)
+                
+                android.util.Log.d("MainViewModel", "계정: $accountEmail")
+                android.util.Log.d("MainViewModel", "토큰 조회 결과: $token")
+                android.util.Log.d("MainViewModel", "동기화 시작 시간: $sinceTimestamp")
+                
+                if (token?.accessToken.isNullOrBlank()) {
                     currentStates[emailKey] = AccountSyncState(
                         isSyncing = false,
-                        message = "토큰이 만료되었고 Refresh Token이 없습니다. 다시 로그인해주세요.",
+                        message = "저장된 토큰이 없어 Gmail을 동기화할 수 없습니다.",
                         recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
                         lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
                         progress = 0f,
@@ -689,30 +686,108 @@ class MainViewModel(
                     gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
                     return@launch
                 }
-            }
-            
-            // 갱신된 토큰이 있으면 저장
-            if (shouldUpdateToken) {
-                authRepository.upsertGoogleToken(
+                
+                // 동기화 진행 상태 업데이트
+                currentStates[emailKey] = currentStates[emailKey]!!.copy(
+                    progressMessage = "메시지 처리 중...",
+                    progress = 0.3f
+                )
+                gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                
+                // Access Token 만료 체크 및 갱신
+                var accessToken = token!!.accessToken
+                var shouldUpdateToken = false
+                var newExpiresAt: Long? = token.expiresAt
+                
+                // 토큰 만료 체크 (expiresAt이 있고 현재 시간보다 이전이면 만료)
+                if (token.expiresAt != null && token.expiresAt!! < System.currentTimeMillis()) {
+                    android.util.Log.d("MainViewModel", "Access Token 만료됨, Refresh Token으로 갱신 시도")
+                    
+                    // Refresh Token이 있으면 갱신 시도
+                    if (!token.refreshToken.isNullOrBlank()) {
+                        try {
+                            val refresher = com.example.agent_app.auth.GoogleTokenRefresher()
+                            val clientId = com.example.agent_app.BuildConfig.GOOGLE_WEB_CLIENT_ID
+                            
+                            when (val refreshResult = refresher.refreshAccessToken(token.refreshToken, clientId)) {
+                                is com.example.agent_app.auth.TokenRefreshResult.Success -> {
+                                    accessToken = refreshResult.accessToken
+                                    newExpiresAt = refreshResult.expiresAt
+                                    shouldUpdateToken = true
+                                    android.util.Log.d("MainViewModel", "Access Token 갱신 성공")
+                                }
+                                is com.example.agent_app.auth.TokenRefreshResult.Failure -> {
+                                    android.util.Log.e("MainViewModel", "Access Token 갱신 실패: ${refreshResult.message}")
+                                    currentStates[emailKey] = AccountSyncState(
+                                        isSyncing = false,
+                                        message = "토큰 갱신 실패: ${refreshResult.message}. 다시 로그인해주세요.",
+                                        recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
+                                        lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
+                                        progress = 0f,
+                                    )
+                                    gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                                    return@launch
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainViewModel", "토큰 갱신 중 오류", e)
+                            currentStates[emailKey] = AccountSyncState(
+                                isSyncing = false,
+                                message = "토큰 갱신 중 오류가 발생했습니다: ${e.message}",
+                                recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
+                                lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
+                                progress = 0f,
+                            )
+                            gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                            return@launch
+                        }
+                    } else {
+                        android.util.Log.w("MainViewModel", "Refresh Token이 없어 토큰을 갱신할 수 없습니다")
+                        currentStates[emailKey] = AccountSyncState(
+                            isSyncing = false,
+                            message = "토큰이 만료되었고 Refresh Token이 없습니다. 다시 로그인해주세요.",
+                            recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
+                            lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
+                            progress = 0f,
+                        )
+                        gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                        return@launch
+                    }
+                }
+                
+                // 갱신된 토큰이 있으면 저장
+                if (shouldUpdateToken) {
+                    authRepository.upsertGoogleToken(
+                        accessToken = accessToken,
+                        refreshToken = token.refreshToken,
+                        scope = token.scope,
+                        expiresAt = newExpiresAt,
+                        email = accountEmail,
+                    )
+                    android.util.Log.d("MainViewModel", "갱신된 Access Token 저장 완료")
+                }
+                
+                // 기간 선택 시 Gmail 자동 처리 활성화 및 기간 저장
+                if (sinceTimestamp > 0L) {
+                    com.example.agent_app.util.AutoProcessSettings.enableGmailAutoProcess(
+                        context,
+                        sinceTimestamp,
+                        System.currentTimeMillis()
+                    )
+                }
+                
+                when (val result = gmailRepository.syncRecentMessages(
                     accessToken = accessToken,
-                    refreshToken = token.refreshToken,
-                    scope = token.scope,
-                    expiresAt = newExpiresAt,
-                    email = accountEmail,
-                )
-                android.util.Log.d("MainViewModel", "갱신된 Access Token 저장 완료")
-            }
-            
-            // 기간 선택 시 Gmail 자동 처리 활성화 및 기간 저장
-            if (sinceTimestamp > 0L) {
-                com.example.agent_app.util.AutoProcessSettings.enableGmailAutoProcess(
-                    context,
-                    sinceTimestamp,
-                    System.currentTimeMillis()
-                )
-            }
-            
-            when (val result = gmailRepository.syncRecentMessages(accessToken, sinceTimestamp)) {
+                    sinceTimestamp = sinceTimestamp,
+                    onProgress = { progress, message ->
+                        // 진행률 실시간 업데이트
+                        currentStates[emailKey] = currentStates[emailKey]!!.copy(
+                            progress = progress,
+                            progressMessage = message
+                        )
+                        gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                    }
+                )) {
                 is GmailSyncResult.Success -> {
                     // Gmail 동기화 후 분류된 데이터 다시 로드
                     classifiedDataRepository?.let { repo ->
@@ -768,7 +843,18 @@ class MainViewModel(
                                     android.util.Log.d("MainViewModel", "토큰 갱신 후 Gmail 동기화 재시도")
                                     
                                     // 갱신된 토큰으로 재시도
-                                    when (val retryResult = gmailRepository.syncRecentMessages(refreshResult.accessToken, sinceTimestamp)) {
+                                    when (val retryResult = gmailRepository.syncRecentMessages(
+                                        accessToken = refreshResult.accessToken,
+                                        sinceTimestamp = sinceTimestamp,
+                                        onProgress = { progress, message ->
+                                            // 진행률 실시간 업데이트
+                                            currentStates[emailKey] = currentStates[emailKey]!!.copy(
+                                                progress = progress,
+                                                progressMessage = message
+                                            )
+                                            gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
+                                        }
+                                    )) {
                                         is GmailSyncResult.Success -> {
                                             // 성공 처리
                                             classifiedDataRepository?.let { repo ->
@@ -882,6 +968,17 @@ class MainViewModel(
                     )
                     gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
                 }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "syncGmail 중 예상치 못한 오류 발생", e)
+                currentStates[emailKey] = AccountSyncState(
+                    isSyncing = false,
+                    message = "동기화 중 오류가 발생했습니다: ${e.message}",
+                    recentUpdates = currentStates[emailKey]?.recentUpdates ?: emptyList(),
+                    lastSyncTimestamp = currentStates[emailKey]?.lastSyncTimestamp ?: 0L,
+                    progress = 0f,
+                )
+                gmailSyncState.value = GmailSyncState(syncStatesByEmail = currentStates)
             }
         }
     }
@@ -1225,11 +1322,38 @@ class MainViewModel(
                         android.util.Log.w("MainViewModel", "지원하지 않는 소스 타입: ${item.source}")
                     }
                 }
-                
-                // 일정 생성 후 데이터 새로고침
-                refreshInboxData()
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "일정 생성 실패", e)
+            }
+        }
+    }
+    
+    /**
+     * 자연어 텍스트에서 일정 생성 (UI 레이어에서만 사용)
+     * 기존 ChatGateway의 tryCreateEventFromQuestion 로직을 재사용
+     */
+    fun createEventFromNaturalLanguage(text: String) {
+        viewModelScope.launch {
+            try {
+                if (executeChatUseCase == null) {
+                    android.util.Log.e("MainViewModel", "ExecuteChatUseCase가 주입되지 않았습니다.")
+                    throw IllegalStateException("ExecuteChatUseCase가 필요합니다.")
+                }
+                
+                // ExecuteChatUseCase를 통해 일정 생성 의도가 감지되도록 질문 구성
+                // ChatGateway의 detectEventCreationIntent가 감지할 수 있도록 명시적 키워드 추가
+                val question = if (text.contains("약속") || text.contains("일정") || text.contains("회의")) {
+                    text
+                } else {
+                    "일정 잡아줘: $text" // 일정 생성 의도가 명확하도록 키워드 추가
+                }
+                
+                // ExecuteChatUseCase를 통해 일정 생성 (내부적으로 tryCreateEventFromQuestion 호출)
+                val result = executeChatUseCase(question, emptyList())
+                android.util.Log.d("MainViewModel", "자연어 일정 생성 완료: ${result.answer.content}")
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "자연어 일정 생성 실패", e)
+                throw e
             }
         }
     }

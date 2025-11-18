@@ -2,6 +2,9 @@ package com.example.agent_app.ui.common.components
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,11 +39,18 @@ fun TimelineItem(
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMD),
         verticalAlignment = Alignment.Top
     ) {
-        // 시간 표시
-        Column(
-            modifier = Modifier.width(60.dp),
-            horizontalAlignment = Alignment.Start
+        // 시간 표시 (아이콘 추가로 시각적 강조)
+        Row(
+            modifier = Modifier.width(70.dp),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXS),
+            verticalAlignment = Alignment.Top
         ) {
+            Icon(
+                imageVector = Icons.Filled.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
             Text(
                 text = time,
                 style = MaterialTheme.typography.bodyMedium,
@@ -54,36 +64,56 @@ fun TimelineItem(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingXS)
         ) {
+            // 제목
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
             )
             
-            if (!location.isNullOrBlank()) {
-                Text(
-                    text = location,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            // 출처 뱃지
-            if (source != null) {
-                val sourceColor = getSourceColor(source, isDark)
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = sourceColor.copy(alpha = 0.1f),
-                    contentColor = sourceColor
-                ) {
-                    Text(
-                        text = stringResource(getSourceBadgeText(source)),
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(
-                            horizontal = Dimens.badgePadding,
-                            vertical = Dimens.spacingXS
+            // 시간, 장소, 출처를 한 줄로 표시 (보조 텍스트)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!location.isNullOrBlank()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LocationOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
-                    )
+                        Text(
+                            text = location,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                // 출처 뱃지
+                if (source != null) {
+                    val sourceColor = getSourceColor(source, isDark)
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = sourceColor.copy(alpha = 0.1f),
+                        contentColor = sourceColor
+                    ) {
+                        Text(
+                            text = stringResource(getSourceBadgeText(source)),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(
+                                horizontal = Dimens.badgePadding,
+                                vertical = Dimens.spacingXS
+                            )
+                        )
+                    }
                 }
             }
         }

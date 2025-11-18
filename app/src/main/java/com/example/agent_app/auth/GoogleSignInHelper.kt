@@ -7,6 +7,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.tasks.await
 
@@ -56,12 +58,27 @@ class GoogleSignInHelper(private val context: Context) {
         // 같은 클라이언트 인스턴스를 재사용
         val client = getSignInClient()
         // 기존 로그인 상태를 먼저 로그아웃하여 계정 선택 화면이 나타나도록 함
+        // 백그라운드 스레드에서 실행하여 메인 스레드 블로킹 방지
         try {
-            client.signOut().await()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                client.signOut().await()
+            }
+            android.util.Log.d("GoogleSignInHelper", "기존 로그인 상태 로그아웃 완료")
         } catch (e: Exception) {
             // 로그아웃 실패 무시 (이미 로그아웃 상태일 수 있음)
+            android.util.Log.d("GoogleSignInHelper", "로그아웃 실패 (무시): ${e.message}")
         }
-        return client.signInIntent
+        
+        // Sign-In Intent 생성
+        val signInIntent = try {
+            client.signInIntent
+        } catch (e: Exception) {
+            android.util.Log.e("GoogleSignInHelper", "Sign-In Intent 생성 실패", e)
+            throw e
+        }
+        
+        android.util.Log.d("GoogleSignInHelper", "Sign-In Intent 생성 완료")
+        return signInIntent
     }
     
     /**
@@ -112,17 +129,54 @@ class GoogleSignInHelper(private val context: Context) {
             return null
         }
         
+        android.util.Log.d("GoogleSignInHelper", "Intent 데이터 확인 - action: ${data?.action}, dataString: ${data?.dataString}")
+        
         return try {
+            
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            // await()는 task가 완료될 때까지 기다리고, 실패하면 자동으로 예외를 던집니다
-            val account = task.await()
-            android.util.Log.d("GoogleSignInHelper", "Google Sign-In 성공: ${account.email ?: "이메일 없음"}")
-            account
-        } catch (e: com.google.android.gms.common.api.ApiException) {
-            android.util.Log.e("GoogleSignInHelper", "Google Sign-In ApiException: ${e.statusCode} - ${e.status?.statusMessage}", e)
+            
+            // Task가 이미 완료되었는지 확인
+            if (task.isComplete) {
+                if (task.isSuccessful) {
+                    val account = task.result
+                    android.util.Log.d("GoogleSignInHelper", "계정 정보 가져오기 성공: ${account.email}")
+                    return account
+                } else {
+                    val exception = task.exception
+                    android.util.Log.e("GoogleSignInHelper", "Sign-In Task 실패", exception)
+                    throw exception ?: Exception("Sign-In Task가 실패했습니다")
+                }
+            } else {
+                // Task가 아직 완료되지 않았으면 await
+                val account = task.await()
+                android.util.Log.d("GoogleSignInHelper", "계정 정보 가져오기 성공: ${account.email}")
+                return account
+            }
+        } catch (e: ApiException) {
+            android.util.Log.e("GoogleSignInHelper", "Google API 예외 발생: statusCode=${e.statusCode}, message=${e.message}", e)
+            when (e.statusCode) {
+                CommonStatusCodes.SIGN_IN_REQUIRED -> {
+                    android.util.Log.e("GoogleSignInHelper", "SIGN_IN_REQUIRED: 로그인이 필요합니다")
+                }
+                CommonStatusCodes.NETWORK_ERROR -> {
+                    android.util.Log.e("GoogleSignInHelper", "NETWORK_ERROR: 네트워크 오류")
+                }
+                CommonStatusCodes.INTERNAL_ERROR -> {
+                    android.util.Log.e("GoogleSignInHelper", "INTERNAL_ERROR: 내부 오류")
+                }
+                CommonStatusCodes.DEVELOPER_ERROR -> {
+                    android.util.Log.e("GoogleSignInHelper", "DEVELOPER_ERROR: 개발자 설정 오류 (SHA-1 인증서 확인 필요)")
+                }
+                CommonStatusCodes.API_NOT_CONNECTED -> {
+                    android.util.Log.e("GoogleSignInHelper", "API_NOT_CONNECTED: Google Play Services 연결 실패")
+                }
+                else -> {
+                    android.util.Log.e("GoogleSignInHelper", "기타 API 오류: statusCode=${e.statusCode}")
+                }
+            }
             null
         } catch (e: Exception) {
-            android.util.Log.e("GoogleSignInHelper", "Google Sign-In 실패: ${e.javaClass.simpleName} - ${e.message}", e)
+            android.util.Log.e("GoogleSignInHelper", "계정 정보 가져오기 실패: ${e.javaClass.simpleName}, message=${e.message}", e)
             null
         }
     }

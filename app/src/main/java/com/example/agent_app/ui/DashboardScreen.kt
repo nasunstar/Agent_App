@@ -17,18 +17,26 @@ package com.example.agent_app.ui
  */
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.agent_app.R
 import com.example.agent_app.data.entity.Event
@@ -41,6 +49,7 @@ import java.util.*
 /**
  * 대시보드 메인 화면
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
@@ -58,49 +67,81 @@ fun DashboardScreen(
     }.sortedBy { it.startAt }
     
     // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+    val spacing = if (isLandscape) Dimens.spacingSM else Dimens.spacingMD
     
-    Column(
+    // 오늘/이번주 모두 비었는지 확인
+    val allEmpty = todayEvents.isEmpty() && weekEvents.isEmpty()
+    
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(Dimens.spacingMD),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(
+                horizontal = Dimens.spacingMD,
+                vertical = spacing
+            ),
+        verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
         // 환영 메시지 (1인칭 화법)
-        WelcomeHeader()
-        
-        // 액션 칩 (빠른 액션)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
-        ) {
-            ActionChip(
-                text = stringResource(R.string.dashboard_actions_today_agenda),
-                icon = Icons.Filled.DateRange,
-                onClick = onNavigateToCalendar,
-                modifier = Modifier.weight(1f)
-            )
-            ActionChip(
-                text = stringResource(R.string.dashboard_actions_open_inbox),
-                icon = Icons.Filled.Email,
-                onClick = onNavigateToInbox,
-                modifier = Modifier.weight(1f)
-            )
+        item {
+            WelcomeHeader()
         }
         
-        // 오늘 일정 카드
-        TodayScheduleCard(
-            events = todayEvents,
-            onViewAll = onNavigateToCalendar,
-            modifier = Modifier.fillMaxWidth()
-        )
+        // 액션 칩 (빠른 액션) - FlowRow로 변경하여 줄바꿈 지원
+        item {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
+            ) {
+                ActionChip(
+                    text = stringResource(R.string.dashboard_actions_today_agenda),
+                    icon = Icons.Filled.DateRange,
+                    onClick = onNavigateToCalendar,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                ActionChip(
+                    text = stringResource(R.string.dashboard_actions_open_inbox),
+                    icon = Icons.Filled.Email,
+                    onClick = onNavigateToInbox,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+        }
         
-        // 이번주 일정 카드
-        WeekScheduleCard(
-            events = weekEvents,
-            onViewAll = onNavigateToCalendar,
-            modifier = Modifier.fillMaxWidth()
-        )
+        // 오늘/이번주 모두 비었을 때 통합 EmptyState
+        if (allEmpty) {
+            item {
+                EmptyState(
+                    messageResId = R.string.empty_events_today,
+                    icon = Icons.Filled.CalendarToday
+                )
+            }
+        } else {
+            // 오늘 일정 카드
+            if (todayEvents.isNotEmpty()) {
+                item {
+                    TodayScheduleCard(
+                        events = todayEvents,
+                        onViewAll = onNavigateToCalendar,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+            
+            // 이번주 일정 카드
+            if (weekEvents.isNotEmpty()) {
+                item {
+                    WeekScheduleCard(
+                        events = weekEvents,
+                        onViewAll = onNavigateToCalendar,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -143,28 +184,25 @@ private fun TodayScheduleCard(
         onClick = onViewAll,
         modifier = modifier
     ) {
-        if (events.isEmpty()) {
-            EmptyState(messageResId = R.string.empty_events_today)
-        } else {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
-            ) {
-                events.take(3).forEach { event ->
-                    TimelineItem(
-                        title = event.title,
-                        time = formatTime(event.startAt),
-                        location = event.location,
-                        source = event.sourceType ?: "gmail"
-                    )
-                }
-                if (events.size > 3) {
-                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
-                    Text(
-                        text = stringResource(R.string.dashboard_more_events, events.size - 3),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        // events는 이미 비어있지 않음이 보장됨 (상위에서 필터링)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
+        ) {
+            events.take(3).forEach { event ->
+                TimelineItem(
+                    title = event.title,
+                    time = formatTime(event.startAt),
+                    location = event.location,
+                    source = event.sourceType ?: "gmail"
+                )
+            }
+            if (events.size > 3) {
+                Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                Text(
+                    text = stringResource(R.string.dashboard_more_events, events.size - 3),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -187,28 +225,25 @@ private fun WeekScheduleCard(
         onClick = onViewAll,
         modifier = modifier
     ) {
-        if (events.isEmpty()) {
-            EmptyState(messageResId = R.string.empty_events_week)
-        } else {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
-            ) {
-                events.take(5).forEach { event ->
-                    TimelineItem(
-                        title = event.title,
-                        time = formatTime(event.startAt),
-                        location = event.location,
-                        source = event.sourceType ?: "gmail"
-                    )
-                }
-                if (events.size > 5) {
-                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
-                    Text(
-                        text = stringResource(R.string.dashboard_more_events, events.size - 5),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        // events는 이미 비어있지 않음이 보장됨 (상위에서 필터링)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSM)
+        ) {
+            events.take(5).forEach { event ->
+                TimelineItem(
+                    title = event.title,
+                    time = formatTime(event.startAt),
+                    location = event.location,
+                    source = event.sourceType ?: "gmail"
+                )
+            }
+            if (events.size > 5) {
+                Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                Text(
+                    text = stringResource(R.string.dashboard_more_events, events.size - 5),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
