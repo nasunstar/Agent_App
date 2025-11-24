@@ -5,7 +5,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
     id("org.jetbrains.kotlin.plugin.compose") version libs.versions.kotlin.get()
-
+    // MOA-Firebase: Firebase Crashlytics 플러그인
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 apply(plugin = "org.jetbrains.kotlin.plugin.serialization")
@@ -127,5 +129,12 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation(libs.androidx.glance.appwidget)
 
+    // MOA-Firebase: Firebase Crashlytics 및 Analytics
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    
+    // MOA-Logging: Timber 로깅 라이브러리
+    implementation("com.jakewharton.timber:timber:5.0.1")
 
 }

@@ -18,6 +18,9 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
+    // MOA-LLM-Optimization: 중복 처리 방지를 위한 처리된 SMS ID 추적
+    private val processedSmsIds = mutableSetOf<String>()
+    
     override fun onReceive(context: Context, intent: Intent) {
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION != intent.action) {
             return
@@ -56,6 +59,18 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
             }
             
             Log.d(TAG, "SMS 자동 처리 조건 충족 - 처리 진행")
+            
+            // MOA-LLM-Optimization: 중복 처리 방지
+            val uniqueKey = "${address}:${body}:${timestamp}"
+            if (processedSmsIds.contains(uniqueKey)) {
+                Log.d(TAG, "이미 처리된 SMS, 건너뜀: $uniqueKey")
+                return
+            }
+            processedSmsIds.add(uniqueKey)
+            // 메모리 관리: 최근 1000개만 유지
+            if (processedSmsIds.size > 1000) {
+                processedSmsIds.remove(processedSmsIds.first())
+            }
             
             // 백그라운드에서 처리
             scope.launch {

@@ -6,5 +6,8 @@ import com.example.agent_app.domain.chat.model.QueryFilters
 
 interface ChatGateway {
     suspend fun fetchContext(question: String, filters: QueryFilters, limit: Int = 5): List<ChatContextItem>
-    suspend fun requestChatCompletion(messages: List<ChatMessage>): ChatMessage
+    suspend fun requestChatCompletion(
+        messages: List<ChatMessage>,
+        context: List<ChatContextItem> = emptyList()
+    ): ChatMessage
 }

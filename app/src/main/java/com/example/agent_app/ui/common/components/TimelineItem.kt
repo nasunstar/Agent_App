@@ -47,7 +47,7 @@ fun TimelineItem(
         ) {
             Icon(
                 imageVector = Icons.Filled.Schedule,
-                contentDescription = null,
+                contentDescription = "시간",
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -85,7 +85,7 @@ fun TimelineItem(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.LocationOn,
-                            contentDescription = null,
+                            contentDescription = "장소",
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )

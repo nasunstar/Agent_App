@@ -24,6 +24,9 @@ class PushNotificationListenerService : NotificationListenerService() {
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     private var database: AppDatabase? = null
     private var appContainer: AppContainer? = null
+    
+    // MOA-LLM-Optimization: 중복 처리 방지를 위한 처리된 알림 ID 추적
+    private val processedNotificationIds = mutableSetOf<String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -79,6 +82,18 @@ class PushNotificationListenerService : NotificationListenerService() {
                 
                 // 푸시 알림 ID 생성 (타임스탬프 + 패키지명 기반)
                 val notificationId = "push-${timestamp}-${packageName.hashCode()}"
+                
+                // MOA-LLM-Optimization: 중복 처리 방지
+                val uniqueKey = "${packageName}:${title}:${text}:${timestamp}"
+                if (processedNotificationIds.contains(uniqueKey)) {
+                    Log.d(TAG, "이미 처리된 푸시 알림, 건너뜀: $uniqueKey")
+                    return@launch
+                }
+                processedNotificationIds.add(uniqueKey)
+                // 메모리 관리: 최근 1000개만 유지
+                if (processedNotificationIds.size > 1000) {
+                    processedNotificationIds.remove(processedNotificationIds.first())
+                }
                 
                 val pushNotification = PushNotification(
                     packageName = packageName,

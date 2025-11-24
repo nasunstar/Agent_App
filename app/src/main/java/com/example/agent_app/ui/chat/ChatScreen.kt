@@ -365,7 +365,12 @@ private fun ChatEntryCard(
                     lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
                 )
 
-                if (entry.context.isNotEmpty()) {
+                // MOA-Chat-Source: Sources가 있으면 Sources만 표시, 없으면 Context 표시 (중복 방지)
+                if (entry.sources != null && entry.sources.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(Dimens.spacingXS))
+                    MessageSourcesView(sources = entry.sources)
+                } else if (entry.context.isNotEmpty()) {
+                    // Sources가 없을 때만 Context 표시 (하위 호환성)
                     Spacer(modifier = Modifier.height(Dimens.spacingXS))
                     Text(
                         text = stringResource(R.string.chat_context_label),
@@ -373,7 +378,7 @@ private fun ChatEntryCard(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
-                    entry.context.forEach { contextItem ->
+                    entry.context.take(3).forEach { contextItem ->
                         ContextChip(contextItem)
                     }
                 }
@@ -417,6 +422,55 @@ private fun ChatEntryCard(
  * - 이번 주: "월요일 오후 2:30"
  * - 그 외: "12월 15일 오후 3:21"
  */
+/**
+ * MOA-Chat-Source: 답변에 사용된 근거 출처 표시 컴포넌트
+ */
+@Composable
+private fun MessageSourcesView(sources: List<com.example.agent_app.ui.chat.SourceUi>) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.spacingXS)
+    ) {
+        Text(
+            text = "🔍 참고:",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+        sources.forEach { source ->
+            val timeAgo = formatTimeAgo(source.timestamp)
+            val sourceTypeLabel = when (source.sourceType) {
+                "gmail" -> "Gmail"
+                "sms" -> "SMS"
+                "ocr" -> "OCR"
+                "push_notification" -> "Push"
+                else -> source.sourceType
+            }
+            Text(
+                text = "  [$sourceTypeLabel] \"${source.title}\" ($timeAgo)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
+        }
+    }
+}
+
+/**
+ * MOA-Chat-Source: 타임스탬프를 상대 시간 문자열로 변환
+ */
+private fun formatTimeAgo(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    
+    return when {
+        diff < 60_000 -> "${diff / 1000}초 전"
+        diff < 3600_000 -> "${diff / 60_000}분 전"
+        diff < 86400_000 -> "${diff / 3600_000}시간 전"
+        diff < 604800_000 -> "${diff / 86400_000}일 전"
+        else -> "${diff / 604800_000}주 전"
+    }
+}
+
 @Composable
 private fun formatMessageTimestamp(timestamp: Long): String {
     val now = Instant.now()

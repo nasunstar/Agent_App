@@ -42,7 +42,7 @@ import com.example.agent_app.data.entity.User
         IngestItemEmbedding::class,
         PushNotification::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

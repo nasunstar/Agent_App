@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import com.example.agent_app.util.SmsReader
+import com.example.agent_app.util.TimeFilterUtils
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -45,6 +46,9 @@ class HuenDongMinAiAgent(
     
     // Few-shot 예시 로더
     private val fewShotLoader = FewShotExampleLoader(context)
+    
+    // MOA-LLM-Optimization: LLM 응답 캐시
+    private val llmCache = LLMResponseCache(context)
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -81,24 +85,36 @@ class HuenDongMinAiAgent(
     /**
      * 텍스트에서 시간 정보를 추출하고 분석하는 함수 (AI tool 사용)
      * 
+     * MOA-LLM-Optimization: 필터링 및 캐싱 적용
+     * 
      * @param text 분석할 텍스트
      * @param referenceTimestamp 기준 시점 (메일 수신 시간, SMS 수신 시간 등)
      * @param sourceType 데이터 소스 타입 ("gmail", "sms", "ocr", "push_notification")
-     * @return TimeAnalysisResult 시간 분석 결과
+     * @return TimeAnalysisResult 시간 분석 결과 (필터링되면 null 반환)
      */
     private suspend fun analyzeTimeFromText(
         text: String?,
         referenceTimestamp: Long,
         sourceType: String
-    ): TimeAnalysisResult = withContext(dispatcher) {
+    ): TimeAnalysisResult? = withContext(dispatcher) {
+        // MOA-LLM-Optimization: Rule-based Pre-filter 체크
+        if (TimeFilterUtils.shouldSkipLLM(text, sourceType)) {
+            android.util.Log.d("HuenDongMinAiAgent", "[$sourceType] analyzeTimeFromText 필터링됨 - LLM 호출 스킵")
+            return@withContext null
+        }
+        
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
         val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp)
             .atZone(java.time.ZoneId.of("Asia/Seoul"))
         
         val systemPrompt = """
-            당신은 텍스트에서 시간 정보를 정확하게 추출하고 분석하는 전문가입니다.
+            당신은 한국어 자연어에서 시간 정보를 추출하는 전문 AI 시스템입니다.
             
-            📅 기준 시점 정보:
+            사용자가 메신저/메일/SMS에서 사용하는 구어체, 줄임말, 오타, 모호한 시간 표현까지 모두 인식해야 합니다.
+            
+            ----------------------------------------
+            기준 시점 (모든 상대적 시간 계산 기준)
+            ----------------------------------------
             - 기준 연도: ${referenceDate.year}년
             - 기준 월: ${referenceDate.monthValue}월
             - 기준 일: ${referenceDate.dayOfMonth}일
@@ -111,71 +127,121 @@ class HuenDongMinAiAgent(
                 java.time.DayOfWeek.SATURDAY -> "토요일"
                 java.time.DayOfWeek.SUNDAY -> "일요일"
             }}
-            - 기준 Epoch ms: ${referenceTimestamp}ms
+            - 기준 Epoch ms: ${referenceTimestamp}
             
-            📅 현재 시간 (참고용):
-            - 현재 연도: ${now.year}년
-            - 현재 월: ${now.monthValue}월
-            - 현재 일: ${now.dayOfMonth}일
-            - 현재 요일: ${when (now.dayOfWeek) {
-                java.time.DayOfWeek.MONDAY -> "월요일"
-                java.time.DayOfWeek.TUESDAY -> "화요일"
-                java.time.DayOfWeek.WEDNESDAY -> "수요일"
-                java.time.DayOfWeek.THURSDAY -> "목요일"
-                java.time.DayOfWeek.FRIDAY -> "금요일"
-                java.time.DayOfWeek.SATURDAY -> "토요일"
-                java.time.DayOfWeek.SUNDAY -> "일요일"
-            }}
-            - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
+            현재 시간 참고:
+            - 현재 연도: ${now.year}년 / 월: ${now.monthValue}월 / 일: ${now.dayOfMonth}일
+            - 현재 Epoch: ${now.toInstant().toEpochMilli()}
             
-            🔍 분석 원칙:
+            ----------------------------------------
+            1. 구어체·오타 정규화 규칙
+            ----------------------------------------
+            다음 표현을 모두 표준형으로 변환해서 인식하세요:
             
-            1. 명시적 날짜 찾기 (최우선):
-               - "2025년 10월 16일", "10월 16일", "10/16", "9.30", "2025-10-16" 등
-               - "11.11~12", "10/16~17" 같은 범위 형식도 인식 (시작 날짜 사용)
-               - 연도가 생략된 경우 기준 연도(${referenceDate.year}) 사용
-               
-            2. 상대적 시간 표현 찾기:
-               - "내일", "모레", "다음주", "담주", "다음주 수요일" 등
-               - 기준 시점(${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일)을 기준으로 계산
-               
-            3. 시작 시간 찾기:
-               - "14시", "오후 3시", "15:00", "3pm" 등
-               
-            4. 종료 시간 찾기 (있으면):
-               - "14시~16시", "15:00-17:00", "오후 3시부터 5시까지" 등
-               - 시간 범위가 명시되어 있으면 종료 시간도 추출
-               - 종료 시간이 없으면 null 반환
-               
+            ① 날짜 표현 줄임말
+            - "낼", "내" → "내일"
+            - "모래" → "모레"
+            - "담주", "담쥬", "담쥬", "담져", "낸쥬" → "다음주"
+            - "담달" → "다음달"
+            - "담월" → "다음달"
+            - "오늘밤", "오늘저녁" → "오늘 저녁"
+            
+            ② 요일 줄임말
+            - "수욜" → "수요일"
+            - "목욜" → "목요일"
+            - "금욜" → "금요일"
+            - "토욜" → "토요일"
+            
+            ③ 시간대 줄임말
+            - "오후3", "3오후", "3pm" → "오후 3시"
+            - "아침9", "9아침" → "아침 9시"
+            
+            ④ 기타 모호 표현
+            - "퇴근후", "퇴근하고" → "퇴근 후"
+            - "방금후", "좀따", "좀이따" → "조금 이따가"
+            
+            ----------------------------------------
+            2. 날짜 관련 표현
+            ----------------------------------------
+            아래를 정확히 인식:
+            
+            명시적 날짜:
+            - "2025년 10월 12일"
+            - "10월 12일"
+            - "10/12"
+            - "9.30"
+            - "11.11~12" (시작 날짜만 사용)
+            - 연도 생략 시 ${referenceDate.year} 사용
+            
+            상대적 날짜:
+            - "오늘"
+            - "내일"
+            - "모레"
+            - "어제", "그제" (가능하면 처리)
+            - "이번 주"
+            - "다음주"
+            - "다음주 수요일"
+            - "이번달"
+            - "다음달"
+            
+            ----------------------------------------
+            3. 시간대 표현 (모호한 시간 처리)
+            ----------------------------------------
+            다음 표현을 모두 인식하여 시각을 특정:
+            
+            - "새벽" → 03:00~06:00 (시각이 없으면 03:00)
+            - "아침" → 06:00~09:00 (시각이 없으면 09:00)
+            - "오전" → 09:00~12:00 (시각이 없으면 09:00)
+            - "점심" → 12:00~13:00 (시각이 없으면 12:00)
+            - "오후" → 13:00~18:00 (시각이 없으면 13:00)
+            - "저녁" → 18:00~21:00 (시각이 없으면 18:00)
+            - "밤" → 21:00~24:00 (시각이 없으면 21:00)
+            - "퇴근 후" → 18:00~20:00 (시각이 없으면 18:00)
+            
+            명확한 시간:
+            - "14시", "오후 3시", "15:00", "3pm"
+            
+            시간 범위:
+            - "14시~16시"
+            - "3pm-5pm"
+            - "오후 3시부터 5시까지"
+            
+            ----------------------------------------
+            4. 처리 우선순위
+            ----------------------------------------
+            1) 명시적 날짜 → 최우선  
+            2) 상대적 표현 → 명시적 날짜를 기준으로 계산  
+            3) 시간대 → 실제 HH:mm 계산  
+            4) 시각 미포함 시 위 규칙으로 기본 시각 부여  
+            5) 종료 시각이 없으면 null  
+            
             ⚠️ 중요:
             - 명시적 날짜가 있으면 그 날짜를 기준 시점으로 사용 (최우선!)
             - 명시적 날짜와 상대적 표현이 함께 있으면, 명시적 날짜를 기준으로 상대적 표현을 계산하여 최종 날짜를 구하세요!
-              예: "11월 11일날 내일" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"] → 최종 날짜: "2025-11-12" (11월 11일 기준 +1일)
-            - 명시적 날짜가 없으면 기준 시점을 사용하고, 상대적 표현을 계산하여 최종 날짜를 구하세요
+              예: "11월 11일날 내일" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"] → 최종 날짜: "${referenceDate.year}-11-12" (11월 11일 기준 +1일)
+            - 명시적 날짜가 없으면 기준 시점(${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일)을 사용하고, 상대적 표현을 계산하여 최종 날짜를 구하세요
             - 모든 시간은 한국 표준시(KST, UTC+9) 기준
             - 최종 시작 날짜는 반드시 "YYYY-MM-DD" 형식으로 계산하세요
             - 최종 시작 시간은 "HH:mm" 형식으로 계산하세요 (시간이 없으면 "00:00")
             - 종료 시간이 명시되어 있으면 finalEndDate와 finalEndTime도 계산하세요
             - 종료 시간이 없으면 finalEndDate와 finalEndTime은 null로 설정하세요
             
-            🔴 예시 (현재 기준: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일):
-            - "9.30(화) 14시" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료: null ✅
-            - "내일 오후 3시~5시" → 명시적 날짜: null, 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 최종 시간: "15:00", 종료 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 종료 시간: "17:00" ✅
-            - "11월 11일날 내일 점심" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.year}-11-12" (11월 11일 +1일), 최종 시간: "12:00", 종료: null ✅
-            - "9.30(화) 14:00-16:00" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료 날짜: "${referenceDate.year}-09-30", 종료 시간: "16:00" ✅
+            ----------------------------------------
+            5. 출력 형식 (순수 JSON)
+            ----------------------------------------
+            아래 형식 외 어떤 말도 포함하지 마세요.
             
-            출력 형식 (순수 JSON만):
             {
               "hasExplicitDate": true/false,
-              "explicitDate": "2025-10-16" 또는 null,
+              "explicitDate": "YYYY-MM-DD" 또는 null,
               "hasRelativeTime": true/false,
               "relativeTimeExpressions": ["내일", "다음주 수요일"] 또는 [],
               "hasTime": true/false,
-              "time": "14:00" 또는 null,
-              "finalDate": "2025-11-12",  // 최종 계산된 시작 날짜 (YYYY-MM-DD 형식, 필수!)
-              "finalTime": "12:00",  // 최종 계산된 시작 시간 (HH:mm 형식, 시간이 없으면 "00:00")
-              "finalEndDate": "2025-11-12" 또는 null,  // 최종 계산된 종료 날짜 (YYYY-MM-DD 형식, 없으면 null)
-              "finalEndTime": "14:00" 또는 null  // 최종 계산된 종료 시간 (HH:mm 형식, 없으면 null)
+              "time": "HH:mm" 또는 null,
+              "finalDate": "YYYY-MM-DD",
+              "finalTime": "HH:mm",
+              "finalEndDate": "YYYY-MM-DD" 또는 null,
+              "finalEndTime": "HH:mm" 또는 null
             }
         """.trimIndent()
         
@@ -187,12 +253,23 @@ class HuenDongMinAiAgent(
             기준 시점: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일
         """.trimIndent()
         
-        val messages = listOf(
-            AiMessage(role = "system", content = systemPrompt),
-            AiMessage(role = "user", content = userPrompt)
-        )
+        // MOA-LLM-Optimization: 캐시 체크
+        val cachedResult = llmCache.getCachedResult(systemPrompt, userPrompt, sourceType)
         
-        val response = callOpenAi(messages)
+        val response = if (cachedResult != null) {
+            android.util.Log.d("HuenDongMinAiAgent", "[$sourceType] analyzeTimeFromText 캐시 히트")
+            cachedResult
+        } else {
+            android.util.Log.d("HuenDongMinAiAgent", "[$sourceType] analyzeTimeFromText LLM 호출")
+            val messages = listOf(
+                AiMessage(role = "system", content = systemPrompt),
+                AiMessage(role = "user", content = userPrompt)
+            )
+            val llmResponse = callOpenAi(messages)
+            // 캐시 저장
+            llmCache.saveCachedResult(systemPrompt, userPrompt, llmResponse, sourceType)
+            llmResponse
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "=== 시간 분석 AI 응답 ===")
         android.util.Log.d("HuenDongMinAiAgent", response)
@@ -897,6 +974,16 @@ class HuenDongMinAiAgent(
         
         val fullText = "${emailSubject ?: ""}\n${emailBody ?: ""}".trim()
         
+        // MOA-LLM-Optimization: 필터링 체크
+        if (TimeFilterUtils.shouldSkipLLM(fullText, "gmail")) {
+            android.util.Log.d("HuenDongMinAiAgent", "[Gmail] 필터링됨 - LLM 호출 스킵")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
+        
         // 먼저 일정 요약 추출로 일정 개수 확인
         val eventSummaries = extractEventSummary(
             text = fullText,
@@ -944,8 +1031,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalEmailId, "gmail")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
             
             return@withContext AiProcessingResult(
@@ -963,7 +1051,15 @@ class HuenDongMinAiAgent(
             text = emailBody,
             referenceTimestamp = receivedTimestamp,
             sourceType = "gmail"
-        )
+        ) ?: run {
+            // 필터링되거나 분석 실패
+            android.util.Log.d("HuenDongMinAiAgent", "[Gmail] 시간 분석 스킵됨")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
@@ -1304,8 +1400,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalEmailId, "gmail")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
         }
         
@@ -1375,6 +1472,16 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "SMS 처리 시작 - ID: $originalSmsId")
         
+        // MOA-LLM-Optimization: 필터링 체크
+        if (TimeFilterUtils.shouldSkipLLM(smsBody, "sms")) {
+            android.util.Log.d("HuenDongMinAiAgent", "[SMS] 필터링됨 - LLM 호출 스킵")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
+        
         // 먼저 일정 요약 추출로 일정 개수 확인
         val eventSummaries = extractEventSummary(
             text = smsBody,
@@ -1422,8 +1529,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
             
             return@withContext AiProcessingResult(
@@ -1441,7 +1549,15 @@ class HuenDongMinAiAgent(
             text = smsBody,
             referenceTimestamp = receivedTimestamp,
             sourceType = "sms"
-        )
+        ) ?: run {
+            // 필터링되거나 분석 실패
+            android.util.Log.d("HuenDongMinAiAgent", "[SMS] 시간 분석 스킵됨")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
@@ -1789,8 +1905,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
         }
         
@@ -1824,12 +1941,30 @@ class HuenDongMinAiAgent(
             }
         }
         
+        // MOA-LLM-Optimization: 필터링 체크
+        if (TimeFilterUtils.shouldSkipLLM(fullText, "push_notification")) {
+            android.util.Log.d("HuenDongMinAiAgent", "[Push] 필터링됨 - LLM 호출 스킵")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
+        
         // 1단계: 시간 분석 (새로운 파이프라인)
         val timeAnalysis = analyzeTimeFromText(
             text = fullText,
             referenceTimestamp = receivedTimestamp,
             sourceType = "push_notification"
-        )
+        ) ?: run {
+            // 필터링되거나 분석 실패
+            android.util.Log.d("HuenDongMinAiAgent", "[Push] 시간 분석 스킵됨")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
@@ -2084,8 +2219,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalNotificationId, "push_notification")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalNotificationId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalNotificationId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
         }
         
@@ -2103,6 +2239,16 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "=== OCR 처리 시작 ===")
         android.util.Log.d("HuenDongMinAiAgent", "OCR ID: $originalOcrId")
+        
+        // MOA-LLM-Optimization: 필터링 체크
+        if (TimeFilterUtils.shouldSkipLLM(ocrText, "ocr")) {
+            android.util.Log.d("HuenDongMinAiAgent", "[OCR] 필터링됨 - LLM 호출 스킵")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
         
         // 먼저 일정 요약 추출로 일정 개수 확인
         val eventSummaries = extractEventSummary(
@@ -2151,8 +2297,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalOcrId, "ocr")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalOcrId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
             
             return@withContext AiProcessingResult(
@@ -2170,7 +2317,15 @@ class HuenDongMinAiAgent(
             text = ocrText,
             referenceTimestamp = currentTimestamp,
             sourceType = "ocr"
-        )
+        ) ?: run {
+            // 필터링되거나 분석 실패
+            android.util.Log.d("HuenDongMinAiAgent", "[OCR] 시간 분석 스킵됨")
+            return@withContext AiProcessingResult(
+                type = "none",
+                confidence = 0.0,
+                events = emptyList()
+            )
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
@@ -2494,8 +2649,9 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalOcrId, "ocr")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                // MOA-Event-Deduplication: 중복 체크 후 저장
+                val savedEvent = saveEventWithDeduplication(event)
+                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalOcrId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
         }
         
@@ -2614,6 +2770,7 @@ class HuenDongMinAiAgent(
     
     /**
      * AI 응답에서 Event 엔티티 생성
+     * MOA-Event-Confidence: IngestItem의 confidence를 Event에 매핑
      */
     private suspend fun createEventFromAiData(
         extractedData: Map<String, JsonElement?>,
@@ -2650,6 +2807,15 @@ class HuenDongMinAiAgent(
             originalBody
         }
         
+        // MOA-Event-Confidence: IngestItem에서 confidence 가져오기
+        val confidence = try {
+            val ingestItem = ingestRepository.getById(sourceId)
+            ingestItem?.confidence
+        } catch (e: Exception) {
+            android.util.Log.w("HuenDongMinAiAgent", "IngestItem 조회 실패 (sourceId: $sourceId), confidence는 null로 설정", e)
+            null
+        }
+        
         return Event(
             userId = 1L,
             typeId = eventType.id,
@@ -2660,8 +2826,50 @@ class HuenDongMinAiAgent(
             location = extractedData["location"]?.jsonPrimitive?.content,
             status = if (validationMismatch && sourceType == "ocr") "needs_review" else "pending",
             sourceType = sourceType,
-            sourceId = sourceId
+            sourceId = sourceId,
+            confidence = confidence  // MOA-Event-Confidence: IngestItem의 confidence 매핑
         )
+    }
+    
+    /**
+     * MOA-Event-Deduplication: 중복 체크 후 Event 저장/업데이트
+     * title + startAt + location이 동일한 Event가 있으면 기존 Event를 반환하고,
+     * 없으면 새로 저장합니다.
+     */
+    private suspend fun saveEventWithDeduplication(event: Event): Event {
+        // 중복 체크
+        val duplicate = eventDao.findDuplicateEvent(
+            title = event.title,
+            startAt = event.startAt,
+            location = event.location
+        )
+        
+        if (duplicate != null) {
+            android.util.Log.d("HuenDongMinAiAgent", "중복 일정 감지 - 기존 Event 재사용: ID=${duplicate.id}, Title=${duplicate.title}")
+            
+            // 기존 Event의 confidence나 body가 더 낮거나 없으면 업데이트
+            val shouldUpdate = (event.confidence != null && 
+                (duplicate.confidence == null || event.confidence > duplicate.confidence)) ||
+                (event.body != null && duplicate.body == null)
+            
+            if (shouldUpdate) {
+                val updatedEvent = duplicate.copy(
+                    confidence = event.confidence ?: duplicate.confidence,
+                    body = event.body ?: duplicate.body
+                )
+                eventDao.update(updatedEvent)
+                android.util.Log.d("HuenDongMinAiAgent", "기존 Event 업데이트 완료: confidence=${updatedEvent.confidence}")
+                return updatedEvent
+            }
+            
+            return duplicate
+        }
+        
+        // 중복이 없으면 새로 저장
+        val eventId = eventDao.upsert(event)
+        val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+        android.util.Log.d("HuenDongMinAiAgent", "새 Event 저장 완료: ID=${savedEvent.id}, Title=${savedEvent.title}, Confidence=${savedEvent.confidence}")
+        return savedEvent
     }
     
     private suspend fun getOrCreateEventTypeInternal(typeName: String): EventType {
@@ -2881,12 +3089,23 @@ class HuenDongMinAiAgent(
             $text
         """.trimIndent()
         
-        val messages = listOf(
-            AiMessage(role = "system", content = systemPrompt),
-            AiMessage(role = "user", content = userPrompt)
-        )
+        // MOA-LLM-Optimization: 캐시 체크
+        val cachedResult = llmCache.getCachedResult(systemPrompt, userPrompt, sourceType)
         
-        val response = callOpenAi(messages)
+        val response = if (cachedResult != null) {
+            android.util.Log.d("HuenDongMinAiAgent", "[$sourceType] extractEventSummary 캐시 히트")
+            cachedResult
+        } else {
+            android.util.Log.d("HuenDongMinAiAgent", "[$sourceType] extractEventSummary LLM 호출")
+            val messages = listOf(
+                AiMessage(role = "system", content = systemPrompt),
+                AiMessage(role = "user", content = userPrompt)
+            )
+            val llmResponse = callOpenAi(messages)
+            // 캐시 저장
+            llmCache.saveCachedResult(systemPrompt, userPrompt, llmResponse, sourceType)
+            llmResponse
+        }
         
         android.util.Log.d("HuenDongMinAiAgent", "=== 1단계: 일정 요약 추출 ===")
         android.util.Log.d("HuenDongMinAiAgent", response)

@@ -80,6 +80,23 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE source_type = :sourceType ORDER BY start_at ASC")
     suspend fun getBySourceType(sourceType: String): List<Event>
     
+    // MOA-Needs-Review: 검토 필요한 일정 조회
+    @Query("SELECT * FROM events WHERE status = :status ORDER BY start_at ASC")
+    suspend fun getEventsByStatus(status: String): List<Event>
+    
+    @Query("SELECT * FROM events WHERE status = 'needs_review' ORDER BY start_at ASC")
+    suspend fun getNeedsReviewEvents(): List<Event>
+    
+    // MOA-Event-Deduplication: 중복 일정 체크 (title + startAt + location 기준)
+    @Query("""
+        SELECT * FROM events 
+        WHERE title = :title 
+          AND start_at = :startAt 
+          AND (location = :location OR (location IS NULL AND :location IS NULL))
+        LIMIT 1
+    """)
+    suspend fun findDuplicateEvent(title: String, startAt: Long?, location: String?): Event?
+    
     @Query("DELETE FROM events")
     suspend fun clearAll()
     

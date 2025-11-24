@@ -795,7 +795,7 @@ private fun SearchCalendarByShareIdSection(
 private fun SharedCalendarMonthView(
     events: List<com.example.agent_app.share.model.CalendarEventDto>,
 ) {
-    val zone = remember { ZoneId.systemDefault() }
+    val zone = remember { ZoneId.of("Asia/Seoul") }
     val parsedEvents = remember(events) {
         events.mapNotNull { event ->
             val startInstant = event.startAt?.let { runCatching { Instant.parse(it) }.getOrNull() }

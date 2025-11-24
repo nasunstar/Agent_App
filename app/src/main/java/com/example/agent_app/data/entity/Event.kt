@@ -52,4 +52,7 @@ data class Event(
     
     @ColumnInfo(name = "source_id")
     val sourceId: String? = null,  // ingest_items의 id (원본 데이터 참조용)
+    
+    // MOA-Event-Confidence: 일정 신뢰도 (IngestItem의 confidence에서 매핑)
+    val confidence: Double? = null,  // AI가 추출한 일정의 신뢰도 (0.0~1.0)
 )

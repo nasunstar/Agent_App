@@ -108,7 +108,7 @@ fun InfoCard(
                     if (icon != null) {
                         Icon(
                             imageVector = icon,
-                            contentDescription = null,
+                            contentDescription = title,
                             tint = iconTint,
                             modifier = Modifier.size(Dimens.iconMedium)
                         )
@@ -131,7 +131,7 @@ fun InfoCard(
                 if (onClick != null) {
                     Icon(
                         imageVector = Icons.Filled.ArrowForward,
-                        contentDescription = null,
+                        contentDescription = "$title 열기",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(Dimens.iconSmall)
                     )

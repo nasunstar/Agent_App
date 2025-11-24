@@ -1,0 +1,41 @@
+{
+  "_comment": "MOA-Firebase: Firebase 프로젝트 설정 파일",
+  "_note": "이 파일은 Firebase Console에서 다운로드해야 합니다.",
+  "_instructions": [
+    "1. Firebase Console (https://console.firebase.google.com/) 접속",
+    "2. 프로젝트 선택 또는 새 프로젝트 생성",
+    "3. 프로젝트 설정 > 일반 탭",
+    "4. '내 앱' 섹션에서 Android 앱 추가",
+    "5. 패키지 이름: com.example.agent_app",
+    "6. google-services.json 파일 다운로드",
+    "7. 이 파일을 app/google-services.json으로 복사"
+  ],
+  "project_info": {
+    "project_number": "YOUR_PROJECT_NUMBER",
+    "project_id": "YOUR_PROJECT_ID",
+    "storage_bucket": "YOUR_STORAGE_BUCKET"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "YOUR_MOBILE_SDK_APP_ID",
+        "android_client_info": {
+          "package_name": "com.example.agent_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+

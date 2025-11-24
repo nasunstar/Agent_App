@@ -153,6 +153,12 @@ class ClassifiedDataRepository(
         android.util.Log.d("ClassifiedDataRepository", "원본 timestamp: $timestamp")
         android.util.Log.d("ClassifiedDataRepository", "AI 추출 데이터: $extractedData")
 
+        // MOA-Needs-Review: validation mismatch 체크하여 status 결정
+        val bodyText = body ?: ""
+        val hasValidationMismatch = bodyText.contains("\"validationMismatch\":true", ignoreCase = true) ||
+                                    bodyText.contains("validationMismatch", ignoreCase = true)
+        val eventStatus = if (hasValidationMismatch) "needs_review" else "pending"
+        
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
             typeId = eventType.id,
@@ -161,7 +167,7 @@ class ClassifiedDataRepository(
             startAt = finalStartAt,
             endAt = extractedData["endAt"].asLong(),
             location = extractedData["location"].asString(),
-            status = "pending",
+            status = eventStatus,
             sourceType = "gmail",  // 출처 타입 설정
             sourceId = originalId   // 원본 데이터 ID 참조
         )
@@ -198,6 +204,12 @@ class ClassifiedDataRepository(
         // AI가 직접 계산한 시간 사용 (TimeResolver 제거)
         val finalStartAt = extractedData["startAt"].asLong() ?: timestamp
 
+        // MOA-Needs-Review: validation mismatch 체크하여 status 결정 (OCR은 특히 중요)
+        val bodyText = body ?: ""
+        val hasValidationMismatch = bodyText.contains("\"validationMismatch\":true", ignoreCase = true) ||
+                                    bodyText.contains("validationMismatch", ignoreCase = true)
+        val eventStatus = if (hasValidationMismatch) "needs_review" else "pending"
+        
         val event = Event(
             userId = 1L, // 기본 사용자 ID (실제로는 현재 사용자 ID 사용)
             typeId = eventType.id,
@@ -206,7 +218,7 @@ class ClassifiedDataRepository(
             startAt = finalStartAt,
             endAt = extractedData["endAt"].asLong(),
             location = extractedData["location"].asString(),
-            status = "pending",
+            status = eventStatus,
             sourceType = "ocr",  // OCR 출처 설정
             sourceId = originalId   // 원본 데이터 ID 참조
         )
@@ -309,6 +321,11 @@ class ClassifiedDataRepository(
     
     suspend fun getAllEvents(): List<Event> = withContext(dispatcher) {
         eventDao.getAll()
+    }
+    
+    // MOA-Needs-Review: 검토 필요한 일정 조회
+    suspend fun getNeedsReviewEvents(): List<Event> = withContext(dispatcher) {
+        eventDao.getNeedsReviewEvents()
     }
     
     suspend fun getAllNotes(): List<Note> = withContext(dispatcher) {

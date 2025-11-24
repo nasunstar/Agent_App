@@ -122,77 +122,100 @@ class SummaryWidget : GlanceAppWidget() {
         android.util.Log.d("SummaryWidget", "데이터 준비 완료 - today: ${todayItemsText.length}자, week: ${weekItemsText.length}자")
         
         android.util.Log.d("SummaryWidget", "provideContent 시작")
-        provideContent {
-            GlanceTheme {
-                // 기본 modifier
-                val boxModifier = GlanceModifier
-                    .fillMaxSize()
-                    .background(GlanceTheme.colors.background)
-                    .padding(12.dp)
-                    .clickable(actionStartActivity(MainActivity::class.java))
-                
-                Box(modifier = boxModifier) {
-                    Column(
-                        modifier = GlanceModifier.fillMaxSize(),
-                        verticalAlignment = Alignment.Top,
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        // 오늘 일정
-                        Text(
-                            text = "오늘 일정",
-                            style = TextStyle(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            ),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
+        try {
+            provideContent {
+                try {
+                    GlanceTheme {
+                        // 기본 modifier
+                        val boxModifier = GlanceModifier
+                            .fillMaxSize()
+                            .background(GlanceTheme.colors.background)
+                            .padding(12.dp)
+                            .clickable(actionStartActivity(MainActivity::class.java))
                         
-                        Spacer(modifier = GlanceModifier.height(4.dp))
-                        
-                        // 오늘 일정 내용
-                        Text(
-                            text = todayItemsText,
-                            style = TextStyle(fontSize = 11.sp),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
-                        
-                        Spacer(modifier = GlanceModifier.height(8.dp))
-                        
-                        // 구분선
+                        Box(modifier = boxModifier) {
+                            Column(
+                                modifier = GlanceModifier.fillMaxSize(),
+                                verticalAlignment = Alignment.Top,
+                                horizontalAlignment = Alignment.Start
+                            ) {
+                                // 오늘 일정
+                                Text(
+                                    text = "오늘 일정",
+                                    style = TextStyle(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    ),
+                                    modifier = GlanceModifier.fillMaxWidth()
+                                )
+                                
+                                Spacer(modifier = GlanceModifier.height(4.dp))
+                                
+                                // 오늘 일정 내용
+                                Text(
+                                    text = todayItemsText,
+                                    style = TextStyle(fontSize = 11.sp),
+                                    modifier = GlanceModifier.fillMaxWidth()
+                                )
+                                
+                                Spacer(modifier = GlanceModifier.height(8.dp))
+                                
+                                // 구분선
+                                Box(
+                                    modifier = GlanceModifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(GlanceTheme.colors.onSurfaceVariant)
+                                ) {
+                                    // 구분선은 modifier만으로 표시
+                                }
+                                
+                                Spacer(modifier = GlanceModifier.height(8.dp))
+                                
+                                // 이번주 일정
+                                Text(
+                                    text = "이번주 일정",
+                                    style = TextStyle(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    ),
+                                    modifier = GlanceModifier.fillMaxWidth()
+                                )
+                                
+                                Spacer(modifier = GlanceModifier.height(4.dp))
+                                
+                                // 이번주 일정 내용
+                                Text(
+                                    text = weekItemsText,
+                                    style = TextStyle(fontSize = 11.sp),
+                                    modifier = GlanceModifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SummaryWidget", "provideContent 내부 오류", e)
+                    // 오류 발생 시 기본 텍스트만 표시
+                    GlanceTheme {
                         Box(
                             modifier = GlanceModifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(GlanceTheme.colors.onSurfaceVariant)
+                                .fillMaxSize()
+                                .background(GlanceTheme.colors.background)
+                                .padding(12.dp)
                         ) {
-                            // 구분선은 modifier만으로 표시
+                            Text(
+                                text = "위젯 로드 중 오류가 발생했습니다",
+                                style = TextStyle(fontSize = 12.sp)
+                            )
                         }
-                        
-                        Spacer(modifier = GlanceModifier.height(8.dp))
-                        
-                        // 이번주 일정
-                        Text(
-                            text = "이번주 일정",
-                            style = TextStyle(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            ),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
-                        
-                        Spacer(modifier = GlanceModifier.height(4.dp))
-                        
-                        // 이번주 일정 내용
-                        Text(
-                            text = weekItemsText,
-                            style = TextStyle(fontSize = 11.sp),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
                     }
                 }
             }
+            android.util.Log.d("SummaryWidget", "provideContent 완료")
+        } catch (e: Exception) {
+            android.util.Log.e("SummaryWidget", "provideContent 호출 실패", e)
+            e.printStackTrace()
         }
-        android.util.Log.d("SummaryWidget", "provideContent 완료")
     }
     
     companion object {

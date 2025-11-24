@@ -27,7 +27,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.example.agent_app.ui.theme.AgentAppTheme
-import android.util.Log
+// MOA-Firebase: Firebase Crashlytics
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.google.firebase.FirebaseApp
+// MOA-Logging: Timber
+import timber.log.Timber
+import com.example.agent_app.BuildConfig
+import com.example.agent_app.util.CrashlyticsTree
 
 class MainActivity : ComponentActivity() {
 
@@ -101,15 +107,34 @@ class MainActivity : ComponentActivity() {
     private val googleSignInActivityLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        android.util.Log.d("MainActivity", "Google Sign-In 결과 받음 - resultCode: ${result.resultCode}, data: ${result.data != null}")
+        Timber.d("Google Sign-In 결과 받음 - resultCode: ${result.resultCode}, data: ${result.data != null}")
         if (result.data != null) {
-            android.util.Log.d("MainActivity", "Intent data: ${result.data?.dataString}")
+            Timber.d("Intent data: ${result.data?.dataString}")
         }
         mainViewModel.handleGoogleSignInResult(result.data)
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // MOA-Logging: Timber 초기화 (Firebase보다 먼저)
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        } else {
+            // Release 빌드에서는 Crashlytics로 로그 전송 (Firebase 없어도 안전)
+            Timber.plant(CrashlyticsTree())
+        }
+        Timber.d("Timber 로깅 초기화 완료")
+        
+        // MOA-Firebase: Firebase 초기화 (선택사항 - 없어도 앱 정상 작동)
+        try {
+            FirebaseApp.initializeApp(this)
+            FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(true)
+            Timber.d("Firebase Crashlytics 초기화 완료")
+        } catch (e: Exception) {
+            // google-services.json이 없어도 앱은 정상 작동
+            // Firebase 없이도 Timber는 정상 작동하므로 조용히 무시
+        }
 
         val database = appContainer.database
         // 기본 사용자 생성
@@ -172,7 +197,7 @@ class MainActivity : ComponentActivity() {
         // OAuth 2.0 redirect URI 처리
         if (intent.data?.scheme == "com.example.agent_app" && 
             intent.data?.host == "oauth2callback") {
-            android.util.Log.d("MainActivity", "OAuth 2.0 redirect URI 받음: ${intent.data}")
+            Timber.d("OAuth 2.0 redirect URI 받음: ${intent.data}")
             // ViewModel에서 처리
             mainViewModel.handleGoogleSignInResult(intent)
             return
@@ -213,7 +238,7 @@ class MainActivity : ComponentActivity() {
             }
             
             if (!sharedText.isNullOrBlank()) {
-                Log.d("MainActivity", "공유된 텍스트 받음: ${sharedText.take(100)}...")
+                Timber.d("공유된 텍스트 받음: ${sharedText.take(100)}...")
                 
                 // 백그라운드에서 처리 (경로 1: OcrRepositoryWithAi 사용)
                 CoroutineScope(Dispatchers.IO).launch {
@@ -224,7 +249,7 @@ class MainActivity : ComponentActivity() {
                         )
                         
                         if (result.success && result.totalEventCount > 0) {
-                            Log.d("MainActivity", "공유된 텍스트 처리 완료: ${result.totalEventCount}개의 일정 생성")
+                            Timber.d("공유된 텍스트 처리 완료: ${result.totalEventCount}개의 일정 생성")
                             
                             // UI 업데이트를 위해 메인 스레드에서 실행
                             CoroutineScope(Dispatchers.Main).launch {
@@ -232,10 +257,10 @@ class MainActivity : ComponentActivity() {
                                 mainViewModel.loadClassifiedData()
                             }
                         } else {
-                            Log.w("MainActivity", "공유된 텍스트에서 일정을 추출하지 못했습니다.")
+                            Timber.w("공유된 텍스트에서 일정을 추출하지 못했습니다.")
                         }
                     } catch (e: Exception) {
-                        Log.e("MainActivity", "공유된 텍스트 처리 실패", e)
+                        Timber.e(e, "공유된 텍스트 처리 실패")
                     }
                 }
             }

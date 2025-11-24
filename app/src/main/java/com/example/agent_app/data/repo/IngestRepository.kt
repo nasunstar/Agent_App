@@ -29,6 +29,10 @@ class IngestRepository(
 
     fun observeBySource(source: String): Flow<List<IngestItem>> = dao.observeBySource(source)
 
+    suspend fun getById(id: String): IngestItem? = withContext(dispatcher) {
+        dao.getById(id)
+    }
+
     suspend fun clearAll() = withContext(dispatcher) {
         dao.clearAll()
     }

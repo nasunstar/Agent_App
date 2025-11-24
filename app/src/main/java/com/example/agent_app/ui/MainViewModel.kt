@@ -35,6 +35,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+// MOA-Logging: Timber 로깅
+import com.example.agent_app.util.LoggingUtils
 
 private const val DEFAULT_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
@@ -67,7 +69,7 @@ class MainViewModel(
     // Google Sign-In Intent는 동적으로 생성 (계정 선택 화면 표시를 위해)
     // 참고: Google Sign-In SDK 방식(Refresh Token 없음)에서는 서버 클라이언트 ID가 필요 없습니다.
     suspend fun getGoogleSignInIntent(): Intent {
-        android.util.Log.d("MainViewModel", "Google Sign-In Intent 생성 (기본 방식 - Refresh Token 없음)")
+        LoggingUtils.d("MainViewModel", "Google Sign-In Intent 생성 (기본 방식 - Refresh Token 없음)")
         return googleSignInHelper.getSignInIntentWithAccountSelection()
     }
     
@@ -86,7 +88,7 @@ class MainViewModel(
                 
                 // Client ID 검증
                 if (clientId.isBlank() || clientId == "YOUR_GOOGLE_WEB_CLIENT_ID") {
-                    android.util.Log.e("MainViewModel", "GOOGLE_WEB_CLIENT_ID가 설정되지 않았습니다. local.properties 파일을 확인하세요.")
+                    LoggingUtils.e("MainViewModel", "GOOGLE_WEB_CLIENT_ID가 설정되지 않았습니다. local.properties 파일을 확인하세요.")
                     loginState.update {
                         it.copy(
                             statusMessage = "오류: GOOGLE_WEB_CLIENT_ID가 설정되지 않았습니다.\nlocal.properties 파일에 GOOGLE_WEB_CLIENT_ID를 추가하세요.",
@@ -96,7 +98,7 @@ class MainViewModel(
                     return@launch
                 }
                 
-                android.util.Log.d("MainViewModel", "OAuth 2.0 플로우 시작 - Client ID: ${clientId.take(20)}...")
+                LoggingUtils.d("MainViewModel", "OAuth 2.0 플로우 시작 - Client ID: ${clientId.take(20)}...")
                 
                 val state = java.util.UUID.randomUUID().toString()
                 
@@ -107,19 +109,19 @@ class MainViewModel(
                     state = state
                 )
                 
-                android.util.Log.d("MainViewModel", "OAuth 2.0 인증 URL 생성: $authUrl")
+                LoggingUtils.d("MainViewModel", "OAuth 2.0 인증 URL 생성: $authUrl")
                 
                 // Custom Tab으로 인증 URL 열기
                 val oauthFlow = com.example.agent_app.auth.GoogleOAuth2Flow(context)
                 oauthFlow.openAuthorizationUrl(context, authUrl)
                 
-                android.util.Log.d("MainViewModel", "OAuth 2.0 인증 URL 열기 완료")
+                LoggingUtils.d("MainViewModel", "OAuth 2.0 인증 URL 열기 완료")
                 
                 // State는 나중에 검증을 위해 저장 (현재는 간단히 처리)
                 // 실제로는 SharedPreferences 등에 저장하고 redirect URI에서 검증해야 함
                 
             } catch (e: Exception) {
-                android.util.Log.e("MainViewModel", "OAuth 2.0 플로우 시작 실패", e)
+                LoggingUtils.e("MainViewModel", "OAuth 2.0 플로우 시작 실패", e)
                 loginState.update {
                     it.copy(
                         statusMessage = "OAuth 2.0 플로우 시작 실패: ${e.message}\n\n가능한 원인:\n1. local.properties에 GOOGLE_WEB_CLIENT_ID가 설정되지 않음\n2. Google Cloud Console에서 redirect URI가 등록되지 않음\n3. 네트워크 연결 문제",
@@ -159,6 +161,9 @@ class MainViewModel(
     private val ocrEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
     private val smsEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
     private val pushNotificationEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
+    
+    // MOA-Needs-Review: 검토 필요한 일정 상태
+    private val needsReviewEventsState = MutableStateFlow<List<Event>>(emptyList())
 
     val uiState: StateFlow<AssistantUiState> = combine(
         loginState,
@@ -173,6 +178,7 @@ class MainViewModel(
         smsEventsState,
         pushNotificationItemsState,
         pushNotificationEventsState,
+        needsReviewEventsState,
         smsScanState,
         gmailSyncState,
         callRecordScanState,
@@ -189,9 +195,10 @@ class MainViewModel(
         val smsEvents = flows[9] as Map<String, List<Event>>
         val pushNotificationItems = flows[10] as List<IngestItem>
         val pushNotificationEvents = flows[11] as Map<String, List<Event>>
-        val smsScan = flows[12] as SmsScanState
-        val gmailSync = flows[13] as GmailSyncState
-        val callRecordScan = flows[14] as CallRecordScanState
+        val needsReviewEvents = flows[12] as List<Event>
+        val smsScan = flows[13] as SmsScanState
+        val gmailSync = flows[14] as GmailSyncState
+        val callRecordScan = flows[15] as CallRecordScanState
         
         AssistantUiState(
             loginState = login,
@@ -208,6 +215,7 @@ class MainViewModel(
             smsEvents = smsEvents,
             pushNotificationItems = pushNotificationItems,
             pushNotificationEvents = pushNotificationEvents,
+            needsReviewEvents = needsReviewEvents,
             smsScanState = smsScan,
             gmailSyncState = gmailSync,
             callRecordScanState = callRecordScan,
@@ -250,6 +258,8 @@ class MainViewModel(
                 contactsState.value = repo.getAllContacts()
                 eventsState.value = repo.getAllEvents()
                 notesState.value = repo.getAllNotes()
+                // MOA-Needs-Review: 검토 필요한 일정 로드
+                needsReviewEventsState.value = repo.getNeedsReviewEvents()
             }
         }
         
@@ -419,6 +429,7 @@ class MainViewModel(
                 } catch (e: com.google.android.gms.common.api.ApiException) {
                     // ApiException의 경우 상세 정보 표시
                     android.util.Log.e("MainViewModel", "Google Sign-In ApiException: ${e.statusCode}", e)
+                    // MOA-Error-Improvement: 사용자 친화적 에러 메시지
                     val errorMessage = when (e.statusCode) {
                         10 -> "개발자 오류: Google Sign-In이 제대로 설정되지 않았습니다."
                         12501 -> "사용자가 로그인을 취소했습니다."
@@ -437,9 +448,17 @@ class MainViewModel(
                     android.util.Log.e("MainViewModel", "Google Sign-In 계정 가져오기 실패: ${e.javaClass.simpleName}", e)
                     android.util.Log.e("MainViewModel", "예외 상세: ${e.message}")
                     e.printStackTrace()
+                    // MOA-Error-Improvement: 사용자 친화적 에러 메시지
+                    val userFriendlyMessage = when {
+                        e.message?.contains("network", ignoreCase = true) == true ->
+                            "네트워크 연결을 확인해주세요."
+                        e.message?.contains("timeout", ignoreCase = true) == true ->
+                            "연결 시간이 초과되었어요. 다시 시도해주세요."
+                        else -> "로그인 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요."
+                    }
                     loginState.update {
                         it.copy(
-                            statusMessage = "로그인 처리 중 오류 발생:\n${e.javaClass.simpleName}: ${e.message ?: "알 수 없는 오류"}",
+                            statusMessage = userFriendlyMessage,
                             isGoogleLoginInProgress = false,
                         )
                     }
@@ -1227,7 +1246,47 @@ class MainViewModel(
                 contactsState.value = repo.getAllContacts()
                 eventsState.value = repo.getAllEvents()
                 notesState.value = repo.getAllNotes()
+                // MOA-Needs-Review: 검토 필요한 일정 다시 로드
+                needsReviewEventsState.value = repo.getNeedsReviewEvents()
             }
+        }
+    }
+    
+    /**
+     * MOA-Needs-Review: 검토 필요한 일정만 로드
+     */
+    fun loadNeedsReviewEvents() {
+        viewModelScope.launch {
+            classifiedDataRepository?.let { repo ->
+                needsReviewEventsState.value = repo.getNeedsReviewEvents()
+            }
+        }
+    }
+    
+    /**
+     * MOA-Needs-Review: 일정 승인 (status를 confirmed로 변경)
+     */
+    fun approveEvent(event: Event) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val updatedEvent = event.copy(status = "confirmed")
+                    eventDao?.update(updatedEvent)
+                    // 이벤트 목록 새로고침
+                    loadClassifiedData()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "일정 승인 실패", e)
+            }
+        }
+    }
+    
+    /**
+     * MOA-Needs-Review: IngestItem 조회
+     */
+    suspend fun getIngestItemById(id: String): IngestItem? {
+        return withContext(Dispatchers.IO) {
+            ingestRepository.getById(id)
         }
     }
     
@@ -1246,16 +1305,47 @@ class MainViewModel(
             loadPushNotificationEvents(pushNotificationItemsState.value)
             
             // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
-            android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")
+            LoggingUtils.d("MainViewModel", "인박스 데이터 새로고침 완료")
         }
     }
     
     /**
+     * MOA-Refresh: 전체 일정 새로고침 (Pull-to-Refresh용)
+     * 모든 이벤트를 다시 로드합니다.
+     */
+    suspend fun refreshAllEvents() = withContext(Dispatchers.IO) {
+        // 분류된 데이터 새로고침
+        classifiedDataRepository?.let { repo ->
+            contactsState.value = repo.getAllContacts()
+            eventsState.value = repo.getAllEvents()
+            notesState.value = repo.getAllNotes()
+            needsReviewEventsState.value = repo.getNeedsReviewEvents()
+        }
+        
+        // 각 소스별 이벤트 다시 로드
+        loadOcrEvents(ocrItemsState.value)
+        loadSmsEvents(smsItemsState.value)
+        loadPushNotificationEvents(pushNotificationItemsState.value)
+        
+        LoggingUtils.d("MainViewModel", "전체 일정 새로고침 완료")
+    }
+    
+    /**
      * IngestItem에서 일정 생성
+     * MOA-LLM-Optimization: 중복 처리 방지 포함
      */
     fun createEventFromItem(item: IngestItem) {
         viewModelScope.launch {
             try {
+                // MOA-LLM-Optimization: 이미 처리된 IngestItem인지 확인 (Event의 sourceId로 체크)
+                val existingEvent = withContext(Dispatchers.IO) {
+                    eventDao?.getAll()?.firstOrNull { it.sourceId == item.id }
+                }
+                if (existingEvent != null) {
+                    android.util.Log.d("MainViewModel", "이미 처리된 IngestItem, 건너뜀: ${item.id} (기존 Event ID: ${existingEvent.id})")
+                    return@launch
+                }
+                
                 when (item.source) {
                     "sms" -> {
                         val result = aiAgent.processSMSForEvent(
@@ -1327,9 +1417,121 @@ class MainViewModel(
                 // ExecuteChatUseCase를 통해 일정 생성 (내부적으로 tryCreateEventFromQuestion 호출)
                 val result = executeChatUseCase(question, emptyList())
                 android.util.Log.d("MainViewModel", "자연어 일정 생성 완료: ${result.answer.content}")
+                
+                // 일정 생성 후 이벤트 목록 새로고침
+                loadClassifiedData()
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "자연어 일정 생성 실패", e)
                 throw e
+            }
+        }
+    }
+    
+    /**
+     * 기존 일정 재정렬 (상세정보를 참고하여 시간 재추출)
+     * sourceId를 통해 원본 IngestItem을 찾아 body를 다시 분석하여 시간을 재추출하고 Event를 업데이트합니다.
+     */
+    fun reanalyzeEvent(event: Event) {
+        viewModelScope.launch {
+            try {
+                if (event.sourceId == null) {
+                    LoggingUtils.w("MainViewModel", "일정 재정렬 실패: sourceId가 없습니다. (ID: ${event.id}, Title: ${event.title})")
+                    return@launch
+                }
+                
+                // sourceId로 원본 IngestItem 찾기
+                val ingestItem = ingestRepository.getById(event.sourceId)
+                if (ingestItem == null) {
+                    LoggingUtils.w("MainViewModel", "일정 재정렬 실패: 원본 데이터를 찾을 수 없습니다. (sourceId: ${event.sourceId})")
+                    return@launch
+                }
+                
+                LoggingUtils.d("MainViewModel", "일정 재정렬 시작: ${event.title} (sourceId: ${event.sourceId}, sourceType: ${event.sourceType})")
+                
+                // sourceType에 따라 적절한 AI Agent 메서드 호출
+                when (event.sourceType) {
+                    "sms" -> {
+                        val result = aiAgent.processSMSForEvent(
+                            smsBody = ingestItem.body ?: "",
+                            smsAddress = ingestItem.title ?: "Unknown",
+                            receivedTimestamp = ingestItem.timestamp,
+                            originalSmsId = event.sourceId
+                        )
+                        LoggingUtils.d("MainViewModel", "SMS 일정 재정렬 완료: ${result.events.size}개")
+                    }
+                    "ocr" -> {
+                        val result = aiAgent.createEventFromImage(
+                            ocrText = ingestItem.body ?: "",
+                            currentTimestamp = ingestItem.timestamp,
+                            originalOcrId = event.sourceId
+                        )
+                        LoggingUtils.d("MainViewModel", "OCR 일정 재정렬 완료: ${result.events.size}개")
+                    }
+                    "gmail" -> {
+                        val result = aiAgent.processGmailForEvent(
+                            emailSubject = ingestItem.title ?: "",
+                            emailBody = ingestItem.body ?: "",
+                            receivedTimestamp = ingestItem.timestamp,
+                            originalEmailId = event.sourceId
+                        )
+                        LoggingUtils.d("MainViewModel", "Gmail 일정 재정렬 완료: ${result.events.size}개")
+                    }
+                    "push_notification" -> {
+                        val result = aiAgent.processPushNotificationForEvent(
+                            appName = ingestItem.title ?: "Unknown",
+                            notificationTitle = null,
+                            notificationText = ingestItem.body ?: "",
+                            notificationSubText = null,
+                            receivedTimestamp = ingestItem.timestamp,
+                            originalNotificationId = event.sourceId
+                        )
+                        LoggingUtils.d("MainViewModel", "푸시 알림 일정 재정렬 완료: ${result.events.size}개")
+                    }
+                    else -> {
+                        LoggingUtils.w("MainViewModel", "일정 재정렬 실패: 지원하지 않는 sourceType (${event.sourceType})")
+                        return@launch
+                    }
+                }
+                
+                // MOA-Refresh: 재정렬 후 모든 이벤트 목록 새로고침 (OCR/SMS 포함)
+                loadClassifiedData()
+                // OCR, SMS, Push 이벤트도 새로고침
+                loadOcrEvents(ocrItemsState.value)
+                loadSmsEvents(smsItemsState.value)
+                loadPushNotificationEvents(pushNotificationItemsState.value)
+                
+                LoggingUtils.d("MainViewModel", "일정 재정렬 완료: ${event.title}")
+            } catch (e: Exception) {
+                LoggingUtils.e("MainViewModel", "일정 재정렬 실패", e)
+            }
+        }
+    }
+    
+    /**
+     * 모든 일정 일괄 재정렬
+     * sourceId가 있는 모든 Event를 재정렬합니다.
+     */
+    fun reanalyzeAllEvents() {
+        viewModelScope.launch {
+            try {
+                val allEvents = classifiedDataRepository?.getAllEvents() ?: emptyList()
+                val eventsWithSource = allEvents.filter { it.sourceId != null && it.sourceType != null }
+                
+                android.util.Log.d("MainViewModel", "일괄 일정 재정렬 시작: ${eventsWithSource.size}개")
+                
+                eventsWithSource.forEachIndexed { index, event ->
+                    android.util.Log.d("MainViewModel", "재정렬 진행 중: ${index + 1}/${eventsWithSource.size} - ${event.title}")
+                    reanalyzeEvent(event)
+                    // 각 일정 재정렬 사이에 짧은 딜레이 (API 호출 제한 방지)
+                    kotlinx.coroutines.delay(500)
+                }
+                
+                // 최종 새로고침
+                loadClassifiedData()
+                
+                android.util.Log.d("MainViewModel", "일괄 일정 재정렬 완료: ${eventsWithSource.size}개")
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "일괄 일정 재정렬 실패", e)
             }
         }
     }
@@ -1472,6 +1674,8 @@ data class AssistantUiState(
     val smsEvents: Map<String, List<Event>> = emptyMap(),
     val pushNotificationItems: List<IngestItem> = emptyList(),
     val pushNotificationEvents: Map<String, List<Event>> = emptyMap(),
+    // MOA-Needs-Review: 검토 필요한 일정 목록
+    val needsReviewEvents: List<Event> = emptyList(),
     val smsScanState: SmsScanState = SmsScanState(),
     val gmailSyncState: GmailSyncState = GmailSyncState(),
     val callRecordScanState: CallRecordScanState = CallRecordScanState(),

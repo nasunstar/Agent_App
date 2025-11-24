@@ -52,7 +52,7 @@ fun StatusIndicator(
         } else {
             Icon(
                 imageVector = stateDisplay.icon,
-                contentDescription = null,
+                contentDescription = stringResource(stateDisplay.textResId),
                 tint = color,
                 modifier = Modifier.size(Dimens.iconMedium)
             )

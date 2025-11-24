@@ -38,7 +38,7 @@ fun EmptyState(
         if (icon != null) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = stringResource(messageResId),
                 modifier = Modifier.size(Dimens.iconLarge),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
