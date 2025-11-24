@@ -1107,6 +1107,15 @@ class MainViewModel(
             return
         }
         
+        // 기간 선택 시 SMS 자동 처리 활성화 및 기간 저장
+        if (sinceTimestamp > 0L) {
+            com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcess(
+                context,
+                sinceTimestamp,
+                System.currentTimeMillis()
+            )
+        }
+        
         // Foreground Service로 백그라운드 처리 시작
         val intent = android.content.Intent(context, com.example.agent_app.service.SmsScanService::class.java).apply {
             putExtra("since_timestamp", sinceTimestamp)
