@@ -75,7 +75,10 @@ class HuenDongMinAiAgent(
         val finalEndTime: String?,  // LLM이 계산한 최종 종료 시간 (예: "14:00") - HH:mm 형식 (없으면 null)
         val referenceTimestamp: Long,  // 기준 시점 (메일 수신 시간 등)
         val currentTimestamp: Long,  // 현재 시간
-        val timezone: String = "Asia/Seoul"  // 시간대
+        val timezone: String = "Asia/Seoul",  // 시간대
+        val resolvedStartEpoch: Long? = null,
+        val resolvedEndEpoch: Long? = null,
+        val derivedFromRule: Boolean = false
     )
     
     /**
@@ -91,148 +94,256 @@ class HuenDongMinAiAgent(
         referenceTimestamp: Long,
         sourceType: String
     ): TimeAnalysisResult = withContext(dispatcher) {
-        val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
-        val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp)
-            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-        
-        val systemPrompt = """
-            당신은 텍스트에서 시간 정보를 정확하게 추출하고 분석하는 전문가입니다.
-            
-            📅 기준 시점 정보:
-            - 기준 연도: ${referenceDate.year}년
-            - 기준 월: ${referenceDate.monthValue}월
-            - 기준 일: ${referenceDate.dayOfMonth}일
-            - 기준 요일: ${when (referenceDate.dayOfWeek) {
-                java.time.DayOfWeek.MONDAY -> "월요일"
-                java.time.DayOfWeek.TUESDAY -> "화요일"
-                java.time.DayOfWeek.WEDNESDAY -> "수요일"
-                java.time.DayOfWeek.THURSDAY -> "목요일"
-                java.time.DayOfWeek.FRIDAY -> "금요일"
-                java.time.DayOfWeek.SATURDAY -> "토요일"
-                java.time.DayOfWeek.SUNDAY -> "일요일"
-            }}
-            - 기준 Epoch ms: ${referenceTimestamp}ms
-            
-            📅 현재 시간 (참고용):
-            - 현재 연도: ${now.year}년
-            - 현재 월: ${now.monthValue}월
-            - 현재 일: ${now.dayOfMonth}일
-            - 현재 요일: ${when (now.dayOfWeek) {
-                java.time.DayOfWeek.MONDAY -> "월요일"
-                java.time.DayOfWeek.TUESDAY -> "화요일"
-                java.time.DayOfWeek.WEDNESDAY -> "수요일"
-                java.time.DayOfWeek.THURSDAY -> "목요일"
-                java.time.DayOfWeek.FRIDAY -> "금요일"
-                java.time.DayOfWeek.SATURDAY -> "토요일"
-                java.time.DayOfWeek.SUNDAY -> "일요일"
-            }}
-            - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms
-            
-            🔍 분석 원칙:
-            
-            1. 명시적 날짜 찾기 (최우선):
-               - "2025년 10월 16일", "10월 16일", "10/16", "9.30", "2025-10-16" 등
-               - "11.11~12", "10/16~17" 같은 범위 형식도 인식 (시작 날짜 사용)
-               - 연도가 생략된 경우 기준 연도(${referenceDate.year}) 사용
-               
-            2. 상대적 시간 표현 찾기:
-               - "내일", "모레", "다음주", "담주", "다음주 수요일" 등
-               - 기준 시점(${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일)을 기준으로 계산
-               
-            3. 시작 시간 찾기:
-               - "14시", "오후 3시", "15:00", "3pm" 등
-               
-            4. 종료 시간 찾기 (있으면):
-               - "14시~16시", "15:00-17:00", "오후 3시부터 5시까지" 등
-               - 시간 범위가 명시되어 있으면 종료 시간도 추출
-               - 종료 시간이 없으면 null 반환
-               
-            ⚠️ 중요:
-            - 명시적 날짜가 있으면 그 날짜를 기준 시점으로 사용 (최우선!)
-            - 명시적 날짜와 상대적 표현이 함께 있으면, 명시적 날짜를 기준으로 상대적 표현을 계산하여 최종 날짜를 구하세요!
-              예: "11월 11일날 내일" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"] → 최종 날짜: "2025-11-12" (11월 11일 기준 +1일)
-            - 명시적 날짜가 없으면 기준 시점을 사용하고, 상대적 표현을 계산하여 최종 날짜를 구하세요
-            - 모든 시간은 한국 표준시(KST, UTC+9) 기준
-            - 최종 시작 날짜는 반드시 "YYYY-MM-DD" 형식으로 계산하세요
-            - 최종 시작 시간은 "HH:mm" 형식으로 계산하세요 (시간이 없으면 "00:00")
-            - 종료 시간이 명시되어 있으면 finalEndDate와 finalEndTime도 계산하세요
-            - 종료 시간이 없으면 finalEndDate와 finalEndTime은 null로 설정하세요
-            
-            🔴 예시 (현재 기준: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일):
-            - "9.30(화) 14시" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료: null ✅
-            - "내일 오후 3시~5시" → 명시적 날짜: null, 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 최종 시간: "15:00", 종료 날짜: "${referenceDate.plusDays(1).year}-${String.format("%02d", referenceDate.plusDays(1).monthValue)}-${String.format("%02d", referenceDate.plusDays(1).dayOfMonth)}", 종료 시간: "17:00" ✅
-            - "11월 11일날 내일 점심" → 명시적 날짜: "11월 11일", 상대적 표현: ["내일"], 최종 날짜: "${referenceDate.year}-11-12" (11월 11일 +1일), 최종 시간: "12:00", 종료: null ✅
-            - "9.30(화) 14:00-16:00" → 명시적 날짜: "9.30", 상대적 표현: [], 최종 날짜: "${referenceDate.year}-09-30", 최종 시간: "14:00", 종료 날짜: "${referenceDate.year}-09-30", 종료 시간: "16:00" ✅
-            
-            출력 형식 (순수 JSON만):
-            {
-              "hasExplicitDate": true/false,
-              "explicitDate": "2025-10-16" 또는 null,
-              "hasRelativeTime": true/false,
-              "relativeTimeExpressions": ["내일", "다음주 수요일"] 또는 [],
-              "hasTime": true/false,
-              "time": "14:00" 또는 null,
-              "finalDate": "2025-11-12",  // 최종 계산된 시작 날짜 (YYYY-MM-DD 형식, 필수!)
-              "finalTime": "12:00",  // 최종 계산된 시작 시간 (HH:mm 형식, 시간이 없으면 "00:00")
-              "finalEndDate": "2025-11-12" 또는 null,  // 최종 계산된 종료 날짜 (YYYY-MM-DD 형식, 없으면 null)
-              "finalEndTime": "14:00" 또는 null  // 최종 계산된 종료 시간 (HH:mm 형식, 없으면 null)
+        val zoneId = java.time.ZoneId.of("Asia/Seoul")
+        val now = java.time.Instant.now().atZone(zoneId)
+        val referenceDate = java.time.Instant.ofEpochMilli(referenceTimestamp).atZone(zoneId)
+        val normalizedText = text?.trim().orEmpty()
+
+        if (normalizedText.isNotEmpty()) {
+            val expressions = EventTimeParser.extractTimeExpressions(normalizedText)
+            val resolved = EventTimeParser.resolveExpressions(
+                normalizedText,
+                expressions,
+                ResolveContext(referenceTimestamp, "Asia/Seoul")
+            )
+
+            if (resolved.isNotEmpty()) {
+                val primary = resolved.first()
+                return@withContext buildTimeAnalysisResultFromWindow(
+                    expressions = expressions,
+                    window = primary,
+                    referenceTimestamp = referenceTimestamp,
+                    now = now
+                )
             }
+        }
+
+        android.util.Log.d("HuenDongMinAiAgent", "규칙 기반 분석 실패, LLM 보조 호출 ($sourceType)")
+
+        val systemPrompt = """
+            당신은 한국어 텍스트에서 시간 정보를 추출하는 보조 도구입니다.
+            모든 계산은 KST(Asia/Seoul) 기준이며, 반드시 ISO 포맷(YYYY-MM-DD, HH:mm)을 지켜 주세요.
+            
+            ⚠️ **중요**: epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
+            시스템이 자동으로 epoch milliseconds로 변환합니다.
         """.trimIndent()
-        
+
+        // OCR 전용 Few-shot 예시 추가
+        val fewShotExamples = if (sourceType == "ocr") {
+            """
+            
+            🎯 **Few-shot 예시 (OCR 전용):**
+            
+            **예시 1: 명시적 날짜**
+            기준 시각: 2025-11-24 10:00
+            텍스트: "2025,10,30.(목) 11:30 회의"
+            
+            결과:
+            {
+              "hasExplicitDate": true,
+              "explicitDate": "2025-10-30",
+              "hasRelativeTime": false,
+              "relativeTimeExpressions": [],
+              "hasTime": true,
+              "time": "11:30",
+              "finalDate": "2025-10-30",
+              "finalTime": "11:30",
+              "finalEndDate": null,
+              "finalEndTime": null
+            }
+            
+            **예시 2: 한글 날짜**
+            기준 시각: 2025-11-24 10:00
+            텍스트: "10월 30일 14시 회의"
+            
+            결과:
+            {
+              "hasExplicitDate": true,
+              "explicitDate": "2025-10-30",
+              "hasRelativeTime": false,
+              "relativeTimeExpressions": [],
+              "hasTime": true,
+              "time": "14:00",
+              "finalDate": "2025-10-30",
+              "finalTime": "14:00",
+              "finalEndDate": null,
+              "finalEndTime": null
+            }
+            
+            **예시 3: 시간 없음**
+            기준 시각: 2025-11-24 10:00
+            텍스트: "11월 15일 행사"
+            
+            결과:
+            {
+              "hasExplicitDate": true,
+              "explicitDate": "2025-11-15",
+              "hasRelativeTime": false,
+              "relativeTimeExpressions": [],
+              "hasTime": false,
+              "time": null,
+              "finalDate": "2025-11-15",
+              "finalTime": "00:00",
+              "finalEndDate": null,
+              "finalEndTime": null
+            }
+            
+            **예시 4: 상대적 날짜 표현 (채팅/메시지)**
+            기준 시각: 2025-10-16 16:16
+            텍스트: "담주 수욜 동성로"
+            
+            결과:
+            {
+              "hasExplicitDate": false,
+              "explicitDate": null,
+              "hasRelativeTime": true,
+              "relativeTimeExpressions": ["담주", "수욜"],
+              "hasTime": false,
+              "time": null,
+              "finalDate": "2025-10-22",
+              "finalTime": "00:00",
+              "finalEndDate": null,
+              "finalEndTime": null
+            }
+            
+            ⚠️ **해석:**
+            - "담주" = 다음 주
+            - "수욜" = 수요일
+            - 기준 시각이 2025-10-16(수요일)이므로, 다음 주 수요일은 2025-10-22
+            
+            **예시 5: 상대적 날짜 + 시간대 + 구체적 시간 (채팅/메시지)**
+            기준 시각: 2025-11-24 17:54
+            텍스트: "내일 오후 1시에 점심 고고?"
+            
+            결과:
+            {
+              "hasExplicitDate": false,
+              "explicitDate": null,
+              "hasRelativeTime": true,
+              "relativeTimeExpressions": ["내일"],
+              "hasTime": true,
+              "time": "13:00",
+              "finalDate": "2025-11-25",
+              "finalTime": "13:00",
+              "finalEndDate": null,
+              "finalEndTime": null
+            }
+            
+            ⚠️ **해석:**
+            - 날짜가 명시적으로 없음 → 현재 날짜(2025-11-24) 기준으로 계산
+            - "내일" = 현재 날짜 + 1일 = 2025-11-25
+            - "오후 1시" = 13:00 (24시간 형식)
+            - "점심" = 시간대 힌트 (12:00~14:00 범위)
+            - 최종 시간: "오후 1시"가 명시되어 있으므로 13:00 사용
+        """.trimIndent()
+        } else {
+            ""
+        }
+
         val userPrompt = """
-            다음 텍스트에서 시간 정보를 추출하고 분석하세요:
+            기준 시각: ${referenceDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}
+            텍스트: ${normalizedText.ifBlank { "(내용 없음)" }}
+
+            결과를 JSON으로만 반환하세요:
+            {
+              "hasExplicitDate": bool,
+              "explicitDate": "YYYY-MM-DD" 또는 null,
+              "hasRelativeTime": bool,
+              "relativeTimeExpressions": ["..."],
+              "hasTime": bool,
+              "time": "HH:mm" 또는 null,
+              "finalDate": "YYYY-MM-DD",
+              "finalTime": "HH:mm",
+              "finalEndDate": "YYYY-MM-DD" 또는 null,
+              "finalEndTime": "HH:mm" 또는 null
+            }
             
-            ${text ?: "(텍스트 없음)"}
-            
-            기준 시점: ${referenceDate.year}년 ${referenceDate.monthValue}월 ${referenceDate.dayOfMonth}일
+            ⚠️ **중요**: epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
         """.trimIndent()
         
+        val fullSystemPrompt = systemPrompt + fewShotExamples
+
         val messages = listOf(
-            AiMessage(role = "system", content = systemPrompt),
+            AiMessage(role = "system", content = fullSystemPrompt),
             AiMessage(role = "user", content = userPrompt)
         )
-        
+
         val response = callOpenAi(messages)
-        
-        android.util.Log.d("HuenDongMinAiAgent", "=== 시간 분석 AI 응답 ===")
+
+        android.util.Log.d("HuenDongMinAiAgent", "=== 시간 분석 LLM 응답 ===")
         android.util.Log.d("HuenDongMinAiAgent", response)
         android.util.Log.d("HuenDongMinAiAgent", "=====================================")
-        
-        // JSON 파싱
+
         val cleanedJson = response
             .trim()
             .removePrefix("```json")
             .removePrefix("```")
             .removeSuffix("```")
             .trim()
-        
+
         val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
-        
+
         TimeAnalysisResult(
             hasExplicitDate = jsonObj["hasExplicitDate"]?.jsonPrimitive?.content?.toBoolean() ?: false,
             explicitDate = jsonObj["explicitDate"]?.jsonPrimitive?.content,
             hasRelativeTime = jsonObj["hasRelativeTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
-            relativeTimeExpressions = jsonObj["relativeTimeExpressions"]?.jsonArray?.mapNotNull { 
-                it.jsonPrimitive.content 
+            relativeTimeExpressions = jsonObj["relativeTimeExpressions"]?.jsonArray?.mapNotNull {
+                it.jsonPrimitive.content
             } ?: emptyList(),
             hasTime = jsonObj["hasTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
             time = jsonObj["time"]?.jsonPrimitive?.content,
-            finalDate = jsonObj["finalDate"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 시작 날짜
-            finalTime = jsonObj["finalTime"]?.jsonPrimitive?.content ?: "00:00",  // LLM이 계산한 최종 시작 시간
-            finalEndDate = jsonObj["finalEndDate"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 종료 날짜
-            finalEndTime = jsonObj["finalEndTime"]?.jsonPrimitive?.content,  // LLM이 계산한 최종 종료 시간
+            finalDate = jsonObj["finalDate"]?.jsonPrimitive?.content,
+            finalTime = jsonObj["finalTime"]?.jsonPrimitive?.content ?: "00:00",
+            finalEndDate = jsonObj["finalEndDate"]?.jsonPrimitive?.content,
+            finalEndTime = jsonObj["finalEndTime"]?.jsonPrimitive?.content,
             referenceTimestamp = referenceTimestamp,
             currentTimestamp = now.toInstant().toEpochMilli(),
             timezone = "Asia/Seoul"
+        )
+    }
+
+    private fun buildTimeAnalysisResultFromWindow(
+        expressions: List<TimeExpression>,
+        window: CandidateTimeWindow,
+        referenceTimestamp: Long,
+        now: java.time.ZonedDateTime
+    ): TimeAnalysisResult {
+        val hasExplicitDate = expressions.any {
+            it.kind == TimeExprKind.ABSOLUTE_DATE || it.kind == TimeExprKind.RANGE
+        }
+        val explicitDate = if (hasExplicitDate) window.start.formatDateString() else null
+        val relativeExpressions = expressions.filter {
+            it.kind == TimeExprKind.RELATIVE_DATE || it.kind == TimeExprKind.WEEKDAY
+        }.map { it.text }
+        val hasTime = expressions.any { it.kind == TimeExprKind.TIME_OF_DAY }
+
+        return TimeAnalysisResult(
+            hasExplicitDate = hasExplicitDate,
+            explicitDate = explicitDate,
+            hasRelativeTime = relativeExpressions.isNotEmpty(),
+            relativeTimeExpressions = relativeExpressions,
+            hasTime = hasTime,
+            time = if (hasTime) window.start.formatTimeString() else null,
+            finalDate = window.start.formatDateString(),
+            finalTime = window.start.formatTimeString(),
+            finalEndDate = window.end?.formatDateString(),
+            finalEndTime = window.end?.formatTimeString(),
+            referenceTimestamp = referenceTimestamp,
+            currentTimestamp = now.toInstant().toEpochMilli(),
+            timezone = "Asia/Seoul",
+            resolvedStartEpoch = window.startEpochMs,
+            resolvedEndEpoch = window.endEpochMs,
+            derivedFromRule = true
         )
     }
     
     /**
      * 시간 분석 결과를 JSON 형식의 이벤트 데이터로 변환하는 함수
      * 
-     * LLM이 계산한 최종 날짜/시간을 epoch milliseconds로 변환만 수행
+     * LLM이 반환한 날짜/시간 문자열을 epoch milliseconds로 변환만 수행
+     * 이중 검증 제거: LLM의 날짜/시간 추출 결과를 신뢰하고 함수가 변환만 수행
      * 
-     * @param timeAnalysis 시간 분석 결과 (LLM이 finalDate, finalTime 계산 완료)
+     * @param timeAnalysis 시간 분석 결과 (LLM이 finalDate, finalTime 추출 완료)
      * @param title 이벤트 제목
      * @param body 이벤트 본문
      * @param location 장소 (선택)
@@ -248,7 +359,62 @@ class HuenDongMinAiAgent(
     ): Map<String, JsonElement?> {
         val referenceDate = java.time.Instant.ofEpochMilli(timeAnalysis.referenceTimestamp)
             .atZone(java.time.ZoneId.of("Asia/Seoul"))
+
+        // Rule-based 파서 결과가 있으면 우선 사용
+        if (timeAnalysis.derivedFromRule && timeAnalysis.resolvedStartEpoch != null) {
+            val startAt = timeAnalysis.resolvedStartEpoch
+            val endAt = timeAnalysis.resolvedEndEpoch ?: (startAt + 60 * 60 * 1000)
+            return buildEventResultMap(
+                title = title,
+                body = body,
+                location = location,
+                startAt = startAt,
+                endAt = endAt,
+                needsReview = false
+            )
+        }
         
+        // OCR 전용: 이중 검증 없이 LLM이 추출한 날짜/시간 문자열을 직접 변환
+        if (sourceType == "ocr") {
+            val startAt = parseDateTimeStringToEpoch(
+                dateStr = timeAnalysis.finalDate,
+                timeStr = timeAnalysis.finalTime,
+                referenceDate = referenceDate
+            )
+            
+            if (startAt == null) {
+                android.util.Log.e("HuenDongMinAiAgent", "OCR: 날짜/시간 파싱 실패, fallback 사용")
+                return createFallbackEvent(referenceDate, title, body, location)
+            }
+            
+            // 종료 시간 계산
+            val endAt = if (timeAnalysis.finalEndDate != null && timeAnalysis.finalEndTime != null) {
+                parseDateTimeStringToEpoch(
+                    dateStr = timeAnalysis.finalEndDate,
+                    timeStr = timeAnalysis.finalEndTime,
+                    referenceDate = referenceDate
+                ) ?: (startAt + 60 * 60 * 1000) // 파싱 실패 시 기본 1시간
+            } else {
+                startAt + (60 * 60 * 1000) // 기본 1시간
+            }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "OCR 시간 분석 결과 (LLM 추출 + 함수 변환):")
+            android.util.Log.d("HuenDongMinAiAgent", "  - LLM 추출 날짜: ${timeAnalysis.finalDate}")
+            android.util.Log.d("HuenDongMinAiAgent", "  - LLM 추출 시간: ${timeAnalysis.finalTime}")
+            android.util.Log.d("HuenDongMinAiAgent", "  - 변환된 시작 Epoch ms: $startAt")
+            android.util.Log.d("HuenDongMinAiAgent", "  - 변환된 종료 Epoch ms: $endAt")
+            
+            return buildEventResultMap(
+                title = title,
+                body = body,
+                location = location,
+                startAt = startAt,
+                endAt = endAt,
+                needsReview = false
+            )
+        }
+        
+        // Gmail/SMS 등 다른 소스: 기존 이중 검증 로직 유지
         // 1단계: LLM 출력 검증 및 파싱
         val (validatedDate, validatedTime) = validateLlmOutput(
             finalDate = timeAnalysis.finalDate,
@@ -383,58 +549,86 @@ class HuenDongMinAiAgent(
             android.util.Log.w("HuenDongMinAiAgent", "  ⚠️ 이중 검증 불일치: ${crossValidationResult.mismatchReason}")
         }
         
-        // 불일치 정보를 JSON에 포함 (OCR에서 사용자가 시간을 선택할 수 있도록)
-        val resultMap = mutableMapOf<String, JsonElement?>(
-            "title" to JsonPrimitive(title),
-            "startAt" to JsonPrimitive(startAt.toString()),
-            "endAt" to JsonPrimitive(endAt.toString()),
-            "location" to (location?.let { JsonPrimitive(it) } ?: JsonPrimitive("")),
-            "type" to JsonPrimitive("이벤트"),
-            "body" to JsonPrimitive(body)
+        return buildEventResultMap(
+            title = title,
+            body = body,
+            location = location,
+            startAt = startAt,
+            endAt = endAt,
+            needsReview = false
         )
+    }
+    
+    /**
+     * 날짜/시간 문자열을 epoch milliseconds로 변환하는 함수
+     * OCR 전용: LLM이 추출한 날짜/시간 문자열을 받아서 epoch milliseconds로 변환
+     * 
+     * @param dateStr 날짜 문자열 (예: "2025-10-30")
+     * @param timeStr 시간 문자열 (예: "14:00")
+     * @param referenceDate 기준 날짜 (연도 생략 시 사용)
+     * @return epoch milliseconds 또는 null (파싱 실패 시)
+     */
+    private fun parseDateTimeStringToEpoch(
+        dateStr: String?,
+        timeStr: String?,
+        referenceDate: java.time.ZonedDateTime
+    ): Long? {
+        if (dateStr == null) return null
         
-        // 이중 검증 불일치 정보 추가 (OCR에서만 사용)
-        if (crossValidationResult.hasMismatch && sourceType == "ocr") {
-            val llmDateTime = try {
-                val llmDateParts = crossValidationResult.llmDate.split("-")
-                val llmYear = llmDateParts[0].toInt()
-                val llmMonth = llmDateParts[1].toInt()
-                val llmDay = llmDateParts[2].toInt()
-                val llmTimeParts = validatedTime.split(":")
-                val llmHour = llmTimeParts[0].toIntOrNull() ?: 0
-                val llmMinute = llmTimeParts[1].toIntOrNull() ?: 0
-                java.time.LocalDate.of(llmYear, llmMonth, llmDay)
-                    .atTime(llmHour, llmMinute)
-                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                    .toInstant().toEpochMilli()
-            } catch (e: Exception) {
-                null
-            }
-            
-            val codeDateTime = try {
-                val codeDateParts = crossValidationResult.codeDate.split("-")
-                val codeYear = codeDateParts[0].toInt()
-                val codeMonth = codeDateParts[1].toInt()
-                val codeDay = codeDateParts[2].toInt()
-                val codeTimeParts = validatedTime.split(":")
-                val codeHour = codeTimeParts[0].toIntOrNull() ?: 0
-                val codeMinute = codeTimeParts[1].toIntOrNull() ?: 0
-                java.time.LocalDate.of(codeYear, codeMonth, codeDay)
-                    .atTime(codeHour, codeMinute)
-                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                    .toInstant().toEpochMilli()
-            } catch (e: Exception) {
-                null
-            }
-            
-            resultMap["validationMismatch"] = JsonPrimitive("true")
-            resultMap["llmCalculatedTime"] = llmDateTime?.let { JsonPrimitive(it.toString()) } ?: JsonNull
-            resultMap["codeCalculatedTime"] = codeDateTime?.let { JsonPrimitive(it.toString()) } ?: JsonNull
-            resultMap["chosenSource"] = JsonPrimitive(crossValidationResult.chosenSource)
-            resultMap["mismatchReason"] = JsonPrimitive(crossValidationResult.mismatchReason ?: "")
+        // 날짜 파싱
+        val dateParts = dateStr.split("-")
+        if (dateParts.size != 3) {
+            android.util.Log.e("HuenDongMinAiAgent", "날짜 형식 오류: $dateStr")
+            return null
         }
         
-        return resultMap
+        val year = dateParts[0].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "연도 파싱 실패: ${dateParts[0]}")
+            return null
+        }
+        val month = dateParts[1].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "월 파싱 실패: ${dateParts[1]}")
+            return null
+        }
+        val day = dateParts[2].toIntOrNull() ?: run {
+            android.util.Log.e("HuenDongMinAiAgent", "일 파싱 실패: ${dateParts[2]}")
+            return null
+        }
+        
+        // 날짜 유효성 검증
+        if (!isValidDate(year, month, day)) {
+            android.util.Log.e("HuenDongMinAiAgent", "유효하지 않은 날짜: $year-$month-$day")
+            return null
+        }
+        
+        // 시간 파싱 및 범위 검증
+        val timeParts = (timeStr ?: "00:00").split(":")
+        val hour = if (timeParts.size >= 1) {
+            val h = timeParts[0].toIntOrNull() ?: 0
+            if (h !in 0..23) {
+                android.util.Log.w("HuenDongMinAiAgent", "시간 범위 오류: $h, 0으로 설정")
+                0
+            } else h
+        } else 0
+        val minute = if (timeParts.size >= 2) {
+            val m = timeParts[1].toIntOrNull() ?: 0
+            if (m !in 0..59) {
+                android.util.Log.w("HuenDongMinAiAgent", "분 범위 오류: $m, 0으로 설정")
+                0
+            } else m
+        } else 0
+        
+        // 최종 날짜/시간 생성 및 epoch milliseconds 변환
+        return try {
+            java.time.LocalDate.of(year, month, day)
+                .atTime(hour, minute)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                .toInstant()
+                .toEpochMilli()
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "날짜/시간 생성 실패", e)
+            null
+        }
     }
     
     /**
@@ -880,6 +1074,34 @@ class HuenDongMinAiAgent(
             }
         } catch (e: Exception) {
             0
+        }
+    }
+
+    private fun java.time.ZonedDateTime.formatDateString(): String =
+        "%04d-%02d-%02d".format(year, monthValue, dayOfMonth)
+
+    private fun java.time.ZonedDateTime.formatTimeString(): String =
+        "%02d:%02d".format(hour, minute)
+
+    private fun buildEventResultMap(
+        title: String,
+        body: String,
+        location: String?,
+        startAt: Long,
+        endAt: Long,
+        needsReview: Boolean
+    ): MutableMap<String, JsonElement?> {
+        return mutableMapOf<String, JsonElement?>(
+            "title" to JsonPrimitive(title),
+            "startAt" to JsonPrimitive(startAt.toString()),
+            "endAt" to JsonPrimitive(endAt.toString()),
+            "location" to (location?.let { JsonPrimitive(it) } ?: JsonPrimitive("")),
+            "type" to JsonPrimitive("이벤트"),
+            "body" to JsonPrimitive(body)
+        ).apply {
+            if (needsReview) {
+                this["needsReview"] = JsonPrimitive("true")
+            }
         }
     }
     
@@ -1883,39 +2105,6 @@ class HuenDongMinAiAgent(
             - 푸시 알림에서 일정/약속 정보를 추출하고 구조화된 JSON으로 반환하세요.
             - 시간 계산은 이미 완료되었으므로, 일정 정보(제목, 장소, 본문 등)에 집중하세요.
             - 시간 정보는 시간 분석 결과를 참고하되, 최종 시간 계산은 시스템에서 처리합니다.
-            
-            ⏰ **자연어 시간 표현 해석 규칙 (푸시 알림용):**
-            
-            메시지 또는 알림 텍스트 안에 '내일 저녁', '담주 수욜 밤', '퇴근 후에', '낼 오후' 같은 표현이 있다면
-            아래 규칙을 따라 startAt/endAt epoch를 계산해서 event에 채워야 합니다.
-            
-            1. 줄임말/오타 정규화:
-               - "낼", "내" → "내일"
-               - "모래" → "모레"
-               - "담주", "담쥬", "낸쥬" → "다음주"
-               - "담달" → "다음달"
-               - "수욜" → "수요일", "목욜" → "목요일", "금욜" → "금요일"
-               - "퇴근후", "퇴근하고" → "퇴근 후"
-            
-            2. 날짜 관련 표현:
-               - "오늘" → 알림 수신일 00:00:00 ~ 23:59:59
-               - "내일" → 알림 수신일 +1일
-               - "모레" → 알림 수신일 +2일
-               - "이번 주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "다음주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "다음주 수요일" → 다음 주 수요일
-               - "이번 달" → 이번 달 1일 ~ 마지막 날
-               - "다음달" → 다음 달 1일 ~ 마지막 날
-            
-            3. 시간대 표현:
-               - "새벽" → 03:00~06:00
-               - "아침" → 06:00~09:00
-               - "오전" → 09:00~12:00
-               - "점심" → 12:00~13:00
-               - "오후" → 13:00~18:00
-               - "저녁" → 18:00~21:00
-               - "밤" → 21:00~24:00
-               - "퇴근 후" → 18:00~20:00 (이미 지났으면 다음날)
         """.trimIndent()
         
         val userPrompt = """
@@ -1926,7 +2115,7 @@ class HuenDongMinAiAgent(
             📱 본문: ${notificationText ?: "(없음)"}
             📱 서브텍스트: ${notificationSubText ?: "(없음)"}
             
-            📅 알림 수신 시간 (모든 시간 계산의 기준, nowEpochMs=${receivedTimestamp}ms):
+            📅 알림 수신 시간 (모든 시간 계산의 기준):
             - 연도: ${notificationReceivedDate.year}년
             - 월: ${notificationReceivedDate.monthValue}월
             - 일: ${notificationReceivedDate.dayOfMonth}일
@@ -1967,16 +2156,9 @@ class HuenDongMinAiAgent(
             - 1단계에서 명시적 날짜를 **찾았으면**: 그 날짜를 기준 시점으로 사용
             - 1단계에서 명시적 날짜가 **없으면**: 알림 수신 시간(${notificationReceivedDate.year}년 ${notificationReceivedDate.monthValue}월 ${notificationReceivedDate.dayOfMonth}일)을 기준 시점으로 사용
             
-            **3단계: 상대적 표현 처리**
-            
-            알림에 상대적 표현("내일", "다음주", "담주 수욜 저녁", "퇴근 후" 등)이 있다면,
-            위 [자연어 시간 표현 해석 규칙]을 따라 epoch milliseconds로 계산하세요.
-            
             🔍 예시:
             - 알림에 "10월 16일 ... 다음주 수요일" → 10월 16일 기준 다음주 수요일 ✅
             - 알림에 날짜 없고 "내일 오후 3시" → 알림 수신일 기준 다음날 15:00 ✅
-            - 알림에 "담주 수욜 저녁에 회의" → 다음주 수요일 18:00~21:00 (시작: 19:00) ✅
-            - 알림에 "퇴근 후에 잠깐 보자" → 오늘 18:00~20:00 (이미 지났으면 내일) ✅
             
             **3단계: 일정 추출**
             
@@ -2226,100 +2408,171 @@ class HuenDongMinAiAgent(
             
             **당신의 역할:**
             - OCR 텍스트에서 일정/약속 정보를 추출하고 구조화된 JSON으로 반환하세요.
-            - 시간 계산은 이미 완료되었으므로, 일정 정보(제목, 장소, 본문 등)에 집중하세요.
-            - 시간 정보는 시간 분석 결과를 참고하되, 최종 시간 계산은 시스템에서 처리합니다.
+            - **중요**: 시간 계산은 하지 마세요! 날짜와 시간 문자열만 추출하세요.
+            - 시스템이 날짜/시간 문자열을 epoch milliseconds로 변환합니다.
+            - 일정 정보(제목, 장소, 본문 등)에 집중하세요.
             
-            ⏰ **자연어 시간 표현 해석 규칙 (OCR용):**
-            
-            OCR 텍스트 안에 '내일 저녁', '담주 수욜 밤', '퇴근 후에', '낼 오후' 같은 표현이 있다면
-            아래 규칙을 따라 startAt/endAt epoch를 계산해서 event에 채워야 합니다.
-            
-            1. 줄임말/오타 정규화:
-               - "낼", "내" → "내일"
-               - "모래" → "모레"
-               - "담주", "담쥬", "낸쥬" → "다음주"
-               - "담달" → "다음달"
-               - "수욜" → "수요일", "목욜" → "목요일", "금욜" → "금요일"
-               - "퇴근후", "퇴근하고" → "퇴근 후"
-            
-            2. 날짜 관련 표현 (현재 시간 기준):
-               - "오늘" → 현재 날짜 00:00:00 ~ 23:59:59
-               - "내일" → 현재 날짜 +1일
-               - "모레" → 현재 날짜 +2일
-               - "이번 주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "다음주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "다음주 수요일" → 다음 주 수요일
-               - "이번 달" → 이번 달 1일 ~ 마지막 날
-               - "다음달" → 다음 달 1일 ~ 마지막 날
-            
-            3. 시간대 표현:
-               - "새벽" → 03:00~06:00
-               - "아침" → 06:00~09:00
-               - "오전" → 09:00~12:00
-               - "점심" → 12:00~13:00
-               - "오후" → 13:00~18:00
-               - "저녁" → 18:00~21:00
-               - "밤" → 21:00~24:00
-               - "퇴근 후" → 18:00~20:00
+            **출력 형식:**
+            - 날짜: "YYYY-MM-DD" 형식 (예: "2025-10-30")
+            - 시간: "HH:mm" 형식 (예: "14:00")
+            - epoch milliseconds는 계산하지 마세요!
         """.trimIndent()
         
         // Few-shot 예시 (하드코딩 - 리소스 로딩 문제 우회)
         val fewShotExamples = """
             
-            🎯 **실제 예시:**
+            🎯 **Few-shot 예시:**
             
             **예시 1: 명시적 날짜 (매우 중요!)**
-            OCR: "2025,10,30.(목) 11:30"
+            OCR 텍스트: "2025,10,30.(목) 11:30 회의"
             
-            **처리 과정:**
-            1. "2025,10,30.(목)" 발견 → 명시적 날짜: **2025년 10월 30일 목요일** ✅
-            2. "11:30" 발견 → 시간: 11:30:00
-            3. Epoch 계산: 2025년 10월 30일 11:30:00 KST = 1761631200000 ✅
+            **당신이 해야 할 일:**
+            1. "2025,10,30.(목)" 발견 → 날짜 문자열: "2025-10-30" ✅
+            2. "11:30" 발견 → 시간 문자열: "11:30" ✅
+            3. "회의" 발견 → 제목: "회의"
             
-            **결과:**
-            ```json
-            {
-              "type": "event",
-              "confidence": 0.9,
-              "events": [{
-                "title": "일정",
-                "startAt": 1761631200000,
-                "endAt": 1761631200000,
-                "location": "",
-                "type": "회의",
-                "body": "2025년 10월 30일 목요일 11:30 일정"
-              }]
-            }
-            ```
-            
-            ⚠️ **절대 금지:**
-            - ❌ "2025,10,30"을 "2025,10,29"로 변경
-            - ❌ "10월 30일"을 "10월 29일"로 해석
-            - ❌ 명시적 날짜를 상대적으로 계산
-            
-            **예시 2: 한글 날짜**
-            OCR: "10월 30일 14시 회의"
-            
-            **처리 과정:**
-            1. "10월 30일" 발견 → 명시적 날짜: **${now.year}년 10월 30일** ✅
-            2. "14시" 발견 → 시간: 14:00:00
-            3. Epoch 계산: ${now.year}년 10월 30일 14:00:00 KST = 1761681600000 ✅
-            
-            **결과:**
+            **출력 (epoch milliseconds 계산하지 않음!):**
             ```json
             {
               "type": "event",
               "confidence": 0.9,
               "events": [{
                 "title": "회의",
-                "startAt": 1761681600000,
-                "endAt": 1761681600000,
+                "date": "2025-10-30",
+                "time": "11:30",
+                "location": "",
+                "type": "회의",
+                "body": "2025년 10월 30일 목요일 11:30 회의"
+              }]
+            }
+            ```
+            
+            ⚠️ **절대 금지:**
+            - ❌ epoch milliseconds 계산 (예: "startAt": 1761631200000)
+            - ❌ "2025,10,30"을 "2025,10,29"로 변경
+            - ❌ "10월 30일"을 "10월 29일"로 해석
+            - ❌ 명시적 날짜를 상대적으로 계산
+            
+            **예시 2: 한글 날짜**
+            OCR 텍스트: "10월 30일 14시 회의"
+            
+            **당신이 해야 할 일:**
+            1. "10월 30일" 발견 → 날짜 문자열: "${now.year}-10-30" ✅ (연도는 현재 연도 사용)
+            2. "14시" 발견 → 시간 문자열: "14:00" ✅
+            3. "회의" 발견 → 제목: "회의"
+            
+            **출력:**
+            ```json
+            {
+              "type": "event",
+              "confidence": 0.9,
+              "events": [{
+                "title": "회의",
+                "date": "${now.year}-10-30",
+                "time": "14:00",
                 "location": "",
                 "type": "회의",
                 "body": "10월 30일 14시 회의"
               }]
             }
             ```
+            
+            **예시 3: 시간이 없는 경우**
+            OCR 텍스트: "11월 15일 행사"
+            
+            **당신이 해야 할 일:**
+            1. "11월 15일" 발견 → 날짜 문자열: "${now.year}-11-15" ✅
+            2. 시간 없음 → 시간 문자열: "00:00" (기본값) ✅
+            3. "행사" 발견 → 제목: "행사"
+            
+            **출력:**
+            ```json
+            {
+              "type": "event",
+              "confidence": 0.9,
+              "events": [{
+                "title": "행사",
+                "date": "${now.year}-11-15",
+                "time": "00:00",
+                "location": "",
+                "type": "행사",
+                "body": "11월 15일 행사"
+              }]
+            }
+            ```
+            
+            **예시 4: 상대적 날짜 표현 (채팅/메시지)**
+            OCR 텍스트: "담주 수욜 동성로 거기서 만나자"
+            
+            **당신이 해야 할 일:**
+            1. "담주 수욜" 발견 → 상대적 날짜 표현
+               - "담주" = 다음 주
+               - "수욜" = 수요일 (한글 줄임말)
+               - 기준 시각이 ${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일($dayOfWeekKorean)이므로
+               - 다음 주 수요일 계산 필요 (시스템이 자동 계산)
+               - 날짜 문자열: "YYYY-MM-DD" 형식으로 반환 (예: "2025-10-22") ✅
+            2. 시간 없음 → 시간 문자열: "00:00" (기본값) ✅
+            3. "동성로" 발견 → 장소: "동성로"
+            4. "만나자" 발견 → 제목: "만남" 또는 "약속"
+            
+            **출력:**
+            ```json
+            {
+              "type": "event",
+              "confidence": 0.9,
+              "events": [{
+                "title": "만남",
+                "date": "2025-10-22",
+                "time": "00:00",
+                "location": "동성로",
+                "type": "약속",
+                "body": "담주 수욜 동성로에서 만나기로 함"
+              }]
+            }
+            ```
+            
+            ⚠️ **해석 가이드:**
+            - "담주" = 다음 주 (현재 주 + 1주)
+            - "수욜" = 수요일 (한글 줄임말: 수요일 → 수욜)
+            - "동성로" = 장소명
+            - "만나자" = 만남 약속 의도
+            - 상대적 날짜는 시스템이 자동으로 계산하므로, 정확한 날짜 계산보다는 표현을 올바르게 인식하는 것이 중요
+            
+            **예시 5: 상대적 날짜 + 시간대 + 구체적 시간 (채팅/메시지)**
+            OCR 텍스트: "내일 오후 1시에 점심 고고? 그러자. 뭐먹고싶어? 짜장면 먹자. ㅇㅋㅇㅋ 내일 1시에 봐"
+            
+            **당신이 해야 할 일:**
+            1. "내일" 발견 → 상대적 날짜 표현
+               - 날짜가 명시적으로 없음 → 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일) 기준으로 계산
+               - "내일" = 현재 날짜 + 1일
+               - 날짜 문자열: "${now.plusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))}" ✅
+            2. "오후 1시" 또는 "1시" 발견 → 시간 문자열: "13:00" ✅
+               - "오후 1시" = 13:00 (24시간 형식)
+               - "점심" = 시간대 힌트이지만, "1시"가 명시되어 있으므로 13:00 사용
+            3. "점심" 발견 → 제목: "점심 약속" 또는 "점심"
+            4. "짜장면" 발견 → 본문에 포함
+            
+            **출력:**
+            ```json
+            {
+              "type": "event",
+              "confidence": 0.9,
+              "events": [{
+                "title": "점심 약속",
+                "date": "${now.plusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))}",
+                "time": "13:00",
+                "location": "",
+                "type": "약속",
+                "body": "내일 오후 1시에 점심 약속 (짜장면)"
+              }]
+            }
+            ```
+            
+            ⚠️ **중요 규칙:**
+            - 날짜가 명시적으로 없으면 → 현재 날짜 기준으로 계산
+            - "내일" = 현재 날짜 + 1일
+            - "오후 1시" = 13:00 (24시간 형식)
+            - "점심"은 시간대 힌트일 뿐, 구체적 시간("1시")이 있으면 그것을 우선 사용
         """.trimIndent()
         
         val fullSystemPrompt = systemPrompt + fewShotExamples
@@ -2356,34 +2609,27 @@ class HuenDongMinAiAgent(
             - OCR에 "10월 30일 14시" → ${now.year}년 10월 30일 14:00 ✅
             - OCR에 "2025,10,30.(목) 11:30" → 2025년 10월 30일 11:30 ✅
             
-            **2단계: 상대적 표현 처리**
+            **2단계: 상대적 표현 처리 (거의 없지만, 있다면 현재 시간 기준)**
             
-            OCR에 상대적 표현("내일", "다음주", "담주 수욜 저녁", "퇴근 후" 등)이 있다면,
-            **현재 시간(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)**을 기준으로 계산하고,
-            위 [자연어 시간 표현 해석 규칙]을 따르세요:
+            OCR에 상대적 표현("내일", "다음주" 등)이 있다면, **현재 시간(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)**을 기준으로 계산:
             - "내일" → ${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일
             - "다음주 수요일" → 현재 시간 기준 다음 주 수요일
-            - "담주 수욜 저녁" → 다음주 수요일 18:00~21:00 (시작: 19:00)
-            - "퇴근 후" → 오늘 18:00~20:00 (이미 지났으면 내일)
             
             ⚠️ **매우 중요:**
             - 명시적 날짜는 절대 수정하지 마세요!
             - "10월 30일"을 "10월 29일"로 변경하지 마세요!
             - "2025,10,30"을 다른 날짜로 해석하지 마세요!
-            - 하지만 상대적 표현("내일", "다음주" 등)은 위 규칙에 따라 정확히 계산하세요!
             
             **3단계: 시간 찾기**
             
             OCR 텍스트에서 시간을 찾으세요:
-            - "11:30" → 11:30:00
-            - "14시" → 14:00:00
-            - "오후 3시" → 15:00:00
-            - 시간이 없으면 00:00:00 사용
+            - "11:30" → "11:30" (문자열로 반환)
+            - "14시" → "14:00" (문자열로 반환)
+            - "오후 3시" → "15:00" (문자열로 반환)
+            - 시간이 없으면 "00:00" 사용
             
-            **4단계: epoch milliseconds 변환**
-            
-            - 계산한 날짜/시간을 epoch milliseconds로 변환
-            - 한국 시간(KST, UTC+9) 기준으로 계산
+            ⚠️ **중요**: epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
+            시스템이 자동으로 epoch milliseconds로 변환합니다.
             
             출력 형식 (JSON만):
             {
@@ -2392,14 +2638,19 @@ class HuenDongMinAiAgent(
               "events": [
                 {
                   "title": "일정 제목",
-                  "startAt": 1761631200000,
-                  "endAt": 1761631200000,
+                  "date": "2025-10-30",
+                  "time": "14:00",
                   "location": "장소",
                   "type": "회의",
                   "body": "OCR 텍스트 요약"
                 }
               ]
             }
+            
+            ⚠️ **주의사항:**
+            - "startAt", "endAt" 필드를 사용하지 마세요!
+            - "date"와 "time" 필드만 사용하세요!
+            - epoch milliseconds 계산은 시스템이 처리합니다!
         """.trimIndent()
         
         android.util.Log.d("HuenDongMinAiAgent", "=== AI에게 전송할 프롬프트 ===")
@@ -2758,7 +3009,35 @@ class HuenDongMinAiAgent(
                 if (!response.isSuccessful) {
                     android.util.Log.e("HuenDongMinAiAgent", "❌ API 오류: ${response.code}")
                     android.util.Log.e("HuenDongMinAiAgent", "응답 내용: ${responseBody.take(500)}")
-                    throw Exception("OpenAI API 오류: ${response.code} - ${responseBody.take(200)}")
+                    
+                    // 에러 응답 JSON 파싱 시도
+                    val errorMessage = try {
+                        val errorJson = Json.parseToJsonElement(responseBody).jsonObject
+                        val errorObj = errorJson["error"]?.jsonObject
+                        val message = errorObj?.get("message")?.jsonPrimitive?.content
+                        
+                        when (response.code) {
+                            429 -> {
+                                if (message?.contains("quota", ignoreCase = true) == true) {
+                                    "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요.\n\n자세한 내용은 다음 문서를 참고하세요:\nhttps://platform.openai.com/docs/guides/rate-limits"
+                                } else {
+                                    "OpenAI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+                                }
+                            }
+                            401 -> "OpenAI API 키가 유효하지 않습니다. API 키를 확인해주세요."
+                            403 -> "OpenAI API 접근이 거부되었습니다. 권한을 확인해주세요."
+                            500, 502, 503, 504 -> "OpenAI 서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                            else -> message ?: "OpenAI API 오류: ${response.code}"
+                        }
+                    } catch (e: Exception) {
+                        // JSON 파싱 실패 시 기본 메시지 사용
+                        when (response.code) {
+                            429 -> "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요."
+                            else -> "OpenAI API 오류: ${response.code} - ${responseBody.take(200)}"
+                        }
+                    }
+                    
+                    throw Exception(errorMessage)
                 }
                 
                 // 정규식으로 응답 파싱 (임시 해결책)

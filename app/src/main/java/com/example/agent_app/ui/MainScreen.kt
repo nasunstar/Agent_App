@@ -380,6 +380,9 @@ private fun AssistantScaffold(
                         AssistantTab.Chat -> ChatScreen(
                             viewModel = chatViewModel,
                             modifier = Modifier.padding(paddingValues),
+                            onUpdateEvent = { event -> mainViewModel.updateEvent(event) },
+                            onDeleteEvent = { event -> mainViewModel.deleteEvent(event) },
+                            onNavigateToCalendar = { onTabSelected(AssistantTab.Calendar) },
                         )
 
                         AssistantTab.Calendar -> CalendarContent(

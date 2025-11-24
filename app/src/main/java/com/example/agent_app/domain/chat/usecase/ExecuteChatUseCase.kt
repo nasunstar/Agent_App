@@ -35,6 +35,7 @@ class ExecuteChatUseCase(
             answer = answer,
             contextItems = context,
             filters = emptyFilters, // AI가 생성한 필터는 내부적으로만 사용
+            attachment = answer.attachment, // 답변에 첨부된 데이터 (예: 생성된 일정)
         )
     }
 }

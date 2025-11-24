@@ -6,6 +6,7 @@ import com.example.agent_app.data.dao.EventDao
 import com.example.agent_app.data.entity.Event
 import com.example.agent_app.data.search.HybridSearchEngine
 import com.example.agent_app.domain.chat.gateway.ChatGateway
+import com.example.agent_app.domain.chat.model.ChatAttachment
 import com.example.agent_app.domain.chat.model.ChatContextItem
 import com.example.agent_app.domain.chat.model.ChatMessage
 import com.example.agent_app.domain.chat.model.QueryFilters
@@ -105,31 +106,14 @@ class HuenDongMinChatGatewayImpl(
                 android.util.Log.d("HuenDongMinChatGateway", "일정 생성 의도 감지됨: $questionText")
                 val eventCreationResult = tryCreateEventFromQuestion(questionText, messages)
                 if (eventCreationResult != null) {
-                    // 일정 생성 성공 시 답변 생성
-                    val dateTimeStr = eventCreationResult.startAt?.let {
-                        java.time.Instant.ofEpochMilli(it)
-                            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy년 MM월 dd일 HH:mm"))
-                    } ?: "시간 미정"
-                    
-                    val locationStr = eventCreationResult.location?.let { "📍 장소: $it" } ?: ""
-                    
-                    val enhancedResponse = buildString {
-                        appendLine("✅ 일정을 생성했어요!")
-                        appendLine()
-                        appendLine("📅 **${eventCreationResult.title}**")
-                        appendLine("🕐 $dateTimeStr")
-                        if (locationStr.isNotEmpty()) {
-                            appendLine(locationStr)
-                        }
-                        if (eventCreationResult.body != null && eventCreationResult.body.isNotBlank()) {
-                            appendLine()
-                            appendLine(eventCreationResult.body)
-                        }
-                        appendLine()
-                        appendLine("캘린더에서 확인하실 수 있어요 📚")
-                    }
-                    return@withContext ChatMessage(ChatMessage.Role.ASSISTANT, enhancedResponse)
+                    // 일정 생성 성공 시 답변 생성 (간단한 텍스트 + attachment에 Event 포함)
+                    val enhancedResponse = "✅ 일정을 생성했어요!\n\n아래 카드에서 세부 내용을 확인하실 수 있어요."
+                    val attachment = ChatAttachment.EventPreview(eventCreationResult)
+                    return@withContext ChatMessage(
+                        ChatMessage.Role.ASSISTANT, 
+                        enhancedResponse,
+                        attachment = attachment
+                    )
                 } else {
                     // 일정 생성 실패 시 일반 답변 생성
                     android.util.Log.w("HuenDongMinChatGateway", "일정 생성 실패, 일반 답변 생성")
