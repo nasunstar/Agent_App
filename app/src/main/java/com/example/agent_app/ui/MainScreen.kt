@@ -50,6 +50,10 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -1880,6 +1884,7 @@ private fun ClassifiedDataCard(
     }
 }
 
+@OptIn(ExperimentalMaterialApi::class)
 @Composable
 private fun InboxContent(
     ocrItems: List<IngestItem>,
@@ -1930,16 +1935,24 @@ private fun InboxContent(
     val filteredGmailItems = remember(gmailItems, debouncedQuery) { filterItems(gmailItems) }
     val filteredPushNotificationItems = remember(pushNotificationItems, debouncedQuery) { filterItems(pushNotificationItems) }
     
+    // Pull-to-refresh 상태
+    val isRefreshing = mainViewModel.isRefreshing.collectAsStateWithLifecycle().value
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { mainViewModel.refreshInboxData() }
+    )
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // 인박스 헤더
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1966,7 +1979,9 @@ private fun InboxContent(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
             placeholder = { Text("키워드로 검색하기") },
             leadingIcon = {
                 Icon(
@@ -1991,6 +2006,7 @@ private fun InboxContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(bottom = 16.dp)
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2024,11 +2040,20 @@ private fun InboxContent(
             },
         )
         
-        // 카테고리별 컨텐츠
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // 카테고리별 컨텐츠 (Pull-to-refresh 지원)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pullRefresh(pullRefreshState),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
             when (selectedCategory) {
                 InboxCategory.All -> {
                     // 전체: OCR, SMS, 이메일만 표시 (푸시 알림은 제외)
@@ -2288,6 +2313,14 @@ private fun InboxContent(
                     }
                 }
             }
+            }
+            
+            // Pull-to-refresh 인디케이터 (당기는 동안에도 계속 회전)
+            PullRefreshIndicator(
+                refreshing = isRefreshing,
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 }
@@ -2832,6 +2865,7 @@ private fun SmsItemCard(
 }
 
 @Composable
+@OptIn(ExperimentalMaterialApi::class)
 private fun CalendarContent(
     events: List<Event>,
     contentPadding: PaddingValues,
@@ -2844,6 +2878,20 @@ private fun CalendarContent(
     val currentDate = LocalDate.now()
     var selectedMonth by remember { mutableStateOf(YearMonth.from(currentDate)) }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    
+    // Pull-to-refresh 상태
+    val isRefreshing = mainViewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
+    val scope = rememberCoroutineScope()
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = {
+            mainViewModel?.let { vm ->
+                scope.launch {
+                    vm.loadClassifiedData()
+                }
+            }
+        }
+    )
     
     // 선택된 날짜의 일정
     val selectedDateEvents = remember(selectedDate, events) {
@@ -2867,6 +2915,7 @@ private fun CalendarContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .pullRefresh(pullRefreshState)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -3114,6 +3163,13 @@ private fun CalendarContent(
         androidx.compose.material3.SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
+        )
+        
+        // Pull-to-refresh 인디케이터
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
         )
     }
     

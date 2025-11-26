@@ -24,8 +24,14 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -49,7 +55,7 @@ import java.util.*
 /**
  * 대시보드 메인 화면
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterialApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
@@ -74,16 +80,33 @@ fun DashboardScreen(
     // 오늘/이번주 모두 비었는지 확인
     val allEmpty = todayEvents.isEmpty() && weekEvents.isEmpty()
     
-    LazyColumn(
+    // Pull-to-refresh 상태
+    val isRefreshing = viewModel.isRefreshing.collectAsStateWithLifecycle().value
+    val scope = rememberCoroutineScope()
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                viewModel.loadClassifiedData()
+            }
+        }
+    )
+    
+    Box(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(
-                horizontal = Dimens.spacingMD,
-                vertical = spacing
-            ),
-        verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .pullRefresh(pullRefreshState)
+                .padding(
+                    horizontal = Dimens.spacingMD,
+                    vertical = spacing
+                ),
+            verticalArrangement = Arrangement.spacedBy(spacing)
+        ) {
         // 환영 메시지 (1인칭 화법)
         item {
             WelcomeHeader()
@@ -142,6 +165,14 @@ fun DashboardScreen(
                 }
             }
         }
+        }
+        
+        // Pull-to-refresh 인디케이터 (LazyColumn 밖에 위치)
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
     }
 }
 

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 private const val DEFAULT_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
@@ -55,6 +56,10 @@ class MainViewModel(
     private val smsScanState = MutableStateFlow(SmsScanState())
     private val gmailSyncState = MutableStateFlow(GmailSyncState())
     private val callRecordScanState = MutableStateFlow(CallRecordScanState())
+    
+    // 새로고침 상태
+    private val isRefreshingState = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = isRefreshingState
     
     // 여러 Google 계정 관리
     private val googleAccountsState = MutableStateFlow<List<com.example.agent_app.data.entity.AuthToken>>(emptyList())
@@ -277,40 +282,46 @@ class MainViewModel(
     
     private suspend fun loadOcrEvents(ocrItems: List<IngestItem>) {
         classifiedDataRepository?.let { repo ->
-            val eventsMap = mutableMapOf<String, List<Event>>()
-            ocrItems.forEach { item ->
-                val events = repo.getAllEvents().filter { event ->
-                    event.sourceType == "ocr" && event.sourceId == item.id
+            withContext(Dispatchers.IO) {
+                val eventsMap = mutableMapOf<String, List<Event>>()
+                ocrItems.forEach { item ->
+                    val events = repo.getAllEvents().filter { event ->
+                        event.sourceType == "ocr" && event.sourceId == item.id
+                    }
+                    eventsMap[item.id] = events
                 }
-                eventsMap[item.id] = events
+                ocrEventsState.value = eventsMap
             }
-            ocrEventsState.value = eventsMap
         }
     }
     
     private suspend fun loadSmsEvents(smsItems: List<IngestItem>) {
         classifiedDataRepository?.let { repo ->
-            val eventsMap = mutableMapOf<String, List<Event>>()
-            smsItems.forEach { item ->
-                val events = repo.getAllEvents().filter { event ->
-                    event.sourceType == "sms" && event.sourceId == item.id
+            withContext(Dispatchers.IO) {
+                val eventsMap = mutableMapOf<String, List<Event>>()
+                smsItems.forEach { item ->
+                    val events = repo.getAllEvents().filter { event ->
+                        event.sourceType == "sms" && event.sourceId == item.id
+                    }
+                    eventsMap[item.id] = events
                 }
-                eventsMap[item.id] = events
+                smsEventsState.value = eventsMap
             }
-            smsEventsState.value = eventsMap
         }
     }
     
     private suspend fun loadPushNotificationEvents(pushNotificationItems: List<IngestItem>) {
         classifiedDataRepository?.let { repo ->
-            val eventsMap = mutableMapOf<String, List<Event>>()
-            pushNotificationItems.forEach { item ->
-                val events = repo.getAllEvents().filter { event ->
-                    event.sourceType == "push_notification" && event.sourceId == item.id
+            withContext(Dispatchers.IO) {
+                val eventsMap = mutableMapOf<String, List<Event>>()
+                pushNotificationItems.forEach { item ->
+                    val events = repo.getAllEvents().filter { event ->
+                        event.sourceType == "push_notification" && event.sourceId == item.id
+                    }
+                    eventsMap[item.id] = events
                 }
-                eventsMap[item.id] = events
+                pushNotificationEventsState.value = eventsMap
             }
-            pushNotificationEventsState.value = eventsMap
         }
     }
 
@@ -1230,13 +1241,18 @@ class MainViewModel(
     /**
      * 분류된 데이터 다시 로드
      */
-    fun loadClassifiedData() {
-        viewModelScope.launch {
+    suspend fun loadClassifiedData() {
+        try {
+            isRefreshingState.value = true
             classifiedDataRepository?.let { repo ->
-                contactsState.value = repo.getAllContacts()
-                eventsState.value = repo.getAllEvents()
-                notesState.value = repo.getAllNotes()
+                withContext(Dispatchers.IO) {
+                    contactsState.value = repo.getAllContacts()
+                    eventsState.value = repo.getAllEvents()
+                    notesState.value = repo.getAllNotes()
+                }
             }
+        } finally {
+            isRefreshingState.value = false
         }
     }
     
@@ -1246,16 +1262,32 @@ class MainViewModel(
      */
     fun refreshInboxData() {
         viewModelScope.launch {
-            // 분류된 데이터 새로고침
-            loadClassifiedData()
-            
-            // 각 소스별 이벤트 다시 로드
-            loadOcrEvents(ocrItemsState.value)
-            loadSmsEvents(smsItemsState.value)
-            loadPushNotificationEvents(pushNotificationItemsState.value)
-            
-            // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
-            android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")
+            try {
+                isRefreshingState.value = true
+                
+                // 백그라운드 스레드에서 실행하여 UI 블로킹 방지
+                withContext(Dispatchers.IO) {
+                    // 분류된 데이터 새로고침
+                    loadClassifiedData()
+                    
+                    // UI 업데이트를 위해 yield
+                    yield()
+                    
+                    // 각 소스별 이벤트 다시 로드
+                    loadOcrEvents(ocrItemsState.value)
+                    yield()
+                    
+                    loadSmsEvents(smsItemsState.value)
+                    yield()
+                    
+                    loadPushNotificationEvents(pushNotificationItemsState.value)
+                    
+                    // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
+                    android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")
+                }
+            } finally {
+                isRefreshingState.value = false
+            }
         }
     }
     
