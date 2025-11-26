@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -78,6 +79,13 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Snackbar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.foundation.clickable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.agent_app.R
 import com.example.agent_app.ui.common.UiState
@@ -92,6 +100,8 @@ import com.example.agent_app.ui.theme.Dimens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
+import com.example.agent_app.util.TimeFormatter
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -104,6 +114,9 @@ import androidx.compose.ui.semantics.semantics
 fun ChatScreen(
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier,
+    onUpdateEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onDeleteEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onNavigateToCalendar: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
@@ -146,7 +159,10 @@ fun ChatScreen(
                 },
                 snackbarHostState = snackbarHostState,
                 failedEntryIndex = state.failedEntryIndex,
-                onRetry = { index -> viewModel.retryFailedMessage(index) }
+                onRetry = { index -> viewModel.retryFailedMessage(index) },
+                onUpdateEvent = onUpdateEvent,
+                onDeleteEvent = onDeleteEvent,
+                onNavigateToCalendar = onNavigateToCalendar,
             )
 
             if (state.isProcessing) {
@@ -182,7 +198,10 @@ private fun ChatHistory(
     onNewMessage: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
     failedEntryIndex: Int? = null,
-    onRetry: (Int) -> Unit = {}
+    onRetry: (Int) -> Unit = {},
+    onUpdateEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onDeleteEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onNavigateToCalendar: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     
@@ -247,7 +266,10 @@ private fun ChatHistory(
                     entry = entry,
                     snackbarHostState = snackbarHostState,
                     isFailed = failedEntryIndex == index,
-                    onRetry = { onRetry(index) }
+                    onRetry = { onRetry(index) },
+                    onUpdateEvent = onUpdateEvent,
+                    onDeleteEvent = onDeleteEvent,
+                    onNavigateToCalendar = onNavigateToCalendar,
                 )
             }
         }
@@ -259,7 +281,10 @@ private fun ChatEntryCard(
     entry: ChatThreadEntry,
     snackbarHostState: SnackbarHostState,
     isFailed: Boolean = false,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    onUpdateEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onDeleteEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onNavigateToCalendar: (() -> Unit)? = null,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
@@ -388,6 +413,21 @@ private fun ChatEntryCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 )
+                
+                // 일정 미리보기 카드 (attachment가 있는 경우)
+                entry.attachment?.let { attachment ->
+                    when (attachment) {
+                        is com.example.agent_app.domain.chat.model.ChatAttachment.EventPreview -> {
+                            Spacer(modifier = Modifier.height(Dimens.spacingMD))
+                            EventPreviewCard(
+                                event = attachment.event,
+                                onUpdateEvent = onUpdateEvent,
+                                onDeleteEvent = onDeleteEvent,
+                                onNavigateToCalendar = onNavigateToCalendar,
+                            )
+                        }
+                    }
+                }
                 
                 // 타임스탬프
                 Text(
@@ -533,6 +573,196 @@ private fun ContextChip(item: ContextItemUi) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
+    }
+}
+
+/**
+ * 일정 미리보기 카드 컴포저블
+ * 챗봇에서 일정을 생성했을 때 표시되는 인터랙티브 카드
+ */
+@Composable
+private fun EventPreviewCard(
+    event: com.example.agent_app.data.entity.Event,
+    onUpdateEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onDeleteEvent: ((com.example.agent_app.data.entity.Event) -> Unit)? = null,
+    onNavigateToCalendar: (() -> Unit)? = null,
+) {
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        ),
+        shape = RoundedCornerShape(Dimens.cardCornerRadius),
+        elevation = CardDefaults.cardElevation(defaultElevation = Dimens.cardElevation)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
+        ) {
+            // 제목
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Event,
+                    contentDescription = null,
+                    modifier = Modifier.size(Dimens.iconSmall),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            
+            // 시간 정보
+            if (event.startAt != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                    val startTime = TimeFormatter.format(event.startAt)
+                    val endTime = event.endAt?.let { TimeFormatter.format(it) }
+                    Text(
+                        text = if (endTime != null) {
+                            "$startTime ~ $endTime"
+                        } else {
+                            startTime
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            
+            // 장소 정보
+            if (event.location != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = event.location,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            
+            // 본문 (있는 경우)
+            if (!event.body.isNullOrBlank()) {
+                Text(
+                    text = event.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = Dimens.spacingXS)
+                )
+            }
+            
+            // 액션 버튼들
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSM),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 캘린더 보기 버튼
+                if (onNavigateToCalendar != null) {
+                    TextButton(
+                        onClick = onNavigateToCalendar,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CalendarToday,
+                            contentDescription = "캘린더 보기",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("캘린더 보기")
+                    }
+                }
+                
+                // 수정 버튼
+                if (onUpdateEvent != null) {
+                    TextButton(
+                        onClick = { onUpdateEvent(event) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "수정",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("수정")
+                    }
+                }
+                
+                // 삭제 버튼
+                if (onDeleteEvent != null) {
+                    TextButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "삭제",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("삭제")
+                    }
+                }
+            }
+        }
+    }
+    
+    // 삭제 확인 다이얼로그
+    if (showDeleteConfirmDialog && onDeleteEvent != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("일정 삭제") },
+            text = { Text("'${event.title}' 일정을 삭제하시겠어요?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteEvent(event)
+                        showDeleteConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("삭제")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("취소")
+                }
+            }
+        )
     }
 }
 

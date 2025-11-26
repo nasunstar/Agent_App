@@ -2,21 +2,10 @@ package com.example.agent_app.domain.chat.model
 
 import com.example.agent_app.data.entity.Event
 
-// MOA-Chat-Source: 답변에 사용된 근거 데이터 모델
-data class ContextSourceDto(
-    val sourceType: String, // "sms", "gmail", "ocr", "push"
-    val title: String,
-    val snippet: String,
-    val timestamp: Long,
-    val id: String,
-)
-
 data class ChatMessage(
     val role: Role,
     val content: String,
     val attachment: ChatAttachment? = null,
-    // MOA-Chat-Source: 답변 생성에 사용된 상위 1~2개의 context 출처
-    val sources: List<ContextSourceDto>? = null,
 ) {
     enum class Role { USER, ASSISTANT, SYSTEM }
 }

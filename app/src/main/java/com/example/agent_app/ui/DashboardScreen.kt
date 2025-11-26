@@ -19,16 +19,19 @@ package com.example.agent_app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -52,73 +55,61 @@ import java.util.*
 /**
  * 대시보드 메인 화면
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterialApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToInbox: () -> Unit = {},
-    onNavigateToNeedsReview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    
-    // MOA-Performance: 불필요한 재계산 방지 - events가 변경될 때만 필터링/정렬
-    val todayEvents = remember(uiState.events) {
-        derivedStateOf {
-            uiState.events.filter { event ->
-                event.startAt != null && isToday(event.startAt!!)
-            }.sortedBy { it.startAt }
-        }
-    }.value
+    val todayEvents = uiState.events.filter { event ->
+        event.startAt != null && isToday(event.startAt!!)
+    }.sortedBy { it.startAt }
 
-    val weekEvents = remember(uiState.events) {
-        derivedStateOf {
-            uiState.events.filter { event ->
-                event.startAt != null && isThisWeek(event.startAt!!)
-            }.sortedBy { it.startAt }
-        }
-    }.value
+    val weekEvents = uiState.events.filter { event ->
+        event.startAt != null && isThisWeek(event.startAt!!)
+    }.sortedBy { it.startAt }
     
-    // MOA-Performance: configuration은 거의 변경되지 않으므로 remember로 캐싱
+    // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
     val configuration = LocalConfiguration.current
-    val isLandscape = remember(configuration) {
-        configuration.screenWidthDp > configuration.screenHeightDp
-    }
-    val spacing = remember(isLandscape) {
-        if (isLandscape) Dimens.spacingSM else Dimens.spacingMD
-    }
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+    val spacing = if (isLandscape) Dimens.spacingSM else Dimens.spacingMD
     
-    // MOA-Performance: allEmpty는 todayEvents와 weekEvents가 변경될 때만 재계산
-    val allEmpty = remember(todayEvents, weekEvents) {
-        todayEvents.isEmpty() && weekEvents.isEmpty()
-    }
+    // 오늘/이번주 모두 비었는지 확인
+    val allEmpty = todayEvents.isEmpty() && weekEvents.isEmpty()
     
-    LazyColumn(
+    // Pull-to-refresh 상태
+    val isRefreshing = viewModel.isRefreshing.collectAsStateWithLifecycle().value
+    val scope = rememberCoroutineScope()
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                viewModel.loadClassifiedData()
+            }
+        }
+    )
+    
+    Box(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(
-                horizontal = Dimens.spacingMD,
-                vertical = spacing
-            ),
-        verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .pullRefresh(pullRefreshState)
+                .padding(
+                    horizontal = Dimens.spacingMD,
+                    vertical = spacing
+                ),
+            verticalArrangement = Arrangement.spacedBy(spacing)
+        ) {
         // 환영 메시지 (1인칭 화법)
         item {
             WelcomeHeader()
-        }
-        
-        // MOA-Needs-Review: 검토 필요 배지
-        val needsReviewCount = uiState.needsReviewEvents.size
-        if (needsReviewCount > 0) {
-            item {
-                NeedsReviewBadgeCard(
-                    count = needsReviewCount,
-                    onClick = onNavigateToNeedsReview,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
         }
         
         // 액션 칩 (빠른 액션) - FlowRow로 변경하여 줄바꿈 지원
@@ -174,6 +165,14 @@ fun DashboardScreen(
                 }
             }
         }
+        }
+        
+        // Pull-to-refresh 인디케이터 (LazyColumn 밖에 위치)
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
     }
 }
 
@@ -305,8 +304,7 @@ private fun formatTime(timestamp: Long?): String {
 }
 
 private fun isThisWeek(timestamp: Long): Boolean {
-    // MOA-Timezone: KST 기준으로 주 계산
-    val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+    val calendar = Calendar.getInstance()
     val today = calendar.get(Calendar.DAY_OF_YEAR)
     val year = calendar.get(Calendar.YEAR)
     
@@ -336,15 +334,14 @@ private fun isThisWeek(timestamp: Long): Boolean {
 }
 
 private fun formatDayOfWeek(timestamp: Long): String {
-    // MOA-Timezone: KST 기준으로 요일 계산
-    val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+    val calendar = Calendar.getInstance()
     calendar.timeInMillis = timestamp
     
     val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
     val days = arrayOf("일", "월", "화", "수", "목", "금", "토")
     
     // 오늘인지 확인
-    val today = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+    val today = Calendar.getInstance()
     if (calendar.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) &&
         calendar.get(Calendar.YEAR) == today.get(Calendar.YEAR)) {
         return "오늘"
@@ -362,18 +359,13 @@ private fun formatDayOfWeek(timestamp: Long): String {
 
 @Composable
 private fun getGreetingMessage(): String {
-    // MOA-Performance: 인사말은 시간대별로 캐싱 (시간이 바뀔 때만 재계산)
-    val greeting = remember {
-        // 현재 시간을 기반으로 초기값 설정
-        val hour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).get(Calendar.HOUR_OF_DAY)
-        when (hour) {
-            in 5..11 -> stringResource(R.string.greeting_morning)
-            in 12..17 -> stringResource(R.string.greeting_afternoon)
-            in 18..21 -> stringResource(R.string.greeting_evening)
-            else -> stringResource(R.string.greeting_night)
-        }
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> stringResource(R.string.greeting_morning)
+        in 12..17 -> stringResource(R.string.greeting_afternoon)
+        in 18..21 -> stringResource(R.string.greeting_evening)
+        else -> stringResource(R.string.greeting_night)
     }
-    return greeting
 }
 
 // === Preview ===

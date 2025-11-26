@@ -11,8 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-// MOA-Logging: Timber 로깅
-import timber.log.Timber
 
 data class ChatThreadEntry(
     val question: String,
@@ -20,8 +18,7 @@ data class ChatThreadEntry(
     val context: List<ContextItemUi>,
     val filtersDescription: String,
     val timestamp: Long = System.currentTimeMillis(), // 메시지 생성 시간 (UI 레이어에서만 사용)
-    // MOA-Chat-Source: 답변에 사용된 근거 출처
-    val sources: List<SourceUi>? = null,
+    val attachment: com.example.agent_app.domain.chat.model.ChatAttachment? = null, // 첨부 데이터 (예: 생성된 일정)
 )
 
 data class ContextItemUi(
@@ -29,13 +26,6 @@ data class ContextItemUi(
     val title: String,
     val preview: String,
     val meta: String,
-)
-
-// MOA-Chat-Source: 답변 근거 출처 UI 모델
-data class SourceUi(
-    val sourceType: String,
-    val title: String,
-    val timestamp: Long,
 )
 
 data class ChatUiState(
@@ -77,21 +67,8 @@ class ChatViewModel(
                     }
                 }
                 .onFailure { throwable ->
-                    Timber.e(throwable, "챗 실행 실패")
-                    // MOA-Error-Improvement: 사용자 친화적 에러 메시지
-                    val errorMessage = when {
-                        throwable.message?.contains("network", ignoreCase = true) == true ||
-                        throwable.message?.contains("timeout", ignoreCase = true) == true ||
-                        throwable.message?.contains("connection", ignoreCase = true) == true ->
-                            "인터넷 연결을 확인해주세요. 네트워크 문제로 처리하지 못했어요."
-                        throwable.message?.contains("401", ignoreCase = true) == true ||
-                        throwable.message?.contains("unauthorized", ignoreCase = true) == true ->
-                            "인증이 만료되었어요. 다시 로그인해주세요."
-                        throwable.message?.contains("500", ignoreCase = true) == true ||
-                        throwable.message?.contains("server", ignoreCase = true) == true ->
-                            "서버에 일시적인 문제가 있어요. 잠시 후 다시 시도해주세요."
-                        else -> "제가 처리하지 못했어요. 다시 시도해주세요."
-                    }
+                    android.util.Log.e("ChatViewModel", "챗 실행 실패", throwable)
+                    val errorMessage = throwable.message ?: "제가 처리하지 못했어요. 다시 시도해주세요."
                     _uiState.update { state ->
                         state.copy(
                             isProcessing = false,
@@ -132,14 +109,7 @@ class ChatViewModel(
         },
         filtersDescription = buildFiltersDescription(filters),
         timestamp = System.currentTimeMillis(), // 메시지 생성 시간 저장
-        // MOA-Chat-Source: 답변에 사용된 근거 출처 변환
-        sources = answer.sources?.map { source ->
-            SourceUi(
-                sourceType = source.sourceType,
-                title = source.title,
-                timestamp = source.timestamp,
-            )
-        },
+        attachment = attachment ?: answer.attachment, // ChatResult의 attachment 우선, 없으면 ChatMessage의 attachment
     )
 
     private fun buildFiltersDescription(filters: QueryFilters): String = buildString {

@@ -37,12 +37,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import java.util.Calendar
 import java.util.TimeZone
-// MOA-Refresh: Pull-to-Refresh
-import androidx.compose.material3.pullrefresh.PullRefreshIndicator
-import androidx.compose.material3.pullrefresh.pullRefresh
-import androidx.compose.material3.pullrefresh.rememberPullRefreshState
-// MOA-Logging: Timber
-import timber.log.Timber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -56,6 +50,10 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -333,7 +331,7 @@ private fun AssistantScaffold(
             NavigationBar(
                 modifier = Modifier.height(96.dp)  // 높이를 96dp로 더 증가하여 텍스트 잘림 완전 방지
             ) {
-                AssistantTab.values().filter { it != AssistantTab.NeedsReview }.forEach { tab ->
+                AssistantTab.values().forEach { tab ->
                     NavigationBarItem(
                         selected = tab == selectedTab,
                         onClick = { 
@@ -379,7 +377,6 @@ private fun AssistantScaffold(
                             DashboardScreen(
                                 viewModel = mainViewModel,
                                 onNavigateToCalendar = { onTabSelected(AssistantTab.Calendar) },
-                                onNavigateToNeedsReview = { onTabSelected(AssistantTab.NeedsReview) },
                                 modifier = Modifier.padding(paddingValues),
                             )
                         }
@@ -387,6 +384,9 @@ private fun AssistantScaffold(
                         AssistantTab.Chat -> ChatScreen(
                             viewModel = chatViewModel,
                             modifier = Modifier.padding(paddingValues),
+                            onUpdateEvent = { event -> mainViewModel.updateEvent(event) },
+                            onDeleteEvent = { event -> mainViewModel.deleteEvent(event) },
+                            onNavigateToCalendar = { onTabSelected(AssistantTab.Calendar) },
                         )
 
                         AssistantTab.Calendar -> CalendarContent(
@@ -407,11 +407,6 @@ private fun AssistantScaffold(
                             pushNotificationEvents = uiState.pushNotificationEvents,
                             contentPadding = paddingValues,
                             mainViewModel = mainViewModel,
-                        )
-                        AssistantTab.NeedsReview -> NeedsReviewScreen(
-                            viewModel = mainViewModel,
-                            onNavigateBack = { onTabSelected(AssistantTab.Dashboard) },
-                            modifier = Modifier.padding(paddingValues),
                         )
                         AssistantTab.ShareCalendar -> ShareCalendarScreen(
                             uiState = shareCalendarUiState,
@@ -1190,7 +1185,6 @@ enum class AssistantTab(@androidx.annotation.StringRes val labelResId: Int) {
     Calendar(R.string.tab_calendar),
     Inbox(R.string.tab_inbox),
     ShareCalendar(R.string.tab_share_calendar),
-    NeedsReview(R.string.tab_dashboard), // 임시로 dashboard 리소스 사용
 }
 
 @Composable
@@ -1201,7 +1195,6 @@ private fun getTabIcon(tab: AssistantTab): androidx.compose.ui.graphics.vector.I
         AssistantTab.Calendar -> Icons.Filled.DateRange
         AssistantTab.Inbox -> Icons.Filled.Email
         AssistantTab.ShareCalendar -> Icons.Filled.Share
-        AssistantTab.NeedsReview -> Icons.Filled.Warning
     }
 }
 
@@ -1891,6 +1884,7 @@ private fun ClassifiedDataCard(
     }
 }
 
+@OptIn(ExperimentalMaterialApi::class)
 @Composable
 private fun InboxContent(
     ocrItems: List<IngestItem>,
@@ -1913,50 +1907,52 @@ private fun InboxContent(
         debouncedQuery = searchQuery
     }
     
-    // MOA-Performance: Gmail 이벤트 매핑 최적화 - events가 변경될 때만 재계산
+    // Gmail 이벤트를 UI State에서 가져오기 (AssistantUiState의 events 필드 사용)
     val uiState = mainViewModel.uiState.collectAsStateWithLifecycle().value
     val gmailEvents = remember(gmailItems, uiState.events) {
-        // Map을 사용하여 O(n*m) → O(n+m)으로 최적화
-        val eventMap = uiState.events
-            .filter { it.sourceType == "gmail" && it.sourceId != null }
-            .groupBy { it.sourceId!! }
-        
         gmailItems.associate { item ->
-            item.id to (eventMap[item.id] ?: emptyList())
-        }
-    }
-    
-    // MOA-Performance: 검색 필터링 최적화 - debouncedQuery가 변경될 때만 재계산
-    val filterItems: (List<IngestItem>) -> List<IngestItem> = remember(debouncedQuery) {
-        if (debouncedQuery.isBlank()) {
-            { items -> items } // 쿼리가 비어있으면 항등 함수 반환
-        } else {
-            val queryLower = debouncedQuery.lowercase()
-            { items ->
-                items.filter { item ->
-                    (item.title?.lowercase()?.contains(queryLower) == true) ||
-                    (item.body?.lowercase()?.contains(queryLower) == true)
-                }
+            item.id to uiState.events.filter { event ->
+                event.sourceType == "gmail" && event.sourceId == item.id
             }
         }
     }
     
-    // MOA-Performance: 모든 필터링을 최적화된 filterItems 함수 사용
-    val filteredOcrItems = remember(ocrItems, filterItems) { filterItems(ocrItems) }
-    val filteredSmsItems = remember(smsItems, filterItems) { filterItems(smsItems) }
-    val filteredGmailItems = remember(gmailItems, filterItems) { filterItems(gmailItems) }
-    val filteredPushNotificationItems = remember(pushNotificationItems, filterItems) { filterItems(pushNotificationItems) }
+    // 검색 쿼리로 필터링 (UI 레이어에서만 필터링)
+    val filterItems = { items: List<IngestItem> ->
+        if (debouncedQuery.isBlank()) {
+            items
+        } else {
+            val queryLower = debouncedQuery.lowercase()
+            items.filter { item ->
+                (item.title?.lowercase()?.contains(queryLower) == true) ||
+                (item.body?.lowercase()?.contains(queryLower) == true)
+            }
+        }
+    }
+    
+    val filteredOcrItems = remember(ocrItems, debouncedQuery) { filterItems(ocrItems) }
+    val filteredSmsItems = remember(smsItems, debouncedQuery) { filterItems(smsItems) }
+    val filteredGmailItems = remember(gmailItems, debouncedQuery) { filterItems(gmailItems) }
+    val filteredPushNotificationItems = remember(pushNotificationItems, debouncedQuery) { filterItems(pushNotificationItems) }
+    
+    // Pull-to-refresh 상태
+    val isRefreshing = mainViewModel.isRefreshing.collectAsStateWithLifecycle().value
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { mainViewModel.refreshInboxData() }
+    )
     
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // 인박스 헤더
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1983,7 +1979,9 @@ private fun InboxContent(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
             placeholder = { Text("키워드로 검색하기") },
             leadingIcon = {
                 Icon(
@@ -2008,6 +2006,7 @@ private fun InboxContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(bottom = 16.dp)
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2041,11 +2040,20 @@ private fun InboxContent(
             },
         )
         
-        // 카테고리별 컨텐츠
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // 카테고리별 컨텐츠 (Pull-to-refresh 지원)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pullRefresh(pullRefreshState),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
             when (selectedCategory) {
                 InboxCategory.All -> {
                     // 전체: OCR, SMS, 이메일만 표시 (푸시 알림은 제외)
@@ -2305,6 +2313,14 @@ private fun InboxContent(
                     }
                 }
             }
+            }
+            
+            // Pull-to-refresh 인디케이터 (당기는 동안에도 계속 회전)
+            PullRefreshIndicator(
+                refreshing = isRefreshing,
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 }
@@ -2518,7 +2534,7 @@ private fun EmptyStateCard(@androidx.annotation.StringRes messageResId: Int) {
         ) {
             Icon(
                 imageVector = Icons.Filled.Info,
-                contentDescription = stringResource(messageResId),
+                contentDescription = null,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             )
@@ -2580,7 +2596,7 @@ private fun GmailItemCard(
                 ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = "일정 생성",
+                            contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -2687,7 +2703,6 @@ private fun PushNotificationItemCard(
                         event = event,
                         onUpdateEvent = onUpdateEvent,
                         onDeleteEvent = onDeleteEvent,
-                        mainViewModel = null, // 이 부분은 mainViewModel이 없을 수 있음
                     )
                 }
             } else if (onCreateEvent != null) {
@@ -2699,7 +2714,7 @@ private fun PushNotificationItemCard(
                 ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = "일정 생성",
+                            contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -2850,6 +2865,7 @@ private fun SmsItemCard(
 }
 
 @Composable
+@OptIn(ExperimentalMaterialApi::class)
 private fun CalendarContent(
     events: List<Event>,
     contentPadding: PaddingValues,
@@ -2863,28 +2879,16 @@ private fun CalendarContent(
     var selectedMonth by remember { mutableStateOf(YearMonth.from(currentDate)) }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     
-    // MOA-Refresh: Pull-to-Refresh 상태 관리
-    var isRefreshing by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
+    // Pull-to-refresh 상태
+    val isRefreshing = mainViewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
+    val scope = rememberCoroutineScope()
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
         onRefresh = {
-            isRefreshing = true
-            // 전체 일정 새로고침
             mainViewModel?.let { vm ->
-                coroutineScope.launch {
-                    try {
-                        vm.refreshAllEvents()
-                        // 새로고침 완료 후 약간의 딜레이 (사용자 경험 개선)
-                        delay(300)
-                    } catch (e: Exception) {
-                        Timber.e(e, "일정 새로고침 실패")
-                    } finally {
-                        isRefreshing = false
-                    }
+                scope.launch {
+                    vm.loadClassifiedData()
                 }
-            } ?: run {
-                isRefreshing = false
             }
         }
     )
@@ -2908,19 +2912,14 @@ private fun CalendarContent(
             .fillMaxSize()
             .padding(contentPadding)
     ) {
-        // MOA-Refresh: Pull-to-Refresh 적용
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .pullRefresh(pullRefreshState)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
             Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -3133,25 +3132,16 @@ private fun CalendarContent(
                                     event = event,
                                     onUpdateEvent = onUpdateEvent,
                                     onDeleteEvent = onDeleteEvent,
-                                    mainViewModel = mainViewModel,
                                 )
                             }
                         }
                     }
                 }
             }
-            } // Card 닫기
-            } // Column (스크롤) 닫기
-            
-            // MOA-Refresh: Pull-to-Refresh 인디케이터 (Pull-to-Refresh Box 안에)
-            PullRefreshIndicator(
-                refreshing = isRefreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
+            }
         }
         
-        // FAB (Floating Action Button) - 외부 Box 안에
+        // FAB (Floating Action Button)
         if (mainViewModel != null) {
             FloatingActionButton(
                 onClick = { showAddEventDialog = true },
@@ -3173,6 +3163,13 @@ private fun CalendarContent(
         androidx.compose.material3.SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
+        )
+        
+        // Pull-to-refresh 인디케이터
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
         )
     }
     
@@ -3401,7 +3398,6 @@ private fun EventDetailRow(
     onEventClick: (Event) -> Unit = {},
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
-    mainViewModel: MainViewModel? = null,
 ) {
     var showDetailDialog by remember { mutableStateOf(false) }
     
@@ -3427,7 +3423,7 @@ private fun EventDetailRow(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Event,
-                    contentDescription = event.title,
+                    contentDescription = null,
                     modifier = Modifier.size(Dimens.iconSmall),
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -3452,7 +3448,7 @@ private fun EventDetailRow(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Schedule,
-                                contentDescription = "시작 시간",
+                                contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -3486,7 +3482,7 @@ private fun EventDetailRow(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LocationOn,
-                        contentDescription = event.location ?: "장소",
+                        contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -3506,7 +3502,6 @@ private fun EventDetailRow(
             onDismiss = { showDetailDialog = false },
             onUpdateEvent = onUpdateEvent,
             onDeleteEvent = onDeleteEvent,
-            mainViewModel = mainViewModel,
         )
     }
 }
@@ -3517,12 +3512,9 @@ private fun EventDetailDialog(
     onDismiss: () -> Unit,
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
-    mainViewModel: MainViewModel? = null,
 ) {
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    var isReanalyzing by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3644,39 +3636,6 @@ private fun EventDetailDialog(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 재정렬 버튼 (sourceId가 있고 mainViewModel이 있을 때만 표시)
-                if (event.sourceId != null && mainViewModel != null) {
-                    Button(
-                        onClick = {
-                            isReanalyzing = true
-                            coroutineScope.launch {
-                                try {
-                                    mainViewModel.reanalyzeEvent(event)
-                                    // MOA-Refresh: 재정렬 완료 후 약간의 딜레이 (DB 업데이트 대기)
-                                    delay(500)
-                                    onDismiss()
-                                } catch (e: Exception) {
-                                    Timber.e(e, "일정 재정렬 실패")
-                                } finally {
-                                    isReanalyzing = false
-                                }
-                            }
-                        },
-                        enabled = !isReanalyzing,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        if (isReanalyzing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = MaterialTheme.colorScheme.onSecondary
-                            )
-                        } else {
-                            Text("재정렬")
-                        }
-                    }
-                }
                 if (onUpdateEvent != null) {
                     Button(onClick = { showEditDialog = true }) {
                         Text("수정")
@@ -4499,12 +4458,9 @@ private fun PushNotificationAnalysisCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     )
                 }
-                } // else 블록 닫기 (4495의 else)
-                } // else if (stats != null) 블록 닫기 (4387)
-            } // if (isLoading) 블록 닫기 (4380)
-        } // else 블록 닫기 (4379의 else)
-        } // Column 닫기 (4355)
-    } // Card 본문 닫기 (4354)
+            }
+        }
+    }
     
     // 날짜 선택 다이얼로그
     if (showDatePicker) {

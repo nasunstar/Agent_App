@@ -74,7 +74,9 @@ class MainActivity : ComponentActivity() {
                     mainViewModel.onSmsScanComplete(startTimestamp, endTimestamp, processedCount, eventCount, message)
                     
                     // 데이터 새로고침
-                    mainViewModel.loadClassifiedData()
+                    CoroutineScope(Dispatchers.Main).launch {
+                        mainViewModel.loadClassifiedData()
+                    }
                 }
                 com.example.agent_app.service.SmsScanService.ACTION_SCAN_PROGRESS -> {
                     val startTimestamp = intent.getLongExtra(com.example.agent_app.service.SmsScanService.EXTRA_START_TIMESTAMP, 0L)

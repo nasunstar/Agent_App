@@ -85,12 +85,8 @@ class HuenDongMinChatGatewayImpl(
     
     /**
      * AI를 통해 답변 생성
-     * MOA-Chat-Source: context를 파라미터로 받아 중복 조회 방지
      */
-    override suspend fun requestChatCompletion(
-        messages: List<ChatMessage>,
-        context: List<ChatContextItem> = emptyList()
-    ): ChatMessage = withContext(dispatcher) {
+    override suspend fun requestChatCompletion(messages: List<ChatMessage>): ChatMessage = withContext(dispatcher) {
         
         // messages에서 사용자 질문과 컨텍스트 정보 추출
         val userMessage = messages.lastOrNull { it.role == ChatMessage.Role.USER }
@@ -110,24 +106,13 @@ class HuenDongMinChatGatewayImpl(
                 android.util.Log.d("HuenDongMinChatGateway", "일정 생성 의도 감지됨: $questionText")
                 val eventCreationResult = tryCreateEventFromQuestion(questionText, messages)
                 if (eventCreationResult != null) {
-                    // 일정 생성 성공 시 답변 생성 (간단한 메시지 + attachment에 Event 포함)
-                    val enhancedResponse = "✅ 일정을 생성했어요!\n\n캘린더 탭에서 확인하실 수 있어요 📚"
+                    // 일정 생성 성공 시 답변 생성 (간단한 텍스트 + attachment에 Event 포함)
+                    val enhancedResponse = "✅ 일정을 생성했어요!\n\n아래 카드에서 세부 내용을 확인하실 수 있어요."
                     val attachment = ChatAttachment.EventPreview(eventCreationResult)
-                    // MOA-Chat-Source: 일정 생성 시에도 sources 포함 (context에서)
-                    val topSources = context.take(2).map { item ->
-                        com.example.agent_app.domain.chat.model.ContextSourceDto(
-                            sourceType = item.source,
-                            title = item.title.ifBlank { "(제목 없음)" },
-                            snippet = item.body.take(100),
-                            timestamp = item.timestamp,
-                            id = item.itemId,
-                        )
-                    }
                     return@withContext ChatMessage(
                         ChatMessage.Role.ASSISTANT, 
                         enhancedResponse,
-                        attachment = attachment,
-                        sources = if (topSources.isNotEmpty()) topSources else null
+                        attachment = attachment
                     )
                 } else {
                     // 일정 생성 실패 시 일반 답변 생성
@@ -137,23 +122,7 @@ class HuenDongMinChatGatewayImpl(
             
             // 일반 답변 생성
             val response = callOpenAiWithChatMessages(messages)
-            
-            // MOA-Chat-Source: 전달받은 context에서 상위 1~2개를 sources로 변환 (중복 조회 제거)
-            val topSources = context.take(2).map { item ->
-                com.example.agent_app.domain.chat.model.ContextSourceDto(
-                    sourceType = item.source,
-                    title = item.title.ifBlank { "(제목 없음)" },
-                    snippet = item.body.take(100),
-                    timestamp = item.timestamp,
-                    id = item.itemId,
-                )
-            }
-            
-            ChatMessage(
-                ChatMessage.Role.ASSISTANT,
-                response,
-                sources = if (topSources.isNotEmpty()) topSources else null
-            )
+            ChatMessage(ChatMessage.Role.ASSISTANT, response)
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinChatGateway", "답변 생성 실패", e)
             val errorMessage = when {
