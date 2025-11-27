@@ -78,6 +78,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Snackbar
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Schedule
@@ -522,7 +523,7 @@ private fun formatMessageTimestamp(timestamp: Long): String {
     
     val daysDiff = ChronoUnit.DAYS.between(messageLocal.toLocalDate(), nowLocal.toLocalDate())
     
-    val timeFormatter = DateTimeFormatter.ofPattern("a h:mm", java.util.Locale("ko", "KR"))
+    val timeFormatter = DateTimeFormatter.ofPattern("a h:mm", java.util.Locale.forLanguageTag("ko-KR"))
     val timeStr = messageLocal.format(timeFormatter)
     
     return when {
@@ -542,7 +543,7 @@ private fun formatMessageTimestamp(timestamp: Long): String {
             "$dayOfWeek $timeStr"
         }
         else -> {
-            val dateFormatter = DateTimeFormatter.ofPattern("M월 d일", java.util.Locale("ko", "KR"))
+            val dateFormatter = DateTimeFormatter.ofPattern("M월 d일", java.util.Locale.forLanguageTag("ko-KR"))
             "${messageLocal.format(dateFormatter)} $timeStr"
         }
     }
@@ -866,7 +867,7 @@ private fun ChatInput(
                         }
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Send,
+                        imageVector = Icons.AutoMirrored.Filled.Send,
                         contentDescription = sendButtonDescription,
                         tint = if (enabled && value.isNotBlank()) {
                             MaterialTheme.colorScheme.primary

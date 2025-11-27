@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,7 +47,7 @@ fun SidebarMenu(
             )
         }
         
-        Divider()
+        HorizontalDivider()
         
         // 메뉴 항목들
         Column(
@@ -69,7 +69,7 @@ fun SidebarMenu(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
             )
             
-            Divider()
+            HorizontalDivider()
             
             // 개발자 기능
             Text(
@@ -87,7 +87,7 @@ fun SidebarMenu(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
             )
             
-            Divider()
+            HorizontalDivider()
         }
         
         // 나머지 빈 공간

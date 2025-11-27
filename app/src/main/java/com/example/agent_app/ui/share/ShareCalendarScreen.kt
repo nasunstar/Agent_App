@@ -23,15 +23,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -654,7 +654,7 @@ private fun SearchProfileByShareIdSection(
             }
 
             uiState.searchProfileResult?.let { profile ->
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 if (profile.calendars.isNotEmpty()) {
                     Text(
                         text = "공유 중인 캘린더 ${profile.calendars.size}개",
@@ -756,7 +756,7 @@ private fun SearchCalendarByShareIdSection(
             }
 
             uiState.searchCalendarResult?.let { calendar ->
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 ) {
@@ -835,7 +835,7 @@ private fun SharedCalendarMonthView(
                 modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "이전 달",
                     modifier = Modifier.size(24.dp)
                 )
@@ -850,7 +850,7 @@ private fun SharedCalendarMonthView(
                 modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Icon(
-                    Icons.Filled.ArrowForward,
+                    Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = "다음 달",
                     modifier = Modifier.size(24.dp)
                 )

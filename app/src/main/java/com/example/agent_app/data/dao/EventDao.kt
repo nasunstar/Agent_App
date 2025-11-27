@@ -87,18 +87,17 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE status = 'needs_review' ORDER BY start_at ASC")
     suspend fun getNeedsReviewEvents(): List<Event>
     
-    // MOA-Event-Deduplication: 중복 일정 체크 (title + startAt + location 기준)
+    @Query("DELETE FROM events")
+    suspend fun clearAll()
+
     @Query("""
         SELECT * FROM events 
         WHERE title = :title 
-          AND start_at = :startAt 
+          AND (start_at = :startAt OR (:startAt IS NULL AND start_at IS NULL))
           AND (location = :location OR (location IS NULL AND :location IS NULL))
         LIMIT 1
     """)
-    suspend fun findDuplicateEvent(title: String, startAt: Long?, location: String?): Event?
-    
-    @Query("DELETE FROM events")
-    suspend fun clearAll()
+    suspend fun findDuplicateEvent(title: String?, startAt: Long?, location: String?): Event?
     
     /**
      * 다가오는 일정 조회 (지금부터 특정 시간 이내의 일정)

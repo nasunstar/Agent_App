@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,6 +32,7 @@ fun DeveloperMenuDrawer(
     onClearToken: () -> Unit,
     onSync: () -> Unit,
     onResetDatabase: () -> Unit,
+    onClearEvents: () -> Unit,
     onCloseDrawer: () -> Unit,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
 ) {
@@ -51,7 +52,7 @@ fun DeveloperMenuDrawer(
                 modifier = Modifier.padding(vertical = 8.dp),
             )
             
-            Divider()
+            HorizontalDivider()
         }
         
         // 요약(Overview) 컨텐츠를 사이드바에 포함
@@ -75,6 +76,7 @@ fun DeveloperMenuDrawer(
             onClearToken = onClearToken,
             onSync = onSync,
             onResetDatabase = onResetDatabase,
+            onClearEvents = onClearEvents,
             googleSignInLauncher = googleSignInLauncher,
         )
     }

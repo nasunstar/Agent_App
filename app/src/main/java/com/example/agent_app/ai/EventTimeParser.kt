@@ -56,7 +56,7 @@ object EventTimeParser {
     private val monthDayPattern = Regex("""(?<!\d)(\d{1,2})[\.\/월\s]*(\d{1,2})(?:일)?""")
     private val rangePattern = Regex("""(?<!\d)(\d{1,2})[\.\/](\d{1,2})\s*[~\-]\s*(\d{1,2})""")
     private val timePattern = Regex("""(오전|오후|AM|PM|am|pm)?\s*(\d{1,2})(?:시|:)\s*(\d{0,2})""")
-    private val durationPattern = Regex("""(\d+)\s*(시간|hour|시간짜리)""")
+    private val durationPattern = Regex("""(\d+)\s*(시간|hour|시간짜리|일)(?:\s*(?:동안|간))?""", RegexOption.IGNORE_CASE)
     private val relativeKeywords = mapOf(
         "오늘" to 0,
         "내일" to 1,
@@ -181,13 +181,17 @@ object EventTimeParser {
         }
 
         durationPattern.findAll(text).forEach { match ->
-            val hours = match.groupValues[1].toInt()
+            val amount = match.groupValues[1].toInt()
+            val unit = match.groupValues[2]
             expressions += TimeExpression(
                 text = match.value,
                 kind = TimeExprKind.DURATION,
                 startIndex = match.range.first,
                 endIndex = match.range.last + 1,
-                meta = mapOf("hours" to hours)
+                meta = mapOf(
+                    "amount" to amount,
+                    "unit" to unit
+                )
             )
         }
 
@@ -208,6 +212,7 @@ object EventTimeParser {
         var targetMinute = 0
         var hasTime = false
         var durationHours: Int? = null
+        var durationDays: Int? = null
 
         // 1. 명시적 날짜 찾기 (최우선)
         val absoluteDate = expressions.firstOrNull {
@@ -301,7 +306,15 @@ object EventTimeParser {
         // 4. 기간 처리
         val durationExpr = expressions.firstOrNull { it.kind == TimeExprKind.DURATION }
         if (durationExpr != null) {
-            durationHours = durationExpr.meta["hours"] as? Int
+            val amount = durationExpr.meta["amount"] as? Int
+            val unit = (durationExpr.meta["unit"] as? String).orEmpty()
+            if (amount != null) {
+                if (unit.contains("시간", ignoreCase = true) || unit.contains("hour", ignoreCase = true)) {
+                    durationHours = amount
+                } else if (unit.contains("일", ignoreCase = true)) {
+                    durationDays = amount
+                }
+            }
         }
 
         // 최종 날짜/시간 생성
@@ -317,6 +330,9 @@ object EventTimeParser {
             targetEndDate != null -> {
                 // RANGE 표현: 종료 날짜의 00:00 (하루 종일)
                 targetEndDate.plusDays(1).atTime(0, 0).atZone(context.zoneId)
+            }
+            durationDays != null -> {
+                startDateTime.plusDays(durationDays.toLong())
             }
             durationHours != null -> {
                 startDateTime.plusHours(durationHours.toLong())

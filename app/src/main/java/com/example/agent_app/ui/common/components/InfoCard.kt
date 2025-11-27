@@ -6,7 +6,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -130,7 +130,7 @@ fun InfoCard(
                 }
                 if (onClick != null) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowForward,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = "$title 열기",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(Dimens.iconSmall)
@@ -138,10 +138,8 @@ fun InfoCard(
                 }
             }
             
-            if (content != null) {
-                Divider(color = MaterialTheme.colorScheme.outlineVariant)
-                content()
-            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            content()
         }
     }
 }

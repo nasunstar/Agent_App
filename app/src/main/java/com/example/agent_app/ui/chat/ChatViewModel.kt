@@ -19,6 +19,7 @@ data class ChatThreadEntry(
     val filtersDescription: String,
     val timestamp: Long = System.currentTimeMillis(), // 메시지 생성 시간 (UI 레이어에서만 사용)
     val attachment: com.example.agent_app.domain.chat.model.ChatAttachment? = null, // 첨부 데이터 (예: 생성된 일정)
+    val sources: List<SourceUi>? = null, // MOA-Chat-Source: 답변에 사용된 근거 출처
 )
 
 data class ContextItemUi(
@@ -26,6 +27,13 @@ data class ContextItemUi(
     val title: String,
     val preview: String,
     val meta: String,
+)
+
+data class SourceUi(
+    val id: String,
+    val title: String,
+    val timestamp: Long,
+    val sourceType: String,
 )
 
 data class ChatUiState(
@@ -110,6 +118,14 @@ class ChatViewModel(
         filtersDescription = buildFiltersDescription(filters),
         timestamp = System.currentTimeMillis(), // 메시지 생성 시간 저장
         attachment = attachment ?: answer.attachment, // ChatResult의 attachment 우선, 없으면 ChatMessage의 attachment
+        sources = contextItems.map { item ->
+            SourceUi(
+                id = item.itemId,
+                title = item.title.ifBlank { "(제목 없음)" },
+                timestamp = item.timestamp,
+                sourceType = item.source,
+            )
+        },
     )
 
     private fun buildFiltersDescription(filters: QueryFilters): String = buildString {

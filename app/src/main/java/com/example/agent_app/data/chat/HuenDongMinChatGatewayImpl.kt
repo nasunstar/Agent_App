@@ -86,7 +86,10 @@ class HuenDongMinChatGatewayImpl(
     /**
      * AI를 통해 답변 생성
      */
-    override suspend fun requestChatCompletion(messages: List<ChatMessage>): ChatMessage = withContext(dispatcher) {
+    override suspend fun requestChatCompletion(
+        messages: List<ChatMessage>,
+        context: List<ChatContextItem>
+    ): ChatMessage = withContext(dispatcher) {
         
         // messages에서 사용자 질문과 컨텍스트 정보 추출
         val userMessage = messages.lastOrNull { it.role == ChatMessage.Role.USER }

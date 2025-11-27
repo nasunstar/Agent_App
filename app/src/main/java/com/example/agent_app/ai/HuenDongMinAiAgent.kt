@@ -283,19 +283,29 @@ class HuenDongMinAiAgent(
 
         val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
 
+        val hasExplicitDate = jsonObj["hasExplicitDate"]?.jsonPrimitive?.content?.toBoolean() ?: false
+        val explicitDate = jsonObj["explicitDate"]?.jsonPrimitive?.content
+        val hasTime = jsonObj["hasTime"]?.jsonPrimitive?.content?.toBoolean() ?: false
+        val rawTime = jsonObj["time"]?.jsonPrimitive?.content
+        val rawFinalTime = jsonObj["finalTime"]?.jsonPrimitive?.content ?: "00:00"
+        val rawFinalEndTime = jsonObj["finalEndTime"]?.jsonPrimitive?.content
+        val range = parseTimeRangeExpression(rawFinalTime)
+        val normalizedFinalTime = range?.first ?: rawFinalTime
+        val normalizedFinalEndTime = rawFinalEndTime ?: range?.second
+
         TimeAnalysisResult(
-            hasExplicitDate = jsonObj["hasExplicitDate"]?.jsonPrimitive?.content?.toBoolean() ?: false,
-            explicitDate = jsonObj["explicitDate"]?.jsonPrimitive?.content,
+            hasExplicitDate = hasExplicitDate,
+            explicitDate = explicitDate,
             hasRelativeTime = jsonObj["hasRelativeTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
             relativeTimeExpressions = jsonObj["relativeTimeExpressions"]?.jsonArray?.mapNotNull {
                 it.jsonPrimitive.content
             } ?: emptyList(),
-            hasTime = jsonObj["hasTime"]?.jsonPrimitive?.content?.toBoolean() ?: false,
-            time = jsonObj["time"]?.jsonPrimitive?.content,
+            hasTime = hasTime,
+            time = rawTime,
             finalDate = jsonObj["finalDate"]?.jsonPrimitive?.content,
-            finalTime = jsonObj["finalTime"]?.jsonPrimitive?.content ?: "00:00",
+            finalTime = normalizedFinalTime,
             finalEndDate = jsonObj["finalEndDate"]?.jsonPrimitive?.content,
-            finalEndTime = jsonObj["finalEndTime"]?.jsonPrimitive?.content,
+            finalEndTime = normalizedFinalEndTime,
             referenceTimestamp = referenceTimestamp,
             currentTimestamp = now.toInstant().toEpochMilli(),
             timezone = "Asia/Seoul"
@@ -469,14 +479,18 @@ class HuenDongMinAiAgent(
                 0
             } else h
         } else 0
-        val minute = if (timeParts.size >= 2) {
+        var minute = if (timeParts.size >= 2) {
             val m = timeParts[1].toIntOrNull() ?: 0
             if (m !in 0..59) {
                 android.util.Log.w("HuenDongMinAiAgent", "분 범위 오류: $m, 0으로 설정")
                 0
             } else m
         } else 0
-        
+
+        if (shouldForceTopOfHour(timeAnalysis)) {
+            minute = 0
+        }
+
         // 최종 날짜/시간 생성 및 epoch milliseconds 변환
         val finalDateTime = try {
             java.time.LocalDate.of(year, month, day)
@@ -490,7 +504,7 @@ class HuenDongMinAiAgent(
         val startAt = finalDateTime.toInstant().toEpochMilli()
         
         // 종료 시간 계산: LLM이 계산한 종료 시간이 있으면 사용, 없으면 기본 1시간
-        val endAt = if (timeAnalysis.finalEndDate != null && timeAnalysis.finalEndTime != null) {
+        var endAt = if (timeAnalysis.finalEndDate != null && timeAnalysis.finalEndTime != null) {
             // LLM이 종료 시간을 계산한 경우
             val (validatedEndDate, validatedEndTime) = validateLlmOutput(
                 finalDate = timeAnalysis.finalEndDate,
@@ -531,6 +545,14 @@ class HuenDongMinAiAgent(
         } else {
             // 종료 시간이 없으면 기본 1시간
             startAt + (60 * 60 * 1000)
+        }
+
+        if (endAt <= startAt) {
+            android.util.Log.w(
+                "HuenDongMinAiAgent",
+                "종료 시간이 시작 시간보다 빠르거나 같습니다. 기본 1시간으로 보정합니다. startAt=$startAt, endAt=$endAt"
+            )
+            endAt = startAt + (60 * 60 * 1000)
         }
         
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 결과 (LLM 계산 + 검증):")
@@ -667,16 +689,16 @@ class HuenDongMinAiAgent(
             finalTime != null && finalTime.matches(Regex("\\d{1,2}:\\d{2}")) -> {
                 // HH:mm 형식 검증 통과
                 val parts = finalTime.split(":")
-                val h = parts[0].toIntOrNull() ?: 0
-                val m = parts[1].toIntOrNull() ?: 0
+                val h = parts[0].toIntOrNull()?.coerceIn(0, 23) ?: 0
+                val m = parts[1].toIntOrNull()?.coerceIn(0, 59) ?: 0
                 "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
             }
             finalTime != null -> {
                 // 형식이 맞지 않으면 정규화 시도
                 android.util.Log.w("HuenDongMinAiAgent", "시간 형식 정규화 필요: $finalTime")
-                normalizeTimeString(finalTime) ?: "00:00"
+                normalizeTimeString(finalTime) ?: inferTimeFromKeyword(finalTime, finalDate)
             }
-            else -> "00:00"
+            else -> inferTimeFromKeyword(null, finalDate)
         }
         
         return Pair(validatedDate, validatedTime)
@@ -857,18 +879,50 @@ class HuenDongMinAiAgent(
      */
     private fun normalizeTimeString(timeStr: String): String? {
         return try {
-            // "14시" → "14:00"
-            if (timeStr.contains("시") && !timeStr.contains(":")) {
-                val hour = Regex("(\\d{1,2})시").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-                "$hour:00"
+            val trimmed = timeStr.trim()
+            if (trimmed.matches(Regex("\\d{1,2}:\\d{2}"))) {
+                val parts = trimmed.split(":")
+                val h = parts[0].toIntOrNull()?.coerceIn(0, 23) ?: return null
+                val m = parts[1].toIntOrNull()?.coerceIn(0, 59) ?: return null
+                return "${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}"
             }
-            // "14시30분" → "14:30"
-            else if (timeStr.contains("시") && timeStr.contains("분")) {
-                val hour = Regex("(\\d{1,2})시").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-                val minute = Regex("(\\d{1,2})분").find(timeStr)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+            
+            val lower = trimmed.lowercase()
+            val isPm = lower.contains("오후") || lower.contains("pm")
+            val isAm = lower.contains("오전") || lower.contains("am")
+            
+            var hour: Int? = null
+            var minute: Int? = null
+            
+            if (trimmed.contains(":")) {
+                val parts = trimmed.split(":")
+                hour = parts.getOrNull(0)?.filter { it.isDigit() }?.toIntOrNull()
+                val minuteStr = parts.getOrNull(1)?.filter { it.isDigit() }
+                minute = minuteStr?.toIntOrNull()
             }
-            else null
+            
+            if (hour == null && trimmed.contains("시")) {
+                hour = Regex("(\\d{1,2})시").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+            }
+            if (minute == null && trimmed.contains("분")) {
+                minute = Regex("(\\d{1,2})분").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+            }
+            
+            if (hour == null) {
+                hour = Regex("(\\d{1,2})").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+            }
+            if (hour == null) return null
+            
+            if (isPm && hour < 12) {
+                hour += 12
+            } else if (isPm && hour == 12) {
+                hour = 12
+            } else if (isAm && hour == 12) {
+                hour = 0
+            }
+            
+            val finalMinute = minute?.coerceIn(0, 59) ?: 0
+            "${hour.coerceIn(0, 23).toString().padStart(2, '0')}:${finalMinute.toString().padStart(2, '0')}"
         } catch (e: Exception) {
             android.util.Log.w("HuenDongMinAiAgent", "시간 정규화 실패: $timeStr", e)
             null
@@ -1030,25 +1084,30 @@ class HuenDongMinAiAgent(
      */
     private fun parseTime(timeString: String): Int {
         return try {
-            // "14:00" 형식
-            if (timeString.matches(Regex("\\d{1,2}:\\d{2}"))) {
-                timeString.split(":")[0].toInt()
-            }
-            // "14시" 형식
-            else if (timeString.contains("시")) {
-                Regex("(\\d{1,2})시").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
-            }
-            // "오후 3시" 형식
-            else if (timeString.contains("오후") || timeString.contains("PM") || timeString.contains("pm")) {
-                val hour = Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
-                if (hour < 12) hour + 12 else hour
-            }
-            // "오전" 형식
-            else if (timeString.contains("오전") || timeString.contains("AM") || timeString.contains("am")) {
-                Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
-            }
-            else {
-                0
+            when {
+                // "14:00" 형식
+                timeString.matches(Regex("\\d{1,2}:\\d{2}")) -> {
+                    timeString.split(":")[0].toInt()
+                }
+                // "오후 3시", "PM 3시" 등 - AM/PM 표기를 우선 처리
+                timeString.contains("오후") || timeString.contains("PM") || timeString.contains("pm") -> {
+                    val hour = Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+                    when {
+                        hour == 12 -> 12
+                        hour in 1..11 -> hour + 12
+                        else -> 12
+                    }
+                }
+                // "오전" 형식
+                timeString.contains("오전") || timeString.contains("AM") || timeString.contains("am") -> {
+                    val hour = Regex("(\\d{1,2})").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+                    if (hour == 12) 0 else hour
+                }
+                // "14시" 형식
+                timeString.contains("시") -> {
+                    Regex("(\\d{1,2})시").find(timeString)?.groupValues?.get(1)?.toInt() ?: 0
+                }
+                else -> 0
             }
         } catch (e: Exception) {
             android.util.Log.w("HuenDongMinAiAgent", "시간 파싱 실패: $timeString", e)
@@ -1075,6 +1134,153 @@ class HuenDongMinAiAgent(
         } catch (e: Exception) {
             0
         }
+    }
+
+    private fun shouldForceTopOfHour(timeAnalysis: TimeAnalysisResult): Boolean {
+        if (!timeAnalysis.hasTime) return false
+        val originalTime = timeAnalysis.time ?: return false
+        return !containsMinuteHint(originalTime)
+    }
+
+    private fun containsMinuteHint(timeString: String): Boolean {
+        val normalized = timeString.lowercase()
+        if (normalized.contains("분") || normalized.contains(":") || normalized.contains("반")) {
+            return true
+        }
+        val minutePattern = Regex("\\d{1,2}\\s*분")
+        val hourMinutePattern = Regex("\\d{1,2}\\s*시\\s*\\d{1,2}")
+        return minutePattern.containsMatchIn(normalized) || hourMinutePattern.containsMatchIn(normalized)
+    }
+
+    private fun parseTimeRangeExpression(raw: String?): Pair<String, String>? {
+        if (raw.isNullOrBlank()) return null
+        val sanitized = raw
+            .replace("에서", "~")
+            .replace("부터", "~")
+            .replace("까지", "")
+            .replace("~ ~", "~")
+        val delimiter = when {
+            sanitized.contains("~") -> "~"
+            sanitized.contains("-") -> "-"
+            else -> return null
+        }
+        val parts = sanitized.split(delimiter, limit = 2).map { it.trim() }
+        if (parts.size < 2) return null
+        val start = normalizeTimeString(parts[0]) ?: return null
+        val end = normalizeTimeString(parts[1]) ?: return null
+        return start to end
+    }
+
+    private suspend fun isDuplicateEvent(event: Event): Boolean {
+        val existing = eventDao.findDuplicateEvent(
+            title = event.title,
+            startAt = event.startAt,
+            location = event.location
+        )
+        return existing != null
+    }
+    
+    private fun inferTimeFromKeyword(rawTime: String?, referenceDate: String?): String {
+        val normalized = rawTime?.lowercase().orEmpty()
+        val keywordTimeMap = listOf(
+            "새벽" to "05:00",
+            "이른 아침" to "06:00",
+            "아침" to "09:00",
+            "점심" to "12:00",
+            "오후" to "15:00",
+            "저녁" to "18:00",
+            "밤" to "20:00",
+            "자정" to "00:00"
+        )
+        keywordTimeMap.firstOrNull { (keyword, _) -> normalized.contains(keyword) }
+            ?.let { return it.second }
+        if (normalized.matches(Regex("\\d{1,2}"))) {
+            val hour = normalized.toIntOrNull()?.coerceIn(0, 23) ?: 0
+            return "${hour.toString().padStart(2, '0')}:00"
+        }
+        return "00:00"
+    }
+
+    private val intentKeywords = listOf(
+        "회의", "미팅", "약속", "캘린더", "일정", "면접", "상담",
+        "lunch", "dinner", "meeting", "schedule", "appointment", "call",
+        "zoom", "teams", "google meet", "conference", "seminar"
+    )
+
+    private val locationHints = listOf(
+        "층", "호", "빌딩", "타워", "센터", "역", "park", "hall", "room", "호실"
+    )
+
+    private fun calculateConfidenceScore(
+        baseConfidence: Double?,
+        timeAnalysis: TimeAnalysisResult,
+        result: AiProcessingResult,
+        sourceText: String?,
+        sourceType: String
+    ): Double {
+        var score = baseConfidence ?: 0.5
+
+        // 1) 이벤트 여부 및 개수
+        if (result.type.equals("event", ignoreCase = true)) {
+            score += 0.2
+        } else {
+            score -= 0.05
+        }
+        if (result.events.size > 1) {
+            score += 0.05
+        }
+        if (result.events.isEmpty()) {
+            score -= 0.2
+        }
+
+        // 2) 시간 분석 신뢰도
+        if (timeAnalysis.hasExplicitDate) score += 0.12
+        if (timeAnalysis.hasRelativeTime) score += 0.05
+        if (timeAnalysis.hasTime) score += 0.12 else score -= 0.05
+        if (timeAnalysis.derivedFromRule) score += 0.03
+        if (timeAnalysis.resolvedStartEpoch == null) score -= 0.05
+
+        // 3) 텍스트 기반 가중치
+        val normalizedText = sourceText?.lowercase().orEmpty()
+        val keywordHits = intentKeywords.count { normalizedText.contains(it.lowercase()) }
+        score += (keywordHits * 0.03).coerceAtMost(0.12)
+
+        val locationHits = locationHints.count { normalizedText.contains(it.lowercase()) }
+        score += (locationHits * 0.02).coerceAtMost(0.06)
+
+        val numberCount = Regex("\\d{1,4}").findAll(normalizedText).count()
+        if (numberCount >= 3) score += 0.05 else if (numberCount == 0) score -= 0.05
+
+        when {
+            normalizedText.length > 200 -> score += 0.05
+            normalizedText.length < 40 -> score -= 0.05
+        }
+        if (normalizedText.isBlank()) score -= 0.1
+
+        // 4) 소스별 보정
+        score += when (sourceType.lowercase()) {
+            "gmail" -> 0.05
+            "sms" -> 0.03
+            "ocr" -> 0.02
+            "push_notification" -> -0.05
+            "chat" -> 0.04
+            else -> 0.0
+        }
+
+        // 5) 보정 결과 범위 & 스무딩
+        score = score.coerceIn(0.0, 1.0)
+        // Confidence 값이 극단적으로 몰리지 않도록 소수점 첫째자리까지 노이즈 추가
+        val bucket = (score * 100).toInt()
+        val smoothed = bucket / 100.0
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "ConfidenceScore",
+                "base=${baseConfidence ?: 0.5}, adjusted=$smoothed, source=$sourceType, keywords=$keywordHits, numbers=$numberCount"
+            )
+        }
+
+        return smoothed
     }
 
     private fun java.time.ZonedDateTime.formatDateString(): String =
@@ -1127,6 +1333,13 @@ class HuenDongMinAiAgent(
         )
         
         android.util.Log.d("HuenDongMinAiAgent", "일정 요약 추출 완료: ${eventSummaries.size}개")
+
+        // 1단계: 시간 분석 (새로운 파이프라인)
+        val timeAnalysis = analyzeTimeFromText(
+            text = emailBody,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "gmail"
+        )
         
         // 일정이 2개 이상이면 2단계 방식 사용
         if (eventSummaries.size >= 2) {
@@ -1143,24 +1356,36 @@ class HuenDongMinAiAgent(
             }.filter { it.isNotEmpty() }
             
             android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
-            
-            // IngestItem 저장
-            val firstEvent = events.firstOrNull()
+
+            val baseResult = AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+            val adjustedConfidence = calculateConfidenceScore(
+                baseConfidence = baseResult.confidence,
+                timeAnalysis = timeAnalysis,
+                result = baseResult,
+                sourceText = fullText,
+                sourceType = "gmail"
+            )
+            val adjustedResult = baseResult.copy(confidence = adjustedConfidence)
+
+            val firstEvent = adjustedResult.events.firstOrNull()
             val ingestItem = IngestItem(
                 id = originalEmailId,
                 source = "gmail",
-                type = "event",
+                type = adjustedResult.type ?: "event",
                 title = emailSubject,
                 body = emailBody,
                 timestamp = receivedTimestamp,
                 dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-                confidence = 0.9,
+                confidence = adjustedResult.confidence,
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
-            
-            // Event 저장
-            events.forEachIndexed { index, eventData ->
+
+            adjustedResult.events.forEachIndexed { index, eventData ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
@@ -1170,23 +1395,13 @@ class HuenDongMinAiAgent(
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
             }
             
-            return@withContext AiProcessingResult(
-                type = "event",
-                confidence = 0.9,
-                events = events
-            )
+            return@withContext adjustedResult
         }
         
         // 일정이 1개 이하이면 기존 1단계 방식 사용
         android.util.Log.d("HuenDongMinAiAgent", "일정이 1개 이하이므로 기존 1단계 방식 사용")
         
         // 1단계: 시간 분석 (새로운 파이프라인)
-        val timeAnalysis = analyzeTimeFromText(
-            text = emailBody,
-            referenceTimestamp = receivedTimestamp,
-            sourceType = "gmail"
-        )
-        
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
         android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
@@ -1499,28 +1714,36 @@ class HuenDongMinAiAgent(
             confidence = result.confidence,
             events = correctedEvents
         )
+        val adjustedConfidence = calculateConfidenceScore(
+            baseConfidence = finalResult.confidence,
+            timeAnalysis = timeAnalysis,
+            result = finalResult,
+            sourceText = fullText,
+            sourceType = "gmail"
+        )
+        val adjustedResult = finalResult.copy(confidence = adjustedConfidence)
         
         // 모든 Gmail 메시지를 IngestItem으로 저장
-        val firstEvent = finalResult.events.firstOrNull()
+        val firstEvent = adjustedResult.events.firstOrNull()
         val ingestItem = IngestItem(
             id = originalEmailId,
             source = "gmail",
-            type = finalResult.type ?: "note",
+            type = adjustedResult.type ?: "note",
             title = emailSubject,
             body = emailBody,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = finalResult.confidence,
+            confidence = adjustedResult.confidence,
             metaJson = null
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${finalResult.type}, Events: ${finalResult.events.size}개)")
+        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${adjustedResult.type}, Events: ${adjustedResult.events.size}개)")
         
         // Event 저장 (일정이 있는 경우만)
-        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
+        if (adjustedResult.type == "event" && adjustedResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            adjustedResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
@@ -1531,7 +1754,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        finalResult
+        adjustedResult
     }
     
     /**
@@ -1605,6 +1828,12 @@ class HuenDongMinAiAgent(
         )
         
         android.util.Log.d("HuenDongMinAiAgent", "일정 요약 추출 완료: ${eventSummaries.size}개")
+
+        val timeAnalysis = analyzeTimeFromText(
+            text = smsBody,
+            referenceTimestamp = receivedTimestamp,
+            sourceType = "sms"
+        )
         
         // 일정이 2개 이상이면 2단계 방식 사용
         if (eventSummaries.size >= 2) {
@@ -1621,50 +1850,57 @@ class HuenDongMinAiAgent(
             }.filter { it.isNotEmpty() }
             
             android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
-            
-            // IngestItem 저장
-            val firstEvent = events.firstOrNull()
+
+            val baseResult = AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+            val adjustedConfidence = calculateConfidenceScore(
+                baseConfidence = baseResult.confidence,
+                timeAnalysis = timeAnalysis,
+                result = baseResult,
+                sourceText = smsBody,
+                sourceType = "sms"
+            )
+            val adjustedResult = baseResult.copy(confidence = adjustedConfidence)
+
+            val firstEvent = adjustedResult.events.firstOrNull()
             val ingestItem = IngestItem(
                 id = originalSmsId,
                 source = "sms",
-                type = "event",
+                type = adjustedResult.type ?: "event",
                 title = smsAddress,
                 body = smsBody,
                 timestamp = receivedTimestamp,
                 dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-                confidence = 0.9,
+                confidence = adjustedResult.confidence,
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
             
             // Event 저장
-            events.forEachIndexed { index, eventData ->
+            adjustedResult.events.forEachIndexed { index, eventData ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                if (isDuplicateEvent(event)) {
+                    android.util.Log.d("HuenDongMinAiAgent", "SMS Event 중복 감지, 건너뜀 - ${event.title}")
+                } else {
+                    eventDao.upsert(event)
+                    android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                }
             }
             
-            return@withContext AiProcessingResult(
-                type = "event",
-                confidence = 0.9,
-                events = events
-            )
+            return@withContext adjustedResult
         }
         
         // 일정이 1개 이하이면 기존 1단계 방식 사용
         android.util.Log.d("HuenDongMinAiAgent", "일정이 1개 이하이므로 기존 1단계 방식 사용")
         
         // 1단계: 시간 분석 (새로운 파이프라인)
-        val timeAnalysis = analyzeTimeFromText(
-            text = smsBody,
-            referenceTimestamp = receivedTimestamp,
-            sourceType = "sms"
-        )
-        
         android.util.Log.d("HuenDongMinAiAgent", "시간 분석 완료:")
         android.util.Log.d("HuenDongMinAiAgent", "  - 명시적 날짜: ${timeAnalysis.explicitDate}")
         android.util.Log.d("HuenDongMinAiAgent", "  - 상대적 표현: ${timeAnalysis.relativeTimeExpressions}")
@@ -1969,9 +2205,17 @@ class HuenDongMinAiAgent(
             confidence = result.confidence,
             events = correctedEvents
         )
+        val adjustedConfidence = calculateConfidenceScore(
+            baseConfidence = finalResult.confidence,
+            timeAnalysis = timeAnalysis,
+            result = finalResult,
+            sourceText = smsBody,
+            sourceType = "sms"
+        )
+        val adjustedResult = finalResult.copy(confidence = adjustedConfidence)
         
         // 모든 SMS 메시지를 IngestItem으로 저장 (일정이 없어도 저장)
-        val firstEvent = finalResult.events.firstOrNull()
+        val firstEvent = adjustedResult.events.firstOrNull()
         
         // SMS 카테고리 정보 추출 (SmsMessage에서 전달받음)
         // smsAddress에서 카테고리 정보를 추출하기 위해 SmsReader의 분류 함수를 재사용
@@ -1981,7 +2225,7 @@ class HuenDongMinAiAgent(
             append("{")
             append("\"category\":\"${smsCategory.name}\",")
             append("\"address\":\"$smsAddress\"")
-            if (finalResult.type == "event" && firstEvent != null) {
+            if (adjustedResult.type == "event" && firstEvent != null) {
                 append(",\"event\":true")
             }
             append("}")
@@ -1990,22 +2234,22 @@ class HuenDongMinAiAgent(
         val ingestItem = IngestItem(
             id = originalSmsId,
             source = "sms",
-            type = finalResult.type ?: "note",
+            type = adjustedResult.type ?: "note",
             title = smsAddress,
             body = smsBody,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = finalResult.confidence,
+            confidence = adjustedResult.confidence,
             metaJson = metaJson
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "SMS IngestItem 저장 완료 (Type: ${finalResult.type}, Category: $smsCategory)")
+        android.util.Log.d("HuenDongMinAiAgent", "SMS IngestItem 저장 완료 (Type: ${adjustedResult.type}, Category: $smsCategory)")
         
         // Event 저장 (일정이 있는 경우만)
-        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
+        if (adjustedResult.type == "event" && adjustedResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            adjustedResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
@@ -2016,7 +2260,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        finalResult
+        adjustedResult
     }
     
     /**
@@ -2228,9 +2472,28 @@ class HuenDongMinAiAgent(
             confidence = result.confidence,
             events = correctedEvents
         )
+
+        val adjustedConfidence = calculateConfidenceScore(
+            baseConfidence = finalResult.confidence,
+            timeAnalysis = timeAnalysis,
+            result = finalResult,
+            sourceText = fullText,
+            sourceType = "push_notification"
+        )
+        val adjustedResult = finalResult.copy(confidence = adjustedConfidence)
         
-        // 모든 푸시 알림을 IngestItem으로 저장 (일정이 없어도 저장)
-        val firstEvent = finalResult.events.firstOrNull()
+        // 신뢰도 기준 필터 (0.8 미만이면 저장하지 않음)
+        val confidence = adjustedResult.confidence
+        if (confidence < 0.8) {
+            android.util.Log.d(
+                "HuenDongMinAiAgent",
+                "푸시 알림 신뢰도 낮음(${String.format("%.2f", confidence)}), 저장 및 표시를 건너뜁니다."
+            )
+            return@withContext adjustedResult
+        }
+
+        // 모든 푸시 알림을 IngestItem으로 저장 (신뢰도 기준 충족)
+        val firstEvent = adjustedResult.events.firstOrNull()
         
         val metaJson = buildString {
             append("{")
@@ -2245,33 +2508,37 @@ class HuenDongMinAiAgent(
         val ingestItem = IngestItem(
             id = originalNotificationId,
             source = "push_notification",
-            type = finalResult.type ?: "note",
+            type = adjustedResult.type ?: "note",
             title = notificationTitle ?: appName ?: "푸시 알림",
             body = fullText,
             timestamp = receivedTimestamp,
             dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-            confidence = finalResult.confidence,
+            confidence = adjustedResult.confidence,
             metaJson = metaJson
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 IngestItem 저장 완료 (Type: ${finalResult.type})")
+        android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 IngestItem 저장 완료 (Type: ${adjustedResult.type})")
         
         // Event 저장 (일정이 있는 경우만)
-        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
+        if (adjustedResult.type == "event" && adjustedResult.events.isNotEmpty()) {
             
             // Event 저장 (여러 개 지원)
-            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            adjustedResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalNotificationId, "push_notification")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalNotificationId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                if (isDuplicateEvent(event)) {
+                    android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event 중복 감지, 건너뜀 - ${event.title}")
+                } else {
+                    eventDao.upsert(event)
+                    android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalNotificationId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                }
             }
         }
         
-        finalResult
+        adjustedResult
     }
     
     /**
@@ -2310,38 +2577,58 @@ class HuenDongMinAiAgent(
             }.filter { it.isNotEmpty() }
             
             android.util.Log.d("HuenDongMinAiAgent", "2단계 처리 완료: ${events.size}개 일정 생성")
-            
-            // IngestItem 저장
-            val firstEvent = events.firstOrNull()
+
+            // 시간 분석 (2단계 처리에서도 신뢰도 계산을 위해 필요)
+            val timeAnalysis = analyzeTimeFromText(
+                text = ocrText,
+                referenceTimestamp = currentTimestamp,
+                sourceType = "ocr"
+            )
+
+            val baseResult = AiProcessingResult(
+                type = "event",
+                confidence = 0.9,
+                events = events
+            )
+            val adjustedConfidence = calculateConfidenceScore(
+                baseConfidence = baseResult.confidence,
+                timeAnalysis = timeAnalysis,
+                result = baseResult,
+                sourceText = ocrText,
+                sourceType = "ocr"
+            )
+            val adjustedResult = baseResult.copy(confidence = adjustedConfidence)
+
+            val firstEvent = adjustedResult.events.firstOrNull()
             val ingestItem = IngestItem(
                 id = originalOcrId,
                 source = "ocr",
-                type = "event",
+                type = adjustedResult.type ?: "event",
                 title = firstEvent?.get("title")?.jsonPrimitive?.content ?: "OCR 일정",
                 body = ocrText,
                 timestamp = currentTimestamp,
                 dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-                confidence = 0.9,
+                confidence = adjustedResult.confidence,
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
             
             // Event 저장
-            events.forEachIndexed { index, eventData ->
+            adjustedResult.events.forEachIndexed { index, eventData ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalOcrId, "ocr")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                if (isDuplicateEvent(event)) {
+                    android.util.Log.d("HuenDongMinAiAgent", "OCR Event 중복 감지, 건너뜀 - ${event.title}")
+                } else {
+                    eventDao.upsert(event)
+                    android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                }
             }
             
-            return@withContext AiProcessingResult(
-                type = "event",
-                confidence = 0.9,
-                events = events
-            )
+            return@withContext adjustedResult
         }
         
         // 일정이 1개 이하이면 기존 1단계 방식 사용
@@ -2719,27 +3006,35 @@ class HuenDongMinAiAgent(
             confidence = result.confidence,
             events = correctedEvents
         )
+        val adjustedConfidence = calculateConfidenceScore(
+            baseConfidence = finalResult.confidence,
+            timeAnalysis = timeAnalysis,
+            result = finalResult,
+            sourceText = ocrText,
+            sourceType = "ocr"
+        )
+        val adjustedResult = finalResult.copy(confidence = adjustedConfidence)
         
         // Event 저장 (일정인 경우만 IngestItem과 Event 저장)
-        if (finalResult.type == "event" && finalResult.events.isNotEmpty()) {
+        if (adjustedResult.type == "event" && adjustedResult.events.isNotEmpty()) {
             // 일정이 있는 경우에만 IngestItem 저장 (원본 보관, 첫 번째 이벤트 정보 사용)
-            val firstEvent = finalResult.events.firstOrNull()
+            val firstEvent = adjustedResult.events.firstOrNull()
             val ingestItem = IngestItem(
                 id = originalOcrId,
                 source = "ocr",
-                type = finalResult.type,
+                type = adjustedResult.type,
                 title = firstEvent?.get("title")?.jsonPrimitive?.content,
                 body = ocrText,
                 timestamp = currentTimestamp,
                 dueDate = firstEvent?.get("startAt")?.jsonPrimitive?.content?.toLongOrNull(),
-                confidence = finalResult.confidence,
+                confidence = adjustedResult.confidence,
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
             android.util.Log.d("HuenDongMinAiAgent", "OCR IngestItem 저장 완료 (일정 있음)")
             
             // Event 저장 (여러 개 지원)
-            finalResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
+            adjustedResult.events.forEachIndexed { index: Int, eventData: Map<String, JsonElement?> ->
                 val originalStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 최종 시간: ${originalStartAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
@@ -2750,7 +3045,7 @@ class HuenDongMinAiAgent(
             }
         }
         
-        finalResult
+        adjustedResult
     }
     
     /**

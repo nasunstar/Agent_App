@@ -25,7 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -298,7 +298,7 @@ private fun OcrSuccess(
             style = MaterialTheme.typography.bodyMedium,
         )
         
-        Divider(modifier = Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         
         // 모든 이벤트 표시
         Text(
@@ -325,7 +325,7 @@ private fun OcrSuccess(
             )
         }
         
-        Divider(modifier = Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
         Text(
             text = "인식된 원본 텍스트",
@@ -607,7 +607,7 @@ private fun TimeSelectionDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 
-                Divider()
+                HorizontalDivider()
                 
                 Text(
                     text = "일정: ${event.title}",

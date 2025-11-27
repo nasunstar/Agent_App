@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.example.agent_app.share.network
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory

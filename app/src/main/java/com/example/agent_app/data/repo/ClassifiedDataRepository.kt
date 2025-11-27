@@ -340,4 +340,11 @@ class ClassifiedDataRepository(
         contactDao.clearAll()
         noteDao.clearAll()
     }
+
+    /**
+     * 이벤트만 삭제
+     */
+    suspend fun clearEvents() = withContext(dispatcher) {
+        eventDao.clearAll()
+    }
 }

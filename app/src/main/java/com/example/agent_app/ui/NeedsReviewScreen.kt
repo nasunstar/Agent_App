@@ -3,11 +3,19 @@ package com.example.agent_app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -17,10 +25,14 @@ import com.example.agent_app.data.entity.Event
 import com.example.agent_app.data.entity.IngestItem
 import com.example.agent_app.ui.theme.Dimens
 import com.example.agent_app.util.TimeFormatter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * MOA-Needs-Review: 검토 필요한 일정 화면
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NeedsReviewScreen(
     viewModel: MainViewModel,
@@ -29,6 +41,7 @@ fun NeedsReviewScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val needsReviewEvents = uiState.needsReviewEvents
+    val isLoading = uiState.isSyncing
     
     Scaffold(
         topBar = {
@@ -36,7 +49,7 @@ fun NeedsReviewScreen(
                 title = { Text("검토 필요한 일정") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "뒤로가기")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로가기")
                     }
                 }
             )
@@ -98,13 +111,13 @@ fun NeedsReviewScreen(
                     )
                 }
                 
-                items(needsReviewEvents) { event ->
+                items(needsReviewEvents.size) { index ->
+                    val event = needsReviewEvents[index]
                     NeedsReviewItemCard(
                         event = event,
                         viewModel = viewModel,
                         onEventUpdated = {
                             viewModel.loadNeedsReviewEvents()
-                            viewModel.loadClassifiedData()
                         }
                     )
                 }
@@ -214,7 +227,7 @@ private fun NeedsReviewItemCard(
                 )
             }
             
-            Divider(modifier = Modifier.padding(vertical = Dimens.spacingXS))
+            HorizontalDivider(modifier = Modifier.padding(vertical = Dimens.spacingXS))
             
             // 버튼
             Row(
@@ -300,7 +313,7 @@ private fun NeedsReviewDetailDialog(
         title = { Text("일정 상세 정보") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
             ) {
                 // AI가 계산한 일정 정보

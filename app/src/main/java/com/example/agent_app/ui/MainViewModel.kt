@@ -11,6 +11,7 @@ import com.example.agent_app.data.entity.Note
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Color
 import androidx.core.content.ContextCompat
 import com.example.agent_app.ai.HuenDongMinAiAgent
 import com.example.agent_app.data.repo.AuthRepository
@@ -38,6 +39,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
 private const val DEFAULT_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+private const val CALENDAR_PREFS_NAME = "calendar_display_prefs"
+private const val CALENDAR_ACCENT_KEY = "calendar_accent_color"
 
 class MainViewModel(
     private val authRepository: AuthRepository,
@@ -165,6 +168,10 @@ class MainViewModel(
     private val smsEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
     private val pushNotificationEventsState = MutableStateFlow<Map<String, List<Event>>>(emptyMap())
 
+    private val defaultCalendarAccentColor = Color.parseColor("#B5EAEA")
+    private val calendarAccentColorState = MutableStateFlow(loadCalendarAccentColor())
+    val calendarAccentColor: StateFlow<Int> = calendarAccentColorState
+
     val uiState: StateFlow<AssistantUiState> = combine(
         loginState,
         gmailItemsState,
@@ -198,6 +205,8 @@ class MainViewModel(
         val gmailSync = flows[13] as GmailSyncState
         val callRecordScan = flows[14] as CallRecordScanState
         
+        val needsReviewEvents = events.filter { it.status == "needs_review" }
+        
         AssistantUiState(
             loginState = login,
             gmailItems = gmailItems,
@@ -216,6 +225,7 @@ class MainViewModel(
             smsScanState = smsScan,
             gmailSyncState = gmailSync,
             callRecordScanState = callRecordScan,
+            needsReviewEvents = needsReviewEvents,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -1010,6 +1020,35 @@ class MainViewModel(
         }
     }
 
+    fun clearAllEvents() {
+        viewModelScope.launch {
+            try {
+                android.util.Log.d("MainViewModel", "모든 일정 삭제 시작")
+                withContext(Dispatchers.IO) {
+                    var cleared = false
+                    classifiedDataRepository?.let {
+                        it.clearEvents()
+                        cleared = true
+                    }
+                    if (!cleared) {
+                        eventDao?.clearAll()
+                    }
+                }
+                eventsState.value = emptyList()
+                syncState.value = SyncState(
+                    isSyncing = false,
+                    message = "모든 일정이 삭제되었습니다."
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "모든 일정 삭제 실패", e)
+                syncState.value = SyncState(
+                    isSyncing = false,
+                    message = "일정 삭제 중 오류가 발생했습니다: ${e.message}"
+                )
+            }
+        }
+    }
+
     fun consumeStatusMessage() {
         loginState.update { it.copy(statusMessage = null) }
         syncState.update { it.copy(message = null) }
@@ -1237,6 +1276,44 @@ class MainViewModel(
             }
         }
     }
+
+    suspend fun createManualEvent(
+        title: String,
+        description: String?,
+        location: String?,
+        startAt: Long,
+        endAt: Long
+    ): Boolean {
+        val dao = eventDao ?: return false
+        val inserted = withContext(Dispatchers.IO) {
+            val event = Event(
+                userId = 1L,
+                typeId = null,
+                title = title,
+                body = description,
+                startAt = startAt,
+                endAt = endAt,
+                location = location,
+                status = "manual",
+                sourceType = "manual",
+                sourceId = null,
+                confidence = 1.0
+            )
+            dao.upsert(event)
+            true
+        }
+        if (inserted) {
+            classifiedDataRepository?.let { repo ->
+                withContext(Dispatchers.IO) {
+                    eventsState.value = repo.getAllEvents()
+                }
+            }
+            loadOcrEvents(ocrItemsState.value)
+            loadSmsEvents(smsItemsState.value)
+            loadPushNotificationEvents(pushNotificationItemsState.value)
+        }
+        return inserted
+    }
     
     /**
      * 분류된 데이터 다시 로드
@@ -1254,6 +1331,55 @@ class MainViewModel(
         } finally {
             isRefreshingState.value = false
         }
+    }
+    
+    /**
+     * 검토 필요한 일정 로드
+     */
+    fun loadNeedsReviewEvents() {
+        viewModelScope.launch {
+            loadClassifiedData()
+        }
+    }
+    
+    /**
+     * IngestItem ID로 조회
+     */
+    suspend fun getIngestItemById(id: String): IngestItem? {
+        return withContext(Dispatchers.IO) {
+            ingestRepository.getById(id)
+        }
+    }
+    
+    /**
+     * 일정 승인 (status를 "approved"로 변경)
+     */
+    fun approveEvent(event: Event) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val approvedEvent = event.copy(status = "approved")
+                    eventDao?.update(approvedEvent)
+                    // 이벤트 목록 새로고침
+                    classifiedDataRepository?.let { repo ->
+                        eventsState.value = repo.getAllEvents()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "일정 승인 실패", e)
+            }
+        }
+    }
+
+    private fun hasEventForIngest(sourceId: String, sourceType: String?): Boolean {
+        return eventsState.value.any { event ->
+            event.sourceId == sourceId && event.sourceType == sourceType
+        }
+    }
+
+    fun updateCalendarAccentColor(colorInt: Int) {
+        calendarAccentColorState.value = colorInt
+        saveCalendarAccentColor(colorInt)
     }
     
     /**
@@ -1296,6 +1422,10 @@ class MainViewModel(
      */
     fun createEventFromItem(item: IngestItem) {
         viewModelScope.launch {
+            if (hasEventForIngest(item.id, item.source)) {
+                android.util.Log.d("MainViewModel", "이미 처리된 IngestItem, 건너뜀: ${item.source}:${item.id}")
+                return@launch
+            }
             try {
                 when (item.source) {
                     "sms" -> {
@@ -1446,6 +1576,16 @@ class MainViewModel(
             }
         }
     }
+
+    private fun loadCalendarAccentColor(): Int {
+        val prefs = context.getSharedPreferences(CALENDAR_PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getInt(CALENDAR_ACCENT_KEY, defaultCalendarAccentColor)
+    }
+
+    private fun saveCalendarAccentColor(colorInt: Int) {
+        val prefs = context.getSharedPreferences(CALENDAR_PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putInt(CALENDAR_ACCENT_KEY, colorInt).apply()
+    }
 }
 
 data class SmsScanState(
@@ -1516,6 +1656,7 @@ data class AssistantUiState(
     val smsScanState: SmsScanState = SmsScanState(),
     val gmailSyncState: GmailSyncState = GmailSyncState(),
     val callRecordScanState: CallRecordScanState = CallRecordScanState(),
+    val needsReviewEvents: List<Event> = emptyList(),
 )
 
 data class LoginUiState(

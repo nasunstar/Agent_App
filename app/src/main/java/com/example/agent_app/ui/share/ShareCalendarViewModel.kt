@@ -91,7 +91,7 @@ class ShareCalendarViewModel(
                 onSuccess = { profile ->
                     // 고유 캘린더 찾기 (description이 "나의 고유 캘린더"인 것)
                     val personalCalendar = profile.calendars.firstOrNull { 
-                        it.description?.equals("나의 고유 캘린더") == true
+                        it.description == "나의 고유 캘린더"
                     }
                     // 팀 캘린더는 고유 캘린더를 제외한 나머지
                     val teamCalendars = profile.calendars.filter { 

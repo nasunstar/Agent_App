@@ -1,4 +1,4 @@
-package com.example.agent_app.ui
+﻿package com.example.agent_app.ui
 
 import android.Manifest
 import android.content.Context
@@ -7,12 +7,14 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
@@ -47,7 +50,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.ExperimentalMaterialApi
@@ -57,15 +60,18 @@ import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,14 +83,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Email
@@ -107,6 +118,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,7 +140,10 @@ import com.example.agent_app.ui.theme.Dimens
 import androidx.compose.ui.platform.LocalContext
 import com.example.agent_app.util.PushNotificationFilterSettings
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.YearMonth
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -206,6 +221,7 @@ fun AssistantApp(
         onClearToken = mainViewModel::clearToken,
         onSync = { /* Gmail 동기화는 GmailSyncCard에서 직접 처리 */ },
         onResetDatabase = mainViewModel::resetDatabase,
+        onClearEvents = mainViewModel::clearAllEvents,
         googleSignInLauncher = googleSignInLauncher,
         shareCalendarUiState = shareCalendarUiState,
         onShareCalendarNameChange = shareCalendarViewModel::updateName,
@@ -277,6 +293,7 @@ private fun AssistantScaffold(
     onClearToken: () -> Unit,
     onSync: () -> Unit,
     onResetDatabase: () -> Unit,
+    onClearEvents: () -> Unit,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
     shareCalendarUiState: ShareCalendarUiState,
     onShareCalendarNameChange: (String) -> Unit,
@@ -293,6 +310,8 @@ private fun AssistantScaffold(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val calendarAccentColorInt by mainViewModel.calendarAccentColor.collectAsStateWithLifecycle()
+    val calendarAccentColor = remember(calendarAccentColorInt) { Color(calendarAccentColorInt) }
     
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -395,19 +414,44 @@ private fun AssistantScaffold(
                             onUpdateEvent = { event -> mainViewModel.updateEvent(event) },
                             onDeleteEvent = { event -> mainViewModel.deleteEvent(event) },
                             mainViewModel = mainViewModel,
+                            accentColor = calendarAccentColor,
                         )
 
-                        AssistantTab.Inbox -> InboxContent(
-                            ocrItems = uiState.ocrItems,
-                            ocrEvents = uiState.ocrEvents,
-                            smsItems = uiState.smsItems,
-                            smsEvents = uiState.smsEvents,
-                            gmailItems = uiState.gmailItems,
-                            pushNotificationItems = uiState.pushNotificationItems,
-                            pushNotificationEvents = uiState.pushNotificationEvents,
-                            contentPadding = paddingValues,
-                            mainViewModel = mainViewModel,
-                        )
+                        AssistantTab.Inbox -> {
+                            val gmailEventsMap = remember(uiState.gmailItems, uiState.events) {
+                                uiState.gmailItems.associate { item ->
+                                    item.id to uiState.events.filter { event ->
+                                        event.sourceType == "gmail" && event.sourceId == item.id
+                                    }
+                                }
+                            }
+                            val smsEventsMap = remember(uiState.smsItems, uiState.events) {
+                                uiState.smsItems.associate { item ->
+                                    item.id to uiState.events.filter { event ->
+                                        event.sourceType == "sms" && event.sourceId == item.id
+                                    }
+                                }
+                            }
+                            val pushEventsMap = remember(uiState.pushNotificationItems, uiState.events) {
+                                uiState.pushNotificationItems.associate { item ->
+                                    item.id to uiState.events.filter { event ->
+                                        event.sourceType == "push_notification" && event.sourceId == item.id
+                                    }
+                                }
+                            }
+                            InboxContent(
+                                ocrItems = uiState.ocrItems,
+                                ocrEvents = uiState.ocrEvents,
+                                smsItems = uiState.smsItems,
+                                smsEvents = smsEventsMap,
+                                gmailItems = uiState.gmailItems,
+                                gmailEvents = gmailEventsMap,
+                                pushNotificationItems = uiState.pushNotificationItems,
+                                pushNotificationEvents = pushEventsMap,
+                                contentPadding = paddingValues,
+                                mainViewModel = mainViewModel,
+                            )
+                        }
                         AssistantTab.ShareCalendar -> ShareCalendarScreen(
                             uiState = shareCalendarUiState,
                             onNameChange = onShareCalendarNameChange,
@@ -445,6 +489,7 @@ private fun AssistantScaffold(
                         onClearToken = onClearToken,
                         onSync = onSync,
                         onResetDatabase = onResetDatabase,
+                        onClearEvents = onClearEvents,
                         googleSignInLauncher = googleSignInLauncher,
                     )
                 }
@@ -469,6 +514,7 @@ internal fun DeveloperContent(
     onClearToken: () -> Unit,
     onSync: () -> Unit,
     onResetDatabase: () -> Unit,
+    onClearEvents: () -> Unit,
     googleSignInLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
 ) {
     // 날짜 선택 다이얼로그 상태
@@ -528,12 +574,8 @@ internal fun DeveloperContent(
                     try {
                         android.util.Log.d("MainScreen", "Google Sign-In Intent 생성 시작")
                         val intent = mainViewModel.getGoogleSignInIntent()
-                        android.util.Log.d("MainScreen", "Google Sign-In Intent 생성 완료 - Intent: ${intent != null}")
-                        if (intent != null) {
-                            googleSignInLauncher.launch(intent)
-                        } else {
-                            android.util.Log.e("MainScreen", "Google Sign-In Intent가 null입니다")
-                        }
+                        android.util.Log.d("MainScreen", "Google Sign-In Intent 생성 완료")
+                        googleSignInLauncher.launch(intent)
                     } catch (e: Exception) {
                         android.util.Log.e("MainScreen", "Google Sign-In Intent 생성 실패", e)
                     }
@@ -599,9 +641,20 @@ internal fun DeveloperContent(
         PushNotificationAnalysisCard(
             mainViewModel = mainViewModel,
         )
+
+        val calendarAccentColorInt by mainViewModel.calendarAccentColor.collectAsStateWithLifecycle()
+        val calendarAccentColor = remember(calendarAccentColorInt) { Color(calendarAccentColorInt) }
+        CalendarAppearanceCard(
+            currentColor = calendarAccentColor,
+            palette = calendarAccentPalette,
+            onColorSelected = { color -> mainViewModel.updateCalendarAccentColor(color.toArgb()) }
+        )
         
         // 테스트 사용자 관리
         TestUserManagementCard()
+        
+        // 일정 초기화 카드
+        EventCleanupCard(onClearEvents = onClearEvents)
         
         // DB 초기화 카드
         DatabaseResetCard(
@@ -880,7 +933,7 @@ private fun SmsUpdateHistoryCard(
                     )
                 }
                 if (update != recentUpdates.take(5).last()) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
         }
@@ -930,7 +983,7 @@ private fun GmailUpdateHistoryCard(
                     )
                 }
                 if (update != recentUpdates.take(5).last()) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
         }
@@ -1081,6 +1134,77 @@ private fun TestUserManagementCard() {
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
                     Text("취소")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun EventCleanupCard(
+    onClearEvents: () -> Unit,
+) {
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
+            Text(
+                text = stringResource(R.string.dev_event_clear_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.dev_event_clear_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            
+            Button(
+                onClick = { showConfirmDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary,
+                ),
+            ) {
+                Text(stringResource(R.string.dev_event_clear_button))
+            }
+        }
+    }
+    
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text(stringResource(R.string.dev_event_clear_confirm_title)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.dev_event_clear_confirm_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearEvents()
+                        showConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiary,
+                        contentColor = MaterialTheme.colorScheme.onTertiary,
+                    ),
+                ) {
+                    Text(stringResource(R.string.dev_event_clear_button))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
         )
@@ -1303,7 +1427,7 @@ private fun GoogleAccountsCard(
                         }
                     }
                     if (account != accounts.last()) {
-                        Divider()
+                        HorizontalDivider()
                     }
                 }
             }
@@ -1722,7 +1846,7 @@ private fun LoginCard(
                     Text(text = "OAuth 2.0 로그인 (Refresh Token 포함) ✅")
                 }
             }
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 text = "또는 수동으로 토큰 입력:",
                 style = MaterialTheme.typography.bodySmall,
@@ -1765,7 +1889,7 @@ private fun LoginCard(
                 singleLine = true,
             )
             if (loginState.hasStoredToken) {
-                Divider(modifier = Modifier.padding(top = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
                 val scope = loginState.storedScope ?: "미지"
                 val expiry = loginState.storedExpiresAt?.let { TimeFormatter.format(it) } ?: "만료 시간 미설정"
                 Text(
@@ -1828,7 +1952,7 @@ private fun ClassifiedDataCard(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Divider()
+                                HorizontalDivider()
             }
             
             // 이벤트 섹션
@@ -1850,7 +1974,7 @@ private fun ClassifiedDataCard(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Divider()
+                                HorizontalDivider()
             }
             
             // 노트 섹션
@@ -1892,6 +2016,7 @@ private fun InboxContent(
     smsItems: List<IngestItem>,
     smsEvents: Map<String, List<Event>>,
     gmailItems: List<IngestItem>,
+    gmailEvents: Map<String, List<Event>>,
     pushNotificationItems: List<IngestItem>,
     pushNotificationEvents: Map<String, List<Event>>,
     contentPadding: PaddingValues,
@@ -1907,16 +2032,6 @@ private fun InboxContent(
         debouncedQuery = searchQuery
     }
     
-    // Gmail 이벤트를 UI State에서 가져오기 (AssistantUiState의 events 필드 사용)
-    val uiState = mainViewModel.uiState.collectAsStateWithLifecycle().value
-    val gmailEvents = remember(gmailItems, uiState.events) {
-        gmailItems.associate { item ->
-            item.id to uiState.events.filter { event ->
-                event.sourceType == "gmail" && event.sourceId == item.id
-            }
-        }
-    }
-    
     // 검색 쿼리로 필터링 (UI 레이어에서만 필터링)
     val filterItems = { items: List<IngestItem> ->
         if (debouncedQuery.isBlank()) {
@@ -1924,8 +2039,8 @@ private fun InboxContent(
         } else {
             val queryLower = debouncedQuery.lowercase()
             items.filter { item ->
-                (item.title?.lowercase()?.contains(queryLower) == true) ||
-                (item.body?.lowercase()?.contains(queryLower) == true)
+                (item.title?.lowercase()?.contains(queryLower) ?: false) ||
+                (item.body?.lowercase()?.contains(queryLower) ?: false)
             }
         }
     }
@@ -2214,10 +2329,10 @@ private fun InboxContent(
                 }
                 InboxCategory.WithEvents -> {
                     // 이벤트가 있는 항목만 필터링
-                    val ocrItemsWithEvents = ocrItems.filter { ocrEvents[it.id]?.isNotEmpty() == true }
-                    val smsItemsWithEvents = smsItems.filter { smsEvents[it.id]?.isNotEmpty() == true }
-                    val gmailItemsWithEvents = gmailItems.filter { gmailEvents[it.id]?.isNotEmpty() == true }
-                    val pushNotificationItemsWithEvents = pushNotificationItems.filter { pushNotificationEvents[it.id]?.isNotEmpty() == true }
+                    val ocrItemsWithEvents = ocrItems.filter { !ocrEvents[it.id].isNullOrEmpty() }
+                    val smsItemsWithEvents = smsItems.filter { !smsEvents[it.id].isNullOrEmpty() }
+                    val gmailItemsWithEvents = gmailItems.filter { !gmailEvents[it.id].isNullOrEmpty() }
+                    val pushNotificationItemsWithEvents = pushNotificationItems.filter { !pushNotificationEvents[it.id].isNullOrEmpty() }
                     
                     val totalItemsWithEvents = ocrItemsWithEvents.size + smsItemsWithEvents.size + gmailItemsWithEvents.size + pushNotificationItemsWithEvents.size
                     
@@ -2463,11 +2578,11 @@ private fun <T> CategorySection(
                 style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                                Divider()
+                                HorizontalDivider()
             items.forEachIndexed { index, item ->
                 itemCard(item, events[item.id] ?: emptyList(), onUpdateEvent, onDeleteEvent, onCreateEvent)
                 if (index < items.lastIndex) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
@@ -2502,7 +2617,7 @@ private fun EmailCategorySection(
                 style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
-            Divider()
+                                HorizontalDivider()
             items.forEachIndexed { index, item ->
                 GmailItemCard(
                     item = item,
@@ -2512,7 +2627,7 @@ private fun EmailCategorySection(
                     onCreateEvent = onCreateEvent,
                 )
                 if (index < items.lastIndex) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
         }
@@ -2692,7 +2807,7 @@ private fun PushNotificationItemCard(
             
             // 연결된 이벤트 표시
             if (events.isNotEmpty()) {
-                Divider()
+                                HorizontalDivider()
                 Text(
                     text = "추출된 일정 (${events.size}개)",
                     style = MaterialTheme.typography.titleSmall,
@@ -2706,7 +2821,7 @@ private fun PushNotificationItemCard(
                     )
                 }
             } else if (onCreateEvent != null) {
-                Divider()
+                                HorizontalDivider()
                 // 일정 생성 버튼
                 Button(
                     onClick = { onCreateEvent(item) },
@@ -2811,7 +2926,7 @@ private fun SmsItemCard(
             
             // 연결된 이벤트 표시
             if (events.isNotEmpty()) {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 
                 Text(
                     text = "📅 추출된 일정 (${events.size}개)",
@@ -2830,7 +2945,7 @@ private fun SmsItemCard(
                     }
                 }
             } else {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
                     text = "추출된 일정 없음",
                     style = MaterialTheme.typography.bodySmall,
@@ -2872,12 +2987,34 @@ private fun CalendarContent(
     onUpdateEvent: ((Event) -> Unit)? = null,
     onDeleteEvent: ((Event) -> Unit)? = null,
     mainViewModel: MainViewModel? = null,
+    accentColor: Color,
 ) {
     var showAddEventDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
-    val currentDate = LocalDate.now()
-    var selectedMonth by remember { mutableStateOf(YearMonth.from(currentDate)) }
+    val today = LocalDate.now()
+    var selectedMonth by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    val eventRanges = remember(events) {
+        events.mapNotNull { event ->
+            val startDate = event.startAt?.let { timestamp ->
+                java.time.Instant.ofEpochMilli(timestamp)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .toLocalDate()
+            } ?: return@mapNotNull null
+
+            val endDate = event.endAt?.let { timestamp ->
+                java.time.Instant.ofEpochMilli(timestamp)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .toLocalDate()
+            } ?: startDate
+
+            CalendarEventRange(event = event, startDate = startDate, endDate = endDate)
+        }
+    }
+    val multiDayRanges = remember(eventRanges) {
+        eventRanges.filter { it.startDate != it.endDate }
+    }
+    val density = LocalDensity.current
     
     // Pull-to-refresh 상태
     val isRefreshing = mainViewModel?.isRefreshing?.collectAsStateWithLifecycle()?.value ?: false
@@ -2894,16 +3031,11 @@ private fun CalendarContent(
     )
     
     // 선택된 날짜의 일정
-    val selectedDateEvents = remember(selectedDate, events) {
+    val selectedDateEvents = remember(selectedDate, eventRanges) {
         selectedDate?.let { date ->
-            events.filter { event ->
-                event.startAt?.let { timestamp ->
-                    val eventDate = java.time.Instant.ofEpochMilli(timestamp)
-                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                        .toLocalDate()
-                    eventDate == date
-                } ?: false
-            }
+            eventRanges.filter { range ->
+                !date.isBefore(range.startDate) && !date.isAfter(range.endDate)
+            }.map { it.event }
         } ?: emptyList()
     }
     
@@ -2941,7 +3073,7 @@ private fun CalendarContent(
                         modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
                         Icon(
-                            Icons.Filled.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "이전 달",
                             modifier = Modifier.size(24.dp)
                         )
@@ -2960,14 +3092,14 @@ private fun CalendarContent(
                         modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
                         Icon(
-                            Icons.Filled.ArrowForward,
+                            Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = "다음 달",
                             modifier = Modifier.size(24.dp)
                         )
                     }
                 }
                 
-                Divider()
+                HorizontalDivider()
                 
                 // 요일 헤더
                 Row(
@@ -2999,110 +3131,136 @@ private fun CalendarContent(
                 // 날짜 범위를 7일씩 묶어서 주(week) 단위로 분할
                 // 항상 6주(42일)를 채우기 위해 다음 달 날짜도 포함
                 val allDates = mutableListOf<LocalDate>()
-                var currentDate = startDate
+                var cursorDate = startDate
                 
                 // 6주(42일)를 채울 때까지 날짜 추가
                 val totalDays = 42
                 for (i in 0 until totalDays) {
-                    allDates.add(currentDate)
-                    currentDate = currentDate.plusDays(1)
+                    allDates.add(cursorDate)
+                    cursorDate = cursorDate.plusDays(1)
                 }
                 
                 val weeks = allDates.chunked(7)
                 
+                val barHeightPx = with(density) { 12.dp.toPx() }
+                val barBottomPaddingPx = with(density) { 6.dp.toPx() }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     weeks.forEach { week: List<LocalDate> ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
                         ) {
-                            week.forEach { date: LocalDate ->
-                                val isCurrentMonth = date.monthValue == selectedMonth.monthValue
-                                val isToday = date == currentDate
-                                val hasEvent = events.any { event ->
-                                    event.startAt?.let { timestamp ->
-                                        val eventDate = java.time.Instant.ofEpochMilli(timestamp)
-                                            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                                            .toLocalDate()
-                                        eventDate == date
-                                    } ?: false
-                                }
-                                val isSelected = date == selectedDate
-                                
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(4.dp)
-                                        .clickable {
-                                            selectedDate = date
+                            Canvas(modifier = Modifier.matchParentSize()) {
+                                val cellWidth = size.width / 7f
+                                multiDayRanges.forEach { range ->
+                                    val weekStart = week.first()
+                                    val weekEnd = week.last()
+                                    val intersectionStart = if (range.startDate.isAfter(weekStart)) range.startDate else weekStart
+                                    val intersectionEnd = if (range.endDate.isBefore(weekEnd)) range.endDate else weekEnd
+                                    if (!intersectionStart.isAfter(intersectionEnd)) {
+                                        val startIndex = week.indexOf(intersectionStart)
+                                        val endIndex = week.indexOf(intersectionEnd)
+                                        if (startIndex != -1 && endIndex != -1) {
+                                            val left = cellWidth * startIndex + cellWidth * 0.08f
+                                            val right = cellWidth * (endIndex + 1) - cellWidth * 0.08f
+                                            val width = (right - left).coerceAtLeast(0f)
+                                            if (width > 0f) {
+                                                val top = (size.height - barHeightPx - barBottomPaddingPx).coerceAtLeast(0f)
+                                                drawRoundRect(
+                                                    color = accentColor.copy(alpha = 0.25f),
+                                                    topLeft = Offset(left, top),
+                                                    size = Size(width, barHeightPx),
+                                                    cornerRadius = CornerRadius(barHeightPx / 2, barHeightPx / 2)
+                                                )
+                                            }
                                         }
-                                        .size(48.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    // 배경 (오늘 날짜) - 더 명확한 강조
-                                    if (isToday) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme.primary,
-                                                    shape = RoundedCornerShape(50)
-                                                )
-                                                .then(
-                                                    Modifier
-                                                        .border(
-                                                            width = 2.dp,
-                                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                                            shape = RoundedCornerShape(50)
-                                                        )
-                                                )
-                                        )
                                     }
-                                    // 배경 (선택된 날짜)
-                                    if (isSelected && !isToday) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme.primaryContainer,
-                                                    shape = RoundedCornerShape(50)
-                                                )
-                                        )
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier
+                                    .matchParentSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                week.forEach { date: LocalDate ->
+                                    val isCurrentMonth = date.monthValue == selectedMonth.monthValue
+                                    val isToday = date == today
+                                    val hasEvent = eventRanges.any { range ->
+                                        !date.isBefore(range.startDate) && !date.isAfter(range.endDate)
                                     }
+                                    val isSelected = date == selectedDate
                                     
-                                    // 날짜 텍스트와 이벤트 점
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier.padding(vertical = 2.dp),
-                                    ) {
-                                        Text(
-                                            text = date.dayOfMonth.toString(),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = when {
-                                                !isCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                                                isToday -> Color.White
-                                                date.dayOfWeek.value == 7 -> Color.Red // 일요일
-                                                date.dayOfWeek.value == 6 -> Color.Blue // 토요일
-                                                else -> MaterialTheme.colorScheme.onSurface
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .padding(4.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                selectedDate = date
                                             },
-                                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-                                        )
-                                        // 이벤트 마커 (더 명확한 표시)
-                                        if (hasEvent) {
-                                            Spacer(modifier = Modifier.height(2.dp))
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (isToday) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(6.dp)
+                                                    .size(40.dp)
                                                     .background(
-                                                        if (isToday) {
-                                                            Color.White
-                                                        } else {
-                                                            MaterialTheme.colorScheme.primary
-                                                        },
+                                                        MaterialTheme.colorScheme.primary,
+                                                        shape = RoundedCornerShape(50)
+                                                    )
+                                                    .border(
+                                                        width = 2.dp,
+                                                        color = MaterialTheme.colorScheme.primaryContainer,
                                                         shape = RoundedCornerShape(50)
                                                     )
                                             )
+                                        }
+                                        if (isSelected && !isToday) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .background(
+                                                        MaterialTheme.colorScheme.primaryContainer,
+                                                        shape = RoundedCornerShape(50)
+                                                    )
+                                            )
+                                        }
+                                        
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                        ) {
+                                            Text(
+                                                text = date.dayOfMonth.toString(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = when {
+                                                    !isCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                                                    isToday -> Color.White
+                                                    date.dayOfWeek.value == 7 -> Color.Red
+                                                    date.dayOfWeek.value == 6 -> Color.Blue
+                                                    else -> MaterialTheme.colorScheme.onSurface
+                                                },
+                                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                                            )
+                                            if (hasEvent) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .background(
+                                                            if (isToday) {
+                                                                Color.White
+                                                            } else {
+                                                                accentColor
+                                                            },
+                                                            shape = RoundedCornerShape(50)
+                                                        )
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -3113,7 +3271,7 @@ private fun CalendarContent(
                 
                 // 선택된 날짜의 일정 목록
                 if (selectedDate != null) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Text(
                         text = "${selectedDate!!.format(DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))} 일정",
                         style = MaterialTheme.typography.titleMedium,
@@ -3190,7 +3348,72 @@ private fun CalendarContent(
     }
 }
 
+private val calendarAccentPalette = listOf(
+    Color(0xFFB5EAEA),
+    Color(0xFFF8D7DA),
+    Color(0xFFE2F0CB),
+    Color(0xFFFCE1A8),
+    Color(0xFFD7C4F3),
+    Color(0xFFB8E0D2)
+)
+
 @Composable
+private fun CalendarAppearanceCard(
+    currentColor: Color,
+    palette: List<Color>,
+    onColorSelected: (Color) -> Unit
+) {
+    val currentColorInt = currentColor.toArgb()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "캘린더 표시 색상",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "캘린더 탭의 포인트 색상을 변경해 사용자 정의 색감으로 일정 범위를 표시할 수 있어요.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                palette.forEach { colorOption ->
+                    val isSelected = colorOption.toArgb() == currentColorInt
+                    Box(
+                        modifier = Modifier
+                            .size(if (isSelected) 36.dp else 28.dp)
+                            .clip(CircleShape)
+                            .background(colorOption.copy(alpha = 0.95f))
+                            .border(
+                                width = if (isSelected) 3.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else colorOption.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            )
+                            .clickable { onColorSelected(colorOption) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class CalendarEventRange(
+    val event: Event,
+    val startDate: LocalDate,
+    val endDate: LocalDate,
+)
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AddEventFromNaturalLanguageDialog(
     onDismiss: () -> Unit,
     onSuccess: () -> Unit,
@@ -3198,57 +3421,276 @@ private fun AddEventFromNaturalLanguageDialog(
     mainViewModel: MainViewModel,
     snackbarHostState: androidx.compose.material3.SnackbarHostState
 ) {
-    var inputText by remember { mutableStateOf("") }
+    val zoneId = remember { java.time.ZoneId.of("Asia/Seoul") }
+    val now = remember { java.time.ZonedDateTime.now(zoneId).withSecond(0).withNano(0) }
+    var title by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var startDate by remember { mutableStateOf(now.toLocalDate()) }
+    var startTime by remember { mutableStateOf(now.toLocalTime()) }
+    var endDate by remember { mutableStateOf(now.plusHours(1).toLocalDate()) }
+    var endTime by remember { mutableStateOf(now.plusHours(1).toLocalTime()) }
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    
+
+    fun formatDate(date: LocalDate): String =
+        date.format(DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))
+
+    fun formatTime(time: LocalTime): String =
+        time.format(DateTimeFormatter.ofPattern("HH:mm"))
+
+    fun combine(date: LocalDate, time: LocalTime): ZonedDateTime =
+        date.atTime(time).atZone(zoneId)
+
+    fun ensureEndAfterStart() {
+        val startDateTime = combine(startDate, startTime)
+        var endDateTime = combine(endDate, endTime)
+        if (!endDateTime.isAfter(startDateTime)) {
+            endDateTime = startDateTime.plusHours(1)
+            endDate = endDateTime.toLocalDate()
+            endTime = endDateTime.toLocalTime()
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("일정 추가하기") },
+        title = { Text("수동으로 일정 추가") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingMD)
             ) {
-                Text(
-                    text = "자연어로 일정을 입력해주세요.",
-                    style = MaterialTheme.typography.bodyMedium
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("제목") },
+                    placeholder = { Text("예: 운동하기") },
+                    singleLine = true
                 )
                 OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
+                    value = location,
+                    onValueChange = { location = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("예: 내일 오후 3시에 회의") },
-                    singleLine = false,
-                    maxLines = 3
+                    label = { Text("장소 (선택)") },
+                    singleLine = true
                 )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp),
+                    label = { Text("메모 (선택)") },
+                    placeholder = { Text("추가 메모를 입력하세요") },
+                    maxLines = 4
+                )
+                Text(
+                    text = "시작",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { showStartDatePicker = true }
+                    ) {
+                        Text(formatDate(startDate))
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { showStartTimePicker = true }
+                    ) {
+                        Text(formatTime(startTime))
+                    }
+                }
+                Text(
+                    text = "종료",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { showEndDatePicker = true }
+                    ) {
+                        Text(formatDate(endDate))
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { showEndTimePicker = true }
+                    ) {
+                        Text(formatTime(endTime))
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (inputText.isNotBlank()) {
+                    val startAt = combine(startDate, startTime).toInstant().toEpochMilli()
+                    val endAt = combine(endDate, endTime).toInstant().toEpochMilli()
+                    if (endAt <= startAt) {
                         coroutineScope.launch {
-                            try {
-                                mainViewModel.createEventFromNaturalLanguage(inputText.trim())
+                            snackbarHostState.showSnackbar("종료 시간이 시작 시간보다 앞설 수 없어요.")
+                        }
+                        return@Button
+                    }
+                    if (title.isBlank()) return@Button
+                    coroutineScope.launch {
+                        isSaving = true
+                        try {
+                            val success = mainViewModel.createManualEvent(
+                                title = title.trim(),
+                                description = description.ifBlank { null },
+                                location = location.ifBlank { null },
+                                startAt = startAt,
+                                endAt = endAt
+                            )
+                            if (success) {
+                                snackbarHostState.showSnackbar("일정을 추가했어요.")
+                                onSuccess()
                                 onDismiss()
-                                snackbarHostState.showSnackbar("제가 일정을 만들어두었어요!")
-                            } catch (e: Exception) {
-                                onDismiss()
-                                snackbarHostState.showSnackbar("조금 더 구체적으로 말씀해 주실래요?")
+                            } else {
+                                snackbarHostState.showSnackbar("일정을 저장하지 못했어요.")
+                                onFailure()
                             }
+                        } catch (e: Exception) {
+                            Log.e("ManualEvent", "수동 일정 생성 실패", e)
+                            snackbarHostState.showSnackbar("일정을 저장하는 중 문제가 발생했어요.")
+                            onFailure()
+                        } finally {
+                            isSaving = false
                         }
                     }
                 },
-                enabled = inputText.isNotBlank()
+                enabled = title.isNotBlank() && !isSaving
             ) {
-                Text("추가하기")
+                Text(if (isSaving) "저장 중..." else "추가하기")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
                 Text("취소")
             }
         }
     )
+
+    if (showStartDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = combine(startDate, LocalTime.MIDNIGHT).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showStartDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let {
+                            startDate = java.time.Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate()
+                            if (startDate.isAfter(endDate)) {
+                                endDate = startDate
+                            }
+                            ensureEndAfterStart()
+                        }
+                        showStartDatePicker = false
+                    }
+                ) { Text("확인") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartDatePicker = false }) { Text("취소") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showEndDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = combine(endDate, LocalTime.MIDNIGHT).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let {
+                            endDate = java.time.Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate()
+                            ensureEndAfterStart()
+                        }
+                        showEndDatePicker = false
+                    }
+                ) { Text("확인") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndDatePicker = false }) { Text("취소") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showStartTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = startTime.hour,
+            initialMinute = startTime.minute,
+            is24Hour = true
+        )
+        AlertDialog(
+            onDismissRequest = { showStartTimePicker = false },
+            title = { Text("시작 시간 선택") },
+            text = {
+                TimePicker(state = timePickerState)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        startTime = LocalTime.of(timePickerState.hour, timePickerState.minute)
+                        ensureEndAfterStart()
+                        showStartTimePicker = false
+                    }
+                ) { Text("확인") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartTimePicker = false }) { Text("취소") }
+            }
+        )
+    }
+
+    if (showEndTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = endTime.hour,
+            initialMinute = endTime.minute,
+            is24Hour = true
+        )
+        AlertDialog(
+            onDismissRequest = { showEndTimePicker = false },
+            title = { Text("종료 시간 선택") },
+            text = {
+                TimePicker(state = timePickerState)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        endTime = LocalTime.of(timePickerState.hour, timePickerState.minute)
+                        ensureEndAfterStart()
+                        showEndTimePicker = false
+                    }
+                ) { Text("확인") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndTimePicker = false }) { Text("취소") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -3307,7 +3749,7 @@ private fun OcrItemCard(
             
             // 연결된 이벤트 표시
             if (events.isNotEmpty()) {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 
                 Text(
                     text = "📅 추출된 일정 (${events.size}개)",
@@ -3326,7 +3768,7 @@ private fun OcrItemCard(
                     }
                 }
             } else {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
                     text = "추출된 일정 없음",
                     style = MaterialTheme.typography.bodySmall,
@@ -3539,7 +3981,7 @@ private fun EventDetailDialog(
                     )
                 }
                 
-                Divider()
+                                HorizontalDivider()
                 
                 // 시작 시간
                 if (event.startAt != null) {
@@ -3663,7 +4105,7 @@ private fun EventDetailDialog(
         EventEditDialog(
             event = event,
             onDismiss = { showEditDialog = false },
-            onSave = { updatedEvent ->
+            onSave = { updatedEvent: Event ->
                 onUpdateEvent(updatedEvent)
                 showEditDialog = false
                 onDismiss()
@@ -3714,451 +4156,6 @@ private fun DeleteConfirmDialog(
     )
 }
 
-@Composable
-private fun EventEditDialog(
-    event: Event,
-    onDismiss: () -> Unit,
-    onSave: (Event) -> Unit
-) {
-    var title by remember { mutableStateOf(event.title) }
-    var location by remember { mutableStateOf(event.location ?: "") }
-    var body by remember { mutableStateOf(event.body ?: "") }
-    
-    // 시작 시간 파싱
-    val now = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
-    
-    var startYear by remember { 
-        mutableStateOf(
-            if (event.startAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt
-                }.get(Calendar.YEAR)
-            } else {
-                now.get(Calendar.YEAR)
-            }
-        )
-    }
-    var startMonth by remember { 
-        mutableStateOf(
-            if (event.startAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt
-                }.get(Calendar.MONTH) + 1
-            } else {
-                now.get(Calendar.MONTH) + 1
-            }
-        )
-    } // 1-12
-    var startDay by remember { 
-        mutableStateOf(
-            if (event.startAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt
-                }.get(Calendar.DAY_OF_MONTH)
-            } else {
-                now.get(Calendar.DAY_OF_MONTH)
-            }
-        )
-    }
-    var startHour by remember { 
-        mutableStateOf(
-            if (event.startAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt
-                }.get(Calendar.HOUR_OF_DAY)
-            } else {
-                now.get(Calendar.HOUR_OF_DAY)
-            }
-        )
-    }
-    var startMinute by remember { 
-        mutableStateOf(
-            if (event.startAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt
-                }.get(Calendar.MINUTE)
-            } else {
-                now.get(Calendar.MINUTE)
-            }
-        )
-    }
-    
-    // 종료 시간 파싱
-    var endYear by remember { 
-        mutableStateOf(
-            if (event.endAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.endAt
-                }.get(Calendar.YEAR)
-            } else {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt ?: System.currentTimeMillis()
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.get(Calendar.YEAR)
-            }
-        )
-    }
-    var endMonth by remember { 
-        mutableStateOf(
-            if (event.endAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.endAt
-                }.get(Calendar.MONTH) + 1
-            } else {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt ?: System.currentTimeMillis()
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.get(Calendar.MONTH) + 1
-            }
-        )
-    }
-    var endDay by remember { 
-        mutableStateOf(
-            if (event.endAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.endAt
-                }.get(Calendar.DAY_OF_MONTH)
-            } else {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt ?: System.currentTimeMillis()
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.get(Calendar.DAY_OF_MONTH)
-            }
-        )
-    }
-    var endHour by remember { 
-        mutableStateOf(
-            if (event.endAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.endAt
-                }.get(Calendar.HOUR_OF_DAY)
-            } else {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt ?: System.currentTimeMillis()
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.get(Calendar.HOUR_OF_DAY)
-            }
-        )
-    }
-    var endMinute by remember { 
-        mutableStateOf(
-            if (event.endAt != null) {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.endAt
-                }.get(Calendar.MINUTE)
-            } else {
-                Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    timeInMillis = event.startAt ?: System.currentTimeMillis()
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.get(Calendar.MINUTE)
-            }
-        )
-    }
-    
-    // 해당 월의 마지막 날짜 계산
-    fun getDaysInMonth(year: Int, month: Int): Int {
-        val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
-        calendar.set(Calendar.YEAR, year)
-        calendar.set(Calendar.MONTH, month - 1)
-        calendar.set(Calendar.DAY_OF_MONTH, 1)
-        return calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
-    }
-    
-    val maxStartDay = remember(startYear, startMonth) { getDaysInMonth(startYear, startMonth) }
-    val maxEndDay = remember(endYear, endMonth) { getDaysInMonth(endYear, endMonth) }
-    
-    // 월이 변경되면 일 수가 줄어드는 경우 처리
-    LaunchedEffect(maxStartDay) {
-        if (startDay > maxStartDay) {
-            startDay = maxStartDay
-        }
-    }
-    
-    LaunchedEffect(maxEndDay) {
-        if (endDay > maxEndDay) {
-            endDay = maxEndDay
-        }
-    }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("일정 수정") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("제목") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("장소") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    label = { Text("본문") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    maxLines = 5,
-                )
-                
-                Divider()
-                
-                // 시작 시간 선택
-                Text(
-                    text = "시작 시간",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 연도
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "연도",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        OutlinedTextField(
-                            value = startYear.toString(),
-                            onValueChange = { 
-                                startYear = it.toIntOrNull() ?: startYear
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    }
-                    
-                    // 월 (1-12)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "월",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (1..12).map { "${it}월" },
-                            selectedIndex = startMonth - 1,
-                            onSelected = { 
-                                startMonth = it + 1
-                                val newMaxDay = getDaysInMonth(startYear, startMonth)
-                                if (startDay > newMaxDay) startDay = newMaxDay
-                            },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                    
-                    // 일
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "일",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (1..maxStartDay).map { "${it}일" },
-                            selectedIndex = startDay - 1,
-                            onSelected = { startDay = it + 1 },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                }
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 시간 (0-23)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "시",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (0..23).map { String.format("%02d시", it) },
-                            selectedIndex = startHour,
-                            onSelected = { startHour = it },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                    
-                    // 분 (0-59)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "분",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (0..59).map { String.format("%02d분", it) },
-                            selectedIndex = startMinute,
-                            onSelected = { startMinute = it },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                }
-                
-                Divider()
-                
-                // 종료 시간 선택
-                Text(
-                    text = "종료 시간",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 연도
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "연도",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        OutlinedTextField(
-                            value = endYear.toString(),
-                            onValueChange = { 
-                                endYear = it.toIntOrNull() ?: endYear
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    }
-                    
-                    // 월 (1-12)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "월",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (1..12).map { "${it}월" },
-                            selectedIndex = endMonth - 1,
-                            onSelected = { 
-                                endMonth = it + 1
-                                val newMaxDay = getDaysInMonth(endYear, endMonth)
-                                if (endDay > newMaxDay) endDay = newMaxDay
-                            },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                    
-                    // 일
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "일",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (1..maxEndDay).map { "${it}일" },
-                            selectedIndex = endDay - 1,
-                            onSelected = { endDay = it + 1 },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                }
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 시간 (0-23)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "시",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (0..23).map { String.format("%02d시", it) },
-                            selectedIndex = endHour,
-                            onSelected = { endHour = it },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                    
-                    // 분 (0-59)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "분",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        ScrollablePicker(
-                            items = (0..59).map { String.format("%02d분", it) },
-                            selectedIndex = endMinute,
-                            onSelected = { endMinute = it },
-                            modifier = Modifier.height(120.dp)
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                // Calendar를 사용하여 timestamp 생성
-                val startCal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    set(Calendar.YEAR, startYear)
-                    set(Calendar.MONTH, startMonth - 1)
-                    set(Calendar.DAY_OF_MONTH, startDay)
-                    set(Calendar.HOUR_OF_DAY, startHour)
-                    set(Calendar.MINUTE, startMinute)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                
-                val endCal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-                    set(Calendar.YEAR, endYear)
-                    set(Calendar.MONTH, endMonth - 1)
-                    set(Calendar.DAY_OF_MONTH, endDay)
-                    set(Calendar.HOUR_OF_DAY, endHour)
-                    set(Calendar.MINUTE, endMinute)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                
-                val updatedEvent = event.copy(
-                    title = title,
-                    location = location.takeIf { it.isNotBlank() },
-                    body = body.takeIf { it.isNotBlank() },
-                    startAt = startCal.timeInMillis,
-                    endAt = endCal.timeInMillis
-                )
-                onSave(updatedEvent)
-            }) {
-                Text("저장")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("취소")
-            }
-        }
-    )
-}
 
 @Composable
 private fun ScrollablePicker(
@@ -4352,7 +4349,7 @@ private fun PushNotificationAnalysisCard(
                     
                     // 앱별 통계 + 저장 제외 액션
                     if (stats!!.appStatistics.isNotEmpty()) {
-                        Divider()
+                        HorizontalDivider()
                         Text(
                             text = "앱별 알림 수",
                             style = MaterialTheme.typography.titleSmall,
@@ -4419,7 +4416,7 @@ private fun PushNotificationAnalysisCard(
                     
                     // 시간대별 통계
                     if (stats!!.hourlyStatistics.isNotEmpty()) {
-                        Divider()
+                        HorizontalDivider()
                         Text(
                             text = "시간대별 알림 수",
                             style = MaterialTheme.typography.titleSmall,
