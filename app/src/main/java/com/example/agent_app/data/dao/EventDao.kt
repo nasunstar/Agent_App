@@ -133,4 +133,16 @@ interface EventDao {
         channel: String = "push",
         limit: Int = 50
     ): List<Event>
+
+    @Query(
+        """
+        SELECT * FROM events 
+        WHERE start_at BETWEEN :startTime AND :endTime
+        ORDER BY start_at ASC
+        """
+    )
+    suspend fun getEventsBetween(
+        startTime: Long,
+        endTime: Long
+    ): List<Event>
 }
