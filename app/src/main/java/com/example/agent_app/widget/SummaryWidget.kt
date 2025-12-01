@@ -87,62 +87,72 @@ class SummaryWidget : GlanceAppWidget() {
         }
         
         android.util.Log.d("SummaryWidget", "provideContent 시작")
+        
         provideContent {
-            GlanceTheme {
-                // 카드 스타일 배경
-                val boxModifier = GlanceModifier
-                    .fillMaxSize()
-                    .background(GlanceTheme.colors.surface)
-                    .padding(16.dp)
-                    .clickable(actionStartActivity(MainActivity::class.java))
-                
-                Box(modifier = boxModifier) {
-                    Column(
-                        modifier = GlanceModifier.fillMaxSize(),
-                        verticalAlignment = Alignment.Top,
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        // 헤더
-                        Text(
-                            text = "일정 요약",
-                            style = TextStyle(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            ),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
-                        
-                        Spacer(modifier = GlanceModifier.height(16.dp))
-                        
-                        // 오늘 일정 섹션
-                        EventSection(
-                            title = "오늘",
-                            events = todayData?.events ?: emptyList(),
-                            dueItems = todayData?.dueItems ?: emptyList(),
-                            isToday = true
-                        )
-                        
-                        Spacer(modifier = GlanceModifier.height(12.dp))
-                        
-                        // 구분선
-                        Box(
-                            modifier = GlanceModifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(GlanceTheme.colors.outline),
-                            content = {}
-                        )
-                        
-                        Spacer(modifier = GlanceModifier.height(12.dp))
-                        
-                        // 이번주 일정 섹션
-                        EventSection(
-                            title = "이번 주",
-                            events = weekData?.events ?: emptyList(),
-                            dueItems = weekData?.dueItems ?: emptyList(),
-                            isToday = false
-                        )
+            if (todayData != null && weekData != null) {
+                GlanceTheme {
+                    // 카드 스타일 배경
+                    val boxModifier = GlanceModifier
+                        .fillMaxSize()
+                        .background(GlanceTheme.colors.surface)
+                        .padding(16.dp)
+                        .clickable(actionStartActivity(MainActivity::class.java))
+                    
+                    Box(modifier = boxModifier) {
+                        Column(
+                            modifier = GlanceModifier.fillMaxSize(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            // 헤더
+                            Text(
+                                text = "일정 요약",
+                                style = TextStyle(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp
+                                ),
+                                modifier = GlanceModifier.fillMaxWidth()
+                            )
+                            
+                            Spacer(modifier = GlanceModifier.height(16.dp))
+                            
+                            // 오늘 일정 섹션
+                            EventSection(
+                                title = "오늘",
+                                events = todayData.events,
+                                dueItems = todayData.dueItems,
+                                isToday = true
+                            )
+                            
+                            Spacer(modifier = GlanceModifier.height(12.dp))
+                            
+                            // 이번주 일정 섹션
+                            EventSection(
+                                title = "이번 주",
+                                events = weekData.events,
+                                dueItems = weekData.dueItems,
+                                isToday = false
+                            )
+                        }
                     }
+                }
+            } else {
+                // 데이터 로딩 실패 시 fallback UI
+                Box(
+                    modifier = GlanceModifier
+                        .fillMaxSize()
+                        .background(androidx.glance.unit.ColorProvider(androidx.compose.ui.graphics.Color.LightGray))
+                        .padding(16.dp)
+                        .clickable(actionStartActivity(MainActivity::class.java)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "데이터 로딩 중...",
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            color = androidx.glance.unit.ColorProvider(androidx.compose.ui.graphics.Color.Black)
+                        )
+                    )
                 }
             }
         }
@@ -159,161 +169,122 @@ class SummaryWidget : GlanceAppWidget() {
     }
 }
 
-/**
- * 일정 섹션 컴포넌트
- */
 @Composable
-fun EventSection(
+private fun EventSection(
     title: String,
     events: List<com.example.agent_app.data.entity.Event>,
     dueItems: List<com.example.agent_app.data.entity.IngestItem>,
     isToday: Boolean
 ) {
-    val totalCount = events.size + dueItems.size
-    val displayItems = (events.take(3) + dueItems.take(3)).take(3)
-    
     Column(
-        modifier = GlanceModifier.fillMaxWidth()
+        modifier = GlanceModifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalAlignment = Alignment.Start
     ) {
-        // 섹션 헤더
-        Row(
-            modifier = GlanceModifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = title,
-                style = TextStyle(
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                modifier = GlanceModifier.defaultWeight()
+        // 섹션 제목
+        Text(
+            text = title,
+            style = TextStyle(
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                color = GlanceTheme.colors.primary
             )
-            
-            // 카운트 배지
-            if (totalCount > 0) {
-                Box(
-                    modifier = GlanceModifier
-                        .background(
-                            if (isToday) {
-                                GlanceTheme.colors.primaryContainer
-                            } else {
-                                GlanceTheme.colors.secondaryContainer
-                            }
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    content = {
-                        Text(
-                            text = "$totalCount",
-                            style = TextStyle(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isToday) {
-                                    GlanceTheme.colors.onPrimaryContainer
-                                } else {
-                                    GlanceTheme.colors.onSecondaryContainer
-                                }
-                            )
-                        )
-                    }
-                )
-            }
-        }
+        )
         
         Spacer(modifier = GlanceModifier.height(8.dp))
         
         // 일정 목록
-        if (displayItems.isEmpty() && events.isEmpty() && dueItems.isEmpty()) {
-            Text(
-                text = "예정된 일정이 없습니다",
-                style = TextStyle(
-                    fontSize = 12.sp,
-                    color = GlanceTheme.colors.onSurfaceVariant
-                ),
-                modifier = GlanceModifier.fillMaxWidth()
-            )
-        } else {
-            displayItems.forEachIndexed { index, _ ->
-                if (index > 0) {
-                    Spacer(modifier = GlanceModifier.height(6.dp))
-                }
-                
-                val event = events.getOrNull(index)
-                val item = if (event == null) dueItems.getOrNull(index - events.size.coerceAtMost(3)) else null
-                
+        val totalItems = events.size + dueItems.size
+        if (totalItems > 0) {
+            val displayLimit = if (isToday) 3 else 2
+            
+            // Event 항목들 표시
+            events.take(displayLimit).forEach { event ->
                 EventItem(
-                    title = event?.title ?: item?.title ?: "(제목 없음)",
-                    time = event?.startAt?.let { formatTime(it) },
-                    isEvent = event != null
+                    title = event.title ?: "제목 없음",
+                    time = event.startAt?.let { formatTime(it) },
+                    isEvent = true
                 )
+                Spacer(modifier = GlanceModifier.height(4.dp))
             }
             
-            // 더보기 표시
-            val remainingCount = (events.size - 3).coerceAtLeast(0) + (dueItems.size - 3).coerceAtLeast(0)
-            if (remainingCount > 0) {
-                Spacer(modifier = GlanceModifier.height(4.dp))
+            // 남은 공간에 IngestItem들 표시
+            val remainingSlots = displayLimit - events.size
+            if (remainingSlots > 0) {
+                dueItems.take(remainingSlots).forEach { item ->
+                    EventItem(
+                        title = item.title ?: "제목 없음",
+                        time = item.dueDate?.let { formatTime(it) },
+                        isEvent = false
+                    )
+                    Spacer(modifier = GlanceModifier.height(4.dp))
+                }
+            }
+            
+            // 더 많은 항목이 있으면 표시
+            if (totalItems > displayLimit) {
+                val remainingCount = totalItems - displayLimit
                 Text(
                     text = "... 더보기 ${remainingCount}개",
                     style = TextStyle(
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         color = GlanceTheme.colors.onSurfaceVariant
-                    ),
-                    modifier = GlanceModifier.fillMaxWidth()
+                    )
                 )
             }
+        } else {
+            Text(
+                text = "일정이 없습니다",
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    color = GlanceTheme.colors.onSurfaceVariant
+                )
+            )
         }
     }
 }
 
-/**
- * 일정 아이템 컴포넌트
- */
 @Composable
-fun EventItem(
+private fun EventItem(
     title: String,
     time: String?,
     isEvent: Boolean
 ) {
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.Start
     ) {
-        // 인디케이터 점
-        Box(
-            modifier = GlanceModifier
-                .size(6.dp)
-                .background(
-                    if (isEvent) {
-                        GlanceTheme.colors.primary
-                    } else {
-                        GlanceTheme.colors.secondary
-                    }
-                ),
-            content = {}
+        // 아이콘 (이벤트 vs 할 일)
+        val iconText = if (isEvent) "📅" else "📝"
+        Text(
+            text = iconText,
+            style = TextStyle(fontSize = 12.sp)
         )
         
         Spacer(modifier = GlanceModifier.width(8.dp))
         
         // 제목과 시간
         Column(
-            modifier = GlanceModifier.defaultWeight()
+            modifier = GlanceModifier.defaultWeight(),
+            verticalAlignment = Alignment.Top,
+            horizontalAlignment = Alignment.Start
         ) {
             Text(
                 text = title,
                 style = TextStyle(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = GlanceTheme.colors.onSurface
                 ),
                 maxLines = 1
             )
             
-            if (time != null) {
-                Spacer(modifier = GlanceModifier.height(2.dp))
+            time?.let { timeStr ->
                 Text(
-                    text = time,
+                    text = timeStr,
                     style = TextStyle(
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         color = GlanceTheme.colors.onSurfaceVariant
                     )
                 )
@@ -323,13 +294,11 @@ fun EventItem(
 }
 
 /**
- * 시간 포맷팅
+ * 시간 포맷팅 (HH:mm 형식)
  */
 private fun formatTime(timestamp: Long): String {
-    val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-        timeInMillis = timestamp
-    }
-    
+    val calendar = Calendar.getInstance()
+    calendar.timeInMillis = timestamp
     val hour = calendar.get(Calendar.HOUR_OF_DAY)
     val minute = calendar.get(Calendar.MINUTE)
     

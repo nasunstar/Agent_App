@@ -122,29 +122,16 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "규칙 기반 분석 실패, LLM 보조 호출 ($sourceType)")
 
         val systemPrompt = """
-            당신은 한국어 텍스트에서 시간 정보를 추출하는 보조 도구입니다.
-            모든 계산은 KST(Asia/Seoul) 기준이며, 반드시 ISO 포맷(YYYY-MM-DD, HH:mm)을 지켜 주세요.
-            
-            ⚠️ **중요**: epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
-            시스템이 자동으로 epoch milliseconds로 변환합니다.
+            한국어 텍스트에서 시간 정보 추출. KST 기준, ISO 포맷(YYYY-MM-DD, HH:mm) 사용.
+            epoch milliseconds 계산 금지 - 날짜/시간 문자열만 반환.
         """.trimIndent()
 
-        // OCR 전용 Few-shot 예시 추가
+        // 간소화된 예시
         val fewShotExamples = if (sourceType == "ocr") {
             """
-            
-            🎯 **Few-shot 예시 (OCR 전용):**
-            
-            **예시 1: 명시적 날짜**
-            기준 시각: 2025-11-24 10:00
+            예시:
             텍스트: "2025,10,30.(목) 11:30 회의"
-            
-            결과:
-            {
-              "hasExplicitDate": true,
-              "explicitDate": "2025-10-30",
-              "hasRelativeTime": false,
-              "relativeTimeExpressions": [],
+            결과: {"hasExplicitDate": true, "explicitDate": "2025-10-30", "hasRelativeTime": false,
               "hasTime": true,
               "time": "11:30",
               "finalDate": "2025-10-30",
@@ -3370,21 +3357,21 @@ class HuenDongMinAiAgent(
                         when (response.code) {
                             429 -> {
                                 if (message?.contains("quota", ignoreCase = true) == true) {
-                                    "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요.\n\n자세한 내용은 다음 문서를 참고하세요:\nhttps://platform.openai.com/docs/guides/rate-limits"
+                                    "💳 AI 서비스 사용량이 초과되었어요. 잠시 후 다시 시도해주세요."
                                 } else {
-                                    "OpenAI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+                                    "⏰ 요청이 너무 많아요. 잠시 후 다시 시도해주세요."
                                 }
                             }
-                            401 -> "OpenAI API 키가 유효하지 않습니다. API 키를 확인해주세요."
-                            403 -> "OpenAI API 접근이 거부되었습니다. 권한을 확인해주세요."
-                            500, 502, 503, 504 -> "OpenAI 서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
-                            else -> message ?: "OpenAI API 오류: ${response.code}"
+                            401 -> "🔑 AI 서비스 인증에 문제가 있어요. 설정을 확인해주세요."
+                            403 -> "🚫 AI 서비스 접근 권한이 없어요. 설정을 확인해주세요."
+                            500, 502, 503, 504 -> "🔧 AI 서비스에 일시적인 문제가 발생했어요. 잠시 후 다시 시도해주세요."
+                            else -> "❌ 예상치 못한 오류가 발생했어요. 잠시 후 다시 시도해주세요."
                         }
                     } catch (e: Exception) {
                         // JSON 파싱 실패 시 기본 메시지 사용
                         when (response.code) {
-                            429 -> "OpenAI API 할당량을 초과했습니다. 계정의 요금제와 결제 정보를 확인해주세요."
-                            else -> "OpenAI API 오류: ${response.code} - ${responseBody.take(200)}"
+                            429 -> "⏰ 요청이 너무 많아요. 잠시 후 다시 시도해주세요."
+                            else -> "❌ 서비스에 문제가 발생했어요. 잠시 후 다시 시도해주세요."
                         }
                     }
                     
@@ -3422,10 +3409,10 @@ class HuenDongMinAiAgent(
                 throw Exception("API 요청 시간 초과: ${e.message}")
             } catch (e: java.net.UnknownHostException) {
                 android.util.Log.e("HuenDongMinAiAgent", "🌐 네트워크 연결 실패!", e)
-                throw Exception("인터넷 연결을 확인해주세요: ${e.message}")
+                throw Exception("📶 인터넷 연결을 확인해주세요")
             } catch (e: java.io.IOException) {
                 android.util.Log.e("HuenDongMinAiAgent", "📡 네트워크 I/O 오류!", e)
-                throw Exception("네트워크 오류: ${e.message}")
+                throw Exception("📶 네트워크 연결에 문제가 있어요")
             }
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinAiAgent", "❌❌❌ callOpenAi에서 예외 발생! ❌❌❌", e)

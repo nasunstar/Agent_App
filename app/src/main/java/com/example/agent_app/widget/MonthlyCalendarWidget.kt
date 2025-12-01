@@ -272,7 +272,7 @@ class MonthlyCalendarWidget : GlanceAppWidget() {
                 val weekEndCalendar = startCalendar.clone() as Calendar
                 weekEndCalendar.add(Calendar.DAY_OF_YEAR, (weekIndex + 1) * 7 - 1)
                 if (weekEndCalendar.get(Calendar.MONTH) != month && weekIndex >= 4) {
-                    break
+                    return@repeat
                 }
             }
         }

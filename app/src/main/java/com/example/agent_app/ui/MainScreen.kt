@@ -2743,7 +2743,7 @@ private fun EmptyStateCard(@androidx.annotation.StringRes messageResId: Int) {
         ) {
             Icon(
                 imageVector = Icons.Filled.Info,
-                contentDescription = null,
+                contentDescription = "정보 아이콘",
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             )
@@ -2818,7 +2818,7 @@ private fun GmailItemCard(
                 ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = null,
+                            contentDescription = "일정 추가",
                             modifier = Modifier.size(18.dp),
                         )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -2936,7 +2936,7 @@ private fun PushNotificationItemCard(
                 ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = null,
+                            contentDescription = "일정 추가",
                             modifier = Modifier.size(18.dp),
                         )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -3066,7 +3066,7 @@ private fun SmsItemCard(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = null,
+                            contentDescription = "일정 추가",
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -3927,7 +3927,7 @@ private fun OcrItemCard(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = null,
+                            contentDescription = "일정 추가",
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -4010,7 +4010,7 @@ private fun EventDetailRow(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Event,
-                    contentDescription = null,
+                    contentDescription = "일정 아이콘",
                     modifier = Modifier.size(Dimens.iconSmall),
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -4035,7 +4035,7 @@ private fun EventDetailRow(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Schedule,
-                                contentDescription = null,
+                                contentDescription = "시간 아이콘",
                                 modifier = Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -4069,7 +4069,7 @@ private fun EventDetailRow(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LocationOn,
-                        contentDescription = null,
+                        contentDescription = "위치 아이콘",
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )

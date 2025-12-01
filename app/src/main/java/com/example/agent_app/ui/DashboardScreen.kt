@@ -112,7 +112,7 @@ fun DashboardScreen(
     }
     
     // onNavigateToInbox를 Gmail 앱 실행으로 변경
-    val handleInboxClick = {
+    val handleInboxClick: () -> Unit = {
         openGmailApp()
     }
     // 오늘 일정: 시작일이 오늘이거나, 범위 일정이 오늘을 포함하는 경우
