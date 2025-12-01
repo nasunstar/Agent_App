@@ -70,7 +70,7 @@ fun LoadingState(
             if (progress != null) {
                 Spacer(modifier = Modifier.height(Dimens.spacingSM))
                 LinearProgressIndicator(
-                    progress = progress,
+                    progress = { progress },
                     modifier = Modifier.fillMaxWidth(0.6f),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
