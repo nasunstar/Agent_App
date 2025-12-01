@@ -59,7 +59,7 @@ object EventTimeParser {
     // "X월 Y일" 형식에서 "일"이 날짜의 일(day)로 인식되지 않도록 수정
     // "X일 동안" 또는 "X일간" 같은 명시적 기간 표현만 매칭 (단, "X월 Y일" 형식 제외)
     private val durationHoursPattern = Regex("""(\d+)\s*(시간|hour|시간짜리)(?:\s*(?:동안|간))?""", RegexOption.IGNORE_CASE)
-    private val durationDaysPattern = Regex("""(?<!\d{1,2}월\s*)(\d+)\s*일\s*(?:동안|간)""", RegexOption.IGNORE_CASE)
+    private val durationDaysPattern = Regex("""(\d+)\s*일\s*(?:동안|간)""", RegexOption.IGNORE_CASE)
     private val relativeKeywords = mapOf(
         "오늘" to 0,
         "내일" to 1,
@@ -202,16 +202,24 @@ object EventTimeParser {
         // 일 기간: "3일 동안", "3일간" 등 (단, "11월 30일" 형식 제외)
         durationDaysPattern.findAll(text).forEach { match ->
             val amount = match.groupValues[1].toInt()
-            expressions += TimeExpression(
-                text = match.value,
-                kind = TimeExprKind.DURATION,
-                startIndex = match.range.first,
-                endIndex = match.range.last + 1,
-                meta = mapOf(
-                    "amount" to amount,
-                    "unit" to "일"
+            val matchStart = match.range.first
+            
+            // "X월 Y일" 형식인지 확인 (앞에 "월"이 있는지 체크)
+            val beforeMatch = text.substring(0, matchStart)
+            val isMonthDayFormat = beforeMatch.matches(Regex(""".*\d{1,2}월\s*$"""))
+            
+            if (!isMonthDayFormat) {
+                expressions += TimeExpression(
+                    text = match.value,
+                    kind = TimeExprKind.DURATION,
+                    startIndex = match.range.first,
+                    endIndex = match.range.last + 1,
+                    meta = mapOf(
+                        "amount" to amount,
+                        "unit" to "일"
+                    )
                 )
-            )
+            }
         }
 
         return expressions.sortedBy { it.startIndex }
