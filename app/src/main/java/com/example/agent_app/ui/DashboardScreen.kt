@@ -75,33 +75,38 @@ fun DashboardScreen(
         try {
             // Gmail 패키지명
             val gmailPackageName = "com.google.android.gm"
-            
-            // Gmail 앱 설치 여부 확인
             val packageManager = context.packageManager
+            
+            // 1차: Gmail 앱 설치 여부 확인
             val isGmailInstalled = try {
-                packageManager.getPackageInfo(gmailPackageName, PackageManager.GET_ACTIVITIES)
+                packageManager.getApplicationInfo(gmailPackageName, 0)
                 true
             } catch (e: PackageManager.NameNotFoundException) {
                 false
             }
             
             if (isGmailInstalled) {
-                // Gmail 앱 실행
-                val intent = packageManager.getLaunchIntentForPackage(gmailPackageName)
-                if (intent != null) {
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
+                // 2차: Gmail 앱 실행 Intent 생성 시도
+                val launchIntent = packageManager.getLaunchIntentForPackage(gmailPackageName)
+                
+                if (launchIntent != null) {
+                    // Gmail 앱이 설치되어 있고 실행 가능한 경우
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launchIntent)
+                    android.util.Log.d("DashboardScreen", "Gmail 앱 실행 성공")
                 } else {
-                    // Gmail 앱이 설치되어 있지만 실행할 수 없는 경우
-                    // Play Store로 이동
+                    // Gmail 앱이 설치되어 있지만 실행할 수 없는 경우 (비활성화 등)
+                    android.util.Log.d("DashboardScreen", "Gmail 앱이 설치되어 있지만 실행할 수 없음, Play Store로 이동")
                     openGmailInPlayStore(context)
                 }
             } else {
-                // Gmail 앱이 설치되어 있지 않으면 Play Store로 이동
+                // Gmail 앱이 설치되어 있지 않은 경우
+                android.util.Log.d("DashboardScreen", "Gmail 앱이 설치되어 있지 않음, Play Store로 이동")
                 openGmailInPlayStore(context)
             }
         } catch (e: Exception) {
             // 오류 발생 시 Play Store로 이동
+            android.util.Log.e("DashboardScreen", "Gmail 앱 실행 중 오류 발생", e)
             openGmailInPlayStore(context)
         }
     }
