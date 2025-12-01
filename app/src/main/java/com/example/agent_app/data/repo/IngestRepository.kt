@@ -33,6 +33,10 @@ class IngestRepository(
         dao.getById(id)
     }
 
+    suspend fun getBySource(source: String): List<IngestItem> = withContext(dispatcher) {
+        dao.getBySource(source)
+    }
+
     suspend fun clearAll() = withContext(dispatcher) {
         dao.clearAll()
     }

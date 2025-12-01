@@ -182,4 +182,7 @@
     <string name="widget_done">완료! 이렇게 정리됐어요 📚</string>
     <string name="widget_events_count">오늘 일정 %1$d개</string>
     <string name="widget_syncing">동기화 중…</string>
+    <string name="widget_today_count_description">오늘 일정 개수를 빠르게 확인해요</string>
+    <string name="widget_today_summary_description">오늘 일정을 한눈에 볼 수 있어요</string>
+    <string name="widget_today_week_description">오늘과 이번주 일정을 함께 확인해요</string>
 </resources>

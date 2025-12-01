@@ -396,6 +396,7 @@ private fun AssistantScaffold(
                             DashboardScreen(
                                 viewModel = mainViewModel,
                                 onNavigateToCalendar = { onTabSelected(AssistantTab.Calendar) },
+                                onNavigateToInbox = { onTabSelected(AssistantTab.Inbox) },
                                 modifier = Modifier.padding(paddingValues),
                             )
                         }
@@ -655,6 +656,13 @@ internal fun DeveloperContent(
         
         // 일정 초기화 카드
         EventCleanupCard(onClearEvents = onClearEvents)
+        
+        // 신뢰도 재계산 카드
+        ConfidenceRecalculationCard(
+            isRecalculating = uiState.syncState.isSyncing,
+            message = uiState.syncState.message,
+            onRecalculate = { mainViewModel.recalculateConfidenceForAllItems() }
+        )
         
         // DB 초기화 카드
         DatabaseResetCard(
@@ -1200,6 +1208,92 @@ private fun EventCleanupCard(
                     ),
                 ) {
                     Text(stringResource(R.string.dev_event_clear_button))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConfidenceRecalculationCard(
+    isRecalculating: Boolean,
+    message: String?,
+    onRecalculate: () -> Unit,
+) {
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(com.example.agent_app.ui.theme.Dimens.cardPadding),
+            verticalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingMD)
+        ) {
+            Text(
+                text = "신뢰도 재계산",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "기존에 파싱한 메시지, 메일 등의 데이터를 다시 분석하여 신뢰도를 재계산하고 일정을 재배열합니다. 기존 일정은 삭제되고 새로 생성됩니다.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            
+            if (isRecalculating) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                message?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            } else {
+                Button(
+                    onClick = { showConfirmDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary,
+                    ),
+                ) {
+                    Text("신뢰도 재계산 실행")
+                }
+            }
+        }
+    }
+    
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text("신뢰도 재계산 확인") },
+            text = {
+                Text(
+                    text = "기존 일정이 삭제되고 신뢰도가 재계산된 새로운 일정이 생성됩니다. 계속하시겠습니까?",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRecalculate()
+                        showConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary,
+                    ),
+                ) {
+                    Text("실행")
                 }
             },
             dismissButton = {
@@ -2697,6 +2791,19 @@ private fun GmailItemCard(
                 maxLines = 5,
                 overflow = TextOverflow.Ellipsis,
             )
+            
+            Text(
+                text = "수신 시간: ${TimeFormatter.format(item.timestamp)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            
+            if (item.confidence != null) {
+                Text(
+                    text = "신뢰도: ${(item.confidence * 100).coerceIn(0.0, 100.0).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            
             if (events.isNotEmpty()) {
                 Text(
                     text = "추출된 일정: ${events.size}개",
@@ -3153,27 +3260,65 @@ private fun CalendarContent(
                         ) {
                             Canvas(modifier = Modifier.matchParentSize()) {
                                 val cellWidth = size.width / 7f
-                                multiDayRanges.forEach { range ->
-                                    val weekStart = week.first()
-                                    val weekEnd = week.last()
+                                val weekStart = week.first()
+                                val weekEnd = week.last()
+                                
+                                // 이 주에 해당하는 범위 일정 필터링
+                                val weekRanges = multiDayRanges.mapNotNull { range ->
                                     val intersectionStart = if (range.startDate.isAfter(weekStart)) range.startDate else weekStart
                                     val intersectionEnd = if (range.endDate.isBefore(weekEnd)) range.endDate else weekEnd
                                     if (!intersectionStart.isAfter(intersectionEnd)) {
                                         val startIndex = week.indexOf(intersectionStart)
                                         val endIndex = week.indexOf(intersectionEnd)
                                         if (startIndex != -1 && endIndex != -1) {
-                                            val left = cellWidth * startIndex + cellWidth * 0.08f
-                                            val right = cellWidth * (endIndex + 1) - cellWidth * 0.08f
-                                            val width = (right - left).coerceAtLeast(0f)
-                                            if (width > 0f) {
-                                                val top = (size.height - barHeightPx - barBottomPaddingPx).coerceAtLeast(0f)
-                                                drawRoundRect(
-                                                    color = accentColor.copy(alpha = 0.25f),
-                                                    topLeft = Offset(left, top),
-                                                    size = Size(width, barHeightPx),
-                                                    cornerRadius = CornerRadius(barHeightPx / 2, barHeightPx / 2)
-                                                )
-                                            }
+                                            Triple(range, startIndex, endIndex)
+                                        } else null
+                                    } else null
+                                }
+                                
+                                // 겹치는 일정을 레이어로 분류
+                                val layers = mutableListOf<MutableList<Triple<CalendarEventRange, Int, Int>>>()
+                                
+                                weekRanges.forEach { (range, startIdx, endIdx) ->
+                                    // 기존 레이어 중 겹치지 않는 레이어 찾기
+                                    var placed = false
+                                    for (layer in layers) {
+                                        val hasOverlap = layer.any { (_, existingStart, existingEnd) ->
+                                            // 겹치는지 확인: (startIdx <= existingEnd && endIdx >= existingStart)
+                                            startIdx <= existingEnd && endIdx >= existingStart
+                                        }
+                                        if (!hasOverlap) {
+                                            layer.add(Triple(range, startIdx, endIdx))
+                                            placed = true
+                                            break
+                                        }
+                                    }
+                                    // 겹치는 레이어가 없으면 새 레이어 생성
+                                    if (!placed) {
+                                        layers.add(mutableListOf(Triple(range, startIdx, endIdx)))
+                                    }
+                                }
+                                
+                                // 각 레이어별로 그리기
+                                layers.forEachIndexed { layerIndex, layer ->
+                                    val layerY = (size.height - barHeightPx - barBottomPaddingPx) - (layerIndex * (barHeightPx + 2f))
+                                    
+                                    layer.forEach { (range, startIdx, endIdx) ->
+                                        val left = cellWidth * startIdx + cellWidth * 0.08f
+                                        val right = cellWidth * (endIdx + 1) - cellWidth * 0.08f
+                                        val width = (right - left).coerceAtLeast(0f)
+                                        
+                                        if (width > 0f && layerY >= 0f) {
+                                            // 각 일정마다 다른 색상 사용 (색상 팔레트에서 선택)
+                                            val colorIndex = (range.event.id.toInt() % calendarAccentPalette.size).coerceAtLeast(0)
+                                            val eventColor = calendarAccentPalette[colorIndex]
+                                            
+                                            drawRoundRect(
+                                                color = eventColor.copy(alpha = 0.4f),
+                                                topLeft = Offset(left, layerY),
+                                                size = Size(width, barHeightPx),
+                                                cornerRadius = CornerRadius(barHeightPx / 2, barHeightPx / 2)
+                                            )
                                         }
                                     }
                                 }

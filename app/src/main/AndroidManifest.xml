@@ -72,6 +72,42 @@
                 android:resource="@xml/summary_widget_info" />
         </receiver>
         
+        <!-- 1x1 위젯 - 오늘 일정 개수 배지 -->
+        <receiver
+            android:name=".widget.TodayCountWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_count_widget_info" />
+        </receiver>
+        
+        <!-- 2x2 위젯 - 오늘 일정 요약 -->
+        <receiver
+            android:name=".widget.TodaySummaryWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_summary_widget_info" />
+        </receiver>
+        
+        <!-- 4x2 위젯 - 오늘 + 이번주 일정 -->
+        <receiver
+            android:name=".widget.TodayWeekWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_week_widget_info" />
+        </receiver>
+        
         <!-- 일정 알림 스케줄러 서비스 -->
         <service
             android:name=".service.EventNotificationScheduler"

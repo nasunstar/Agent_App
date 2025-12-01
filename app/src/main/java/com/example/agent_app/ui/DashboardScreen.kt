@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -44,6 +45,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import com.example.agent_app.R
 import com.example.agent_app.data.entity.Event
 import com.example.agent_app.ui.common.UiState
@@ -63,13 +67,59 @@ fun DashboardScreen(
     onNavigateToInbox: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    
+    // Gmail 앱 실행 함수
+    val openGmailApp = {
+        try {
+            // Gmail 패키지명
+            val gmailPackageName = "com.google.android.gm"
+            
+            // Gmail 앱 설치 여부 확인
+            val packageManager = context.packageManager
+            val isGmailInstalled = try {
+                packageManager.getPackageInfo(gmailPackageName, PackageManager.GET_ACTIVITIES)
+                true
+            } catch (e: PackageManager.NameNotFoundException) {
+                false
+            }
+            
+            if (isGmailInstalled) {
+                // Gmail 앱 실행
+                val intent = packageManager.getLaunchIntentForPackage(gmailPackageName)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } else {
+                    // Gmail 앱이 설치되어 있지만 실행할 수 없는 경우
+                    // Play Store로 이동
+                    openGmailInPlayStore(context)
+                }
+            } else {
+                // Gmail 앱이 설치되어 있지 않으면 Play Store로 이동
+                openGmailInPlayStore(context)
+            }
+        } catch (e: Exception) {
+            // 오류 발생 시 Play Store로 이동
+            openGmailInPlayStore(context)
+        }
+    }
+    
+    // onNavigateToInbox를 Gmail 앱 실행으로 변경
+    val handleInboxClick = {
+        openGmailApp()
+    }
+    // 오늘 일정: 시작일이 오늘이거나, 범위 일정이 오늘을 포함하는 경우
     val todayEvents = uiState.events.filter { event ->
-        event.startAt != null && isToday(event.startAt!!)
+        event.startAt != null && isEventIncludingToday(event)
     }.sortedBy { it.startAt }
 
+    // 앞으로 7일 일정: 오늘을 제외한 다음 7일간의 일정
     val weekEvents = uiState.events.filter { event ->
-        event.startAt != null && isThisWeek(event.startAt!!)
+        event.startAt != null && 
+        isNext7Days(event.startAt!!) && 
+        !isToday(event.startAt!!)
     }.sortedBy { it.startAt }
     
     // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
@@ -128,7 +178,7 @@ fun DashboardScreen(
                 ActionChip(
                     text = stringResource(R.string.dashboard_actions_open_inbox),
                     icon = Icons.Filled.Email,
-                    onClick = onNavigateToInbox,
+                    onClick = handleInboxClick,
                     modifier = Modifier.weight(1f, fill = false)
                 )
             }
@@ -295,6 +345,57 @@ private fun isToday(timestamp: Long): Boolean {
     return today == eventDay && year == eventYear
 }
 
+/**
+ * 일정이 오늘을 포함하는지 확인 (범위 일정 포함)
+ * 날짜 단위로 비교하여 범위 일정도 올바르게 처리
+ */
+private fun isEventIncludingToday(event: com.example.agent_app.data.entity.Event): Boolean {
+    if (event.startAt == null) return false
+    
+    val calendar = Calendar.getInstance()
+    val today = calendar.get(Calendar.DAY_OF_YEAR)
+    val todayYear = calendar.get(Calendar.YEAR)
+    
+    // 시작일의 날짜
+    calendar.timeInMillis = event.startAt
+    val startDay = calendar.get(Calendar.DAY_OF_YEAR)
+    val startYear = calendar.get(Calendar.YEAR)
+    
+    // 종료일의 날짜 (없으면 시작일과 동일)
+    val endDay = if (event.endAt != null) {
+        calendar.timeInMillis = event.endAt
+        calendar.get(Calendar.DAY_OF_YEAR)
+    } else {
+        startDay
+    }
+    val endYear = if (event.endAt != null) {
+        calendar.timeInMillis = event.endAt
+        calendar.get(Calendar.YEAR)
+    } else {
+        startYear
+    }
+    
+    // 오늘이 시작일과 종료일 사이에 있는지 확인
+    // 같은 연도인 경우
+    if (todayYear == startYear && todayYear == endYear) {
+        return today >= startDay && today <= endDay
+    }
+    
+    // 다른 연도인 경우 (예: 12월 30일 ~ 1월 2일)
+    // 오늘이 시작일 연도인 경우
+    if (todayYear == startYear) {
+        return today >= startDay
+    }
+    
+    // 오늘이 종료일 연도인 경우
+    if (todayYear == endYear) {
+        return today <= endDay
+    }
+    
+    // 오늘이 시작일과 종료일 사이의 연도인 경우
+    return todayYear > startYear && todayYear < endYear
+}
+
 private fun formatTime(timestamp: Long?): String {
     if (timestamp == null) return ""
     // TimeFormatter를 사용하여 한국 시간대(Asia/Seoul)로 표시
@@ -303,34 +404,23 @@ private fun formatTime(timestamp: Long?): String {
     return fullTime.split(" ").getOrNull(1) ?: ""
 }
 
-private fun isThisWeek(timestamp: Long): Boolean {
+/**
+ * 앞으로 7일 동안의 일정인지 확인 (오늘 제외)
+ * 오늘보다 미래이고, 오늘부터 7일 후까지의 일정
+ */
+private fun isNext7Days(timestamp: Long): Boolean {
     val calendar = Calendar.getInstance()
-    val today = calendar.get(Calendar.DAY_OF_YEAR)
-    val year = calendar.get(Calendar.YEAR)
+    val today = calendar.timeInMillis
     
-    // 이번 주 월요일 찾기
-    calendar.firstDayOfWeek = Calendar.MONDAY
-    val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-    val daysFromMonday = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - Calendar.MONDAY
-    calendar.add(Calendar.DAY_OF_YEAR, -daysFromMonday)
-    val mondayOfWeek = calendar.get(Calendar.DAY_OF_YEAR)
-    val mondayYear = calendar.get(Calendar.YEAR)
+    // 7일 후 시간 계산
+    calendar.add(Calendar.DAY_OF_YEAR, 7)
+    val sevenDaysLater = calendar.timeInMillis
     
-    // 이번 주 일요일
-    calendar.add(Calendar.DAY_OF_YEAR, 6)
-    val sundayOfWeek = calendar.get(Calendar.DAY_OF_YEAR)
-    val sundayYear = calendar.get(Calendar.YEAR)
+    // 이벤트 시간
+    val eventTime = timestamp
     
-    // 이벤트 날짜 확인
-    calendar.timeInMillis = timestamp
-    val eventDay = calendar.get(Calendar.DAY_OF_YEAR)
-    val eventYear = calendar.get(Calendar.YEAR)
-    
-    // 오늘보다는 미래이고, 이번 주 일요일 이전이어야 함
-    val isTodayOrFuture = (eventYear == year && eventDay >= today) || eventYear > year
-    val isBeforeWeekEnd = (eventYear == sundayYear && eventDay <= sundayOfWeek) || eventYear < sundayYear
-    
-    return isTodayOrFuture && isBeforeWeekEnd
+    // 오늘보다는 미래이고, 7일 후 이전이어야 함
+    return eventTime > today && eventTime <= sevenDaysLater
 }
 
 private fun formatDayOfWeek(timestamp: Long): String {
@@ -365,6 +455,38 @@ private fun getGreetingMessage(): String {
         in 12..17 -> stringResource(R.string.greeting_afternoon)
         in 18..21 -> stringResource(R.string.greeting_evening)
         else -> stringResource(R.string.greeting_night)
+    }
+}
+
+/**
+ * Play Store에서 Gmail 앱 설치 페이지 열기
+ */
+private fun openGmailInPlayStore(context: android.content.Context) {
+    try {
+        val gmailPackageName = "com.google.android.gm"
+        val playStoreIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$gmailPackageName")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        
+        // Play Store 앱이 없으면 웹 브라우저로 열기
+        if (playStoreIntent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(playStoreIntent)
+        } else {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$gmailPackageName")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+        }
+    } catch (e: Exception) {
+        // 오류 발생 시 웹 브라우저로 열기
+        try {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.gm")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+        } catch (e2: Exception) {
+            android.util.Log.e("DashboardScreen", "Gmail Play Store 열기 실패", e2)
+        }
     }
 }
 

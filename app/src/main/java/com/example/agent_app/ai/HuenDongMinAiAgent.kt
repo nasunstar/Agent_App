@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.roundToInt
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -1269,18 +1270,17 @@ class HuenDongMinAiAgent(
 
         // 5) 보정 결과 범위 & 스무딩
         score = score.coerceIn(0.0, 1.0)
-        // Confidence 값이 극단적으로 몰리지 않도록 소수점 첫째자리까지 노이즈 추가
-        val bucket = (score * 100).toInt()
-        val smoothed = bucket / 100.0
+        // Confidence 값을 소수점 둘째자리까지 반올림하여 반환
+        val rounded = (score * 100).roundToInt() / 100.0
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "ConfidenceScore",
-                "base=${baseConfidence ?: 0.5}, adjusted=$smoothed, source=$sourceType, keywords=$keywordHits, numbers=$numberCount"
+                "base=${baseConfidence ?: 0.5}, score=$score, rounded=$rounded, source=$sourceType, keywords=$keywordHits, numbers=$numberCount"
             )
         }
 
-        return smoothed
+        return rounded
     }
 
     private fun java.time.ZonedDateTime.formatDateString(): String =
@@ -1737,7 +1737,7 @@ class HuenDongMinAiAgent(
             metaJson = null
         )
         ingestRepository.upsert(ingestItem)
-        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${adjustedResult.type}, Events: ${adjustedResult.events.size}개)")
+        android.util.Log.d("HuenDongMinAiAgent", "Gmail IngestItem 저장 완료 (Type: ${adjustedResult.type}, Events: ${adjustedResult.events.size}개, Confidence: ${adjustedResult.confidence})")
         
         // Event 저장 (일정이 있는 경우만)
         if (adjustedResult.type == "event" && adjustedResult.events.isNotEmpty()) {
@@ -1820,6 +1820,54 @@ class HuenDongMinAiAgent(
         
         android.util.Log.d("HuenDongMinAiAgent", "SMS 처리 시작 - ID: $originalSmsId")
         
+        // 광고/스팸 필터링: 명시적 광고 표시 체크
+        val normalizedBody = smsBody.lowercase()
+        val explicitAdPatterns = listOf(
+            "(광고)", "[광고]", "광고)", "(광고]", "[광고)", "광고]",
+            "(ad)", "[ad]", "ad)", "(advertisement)", "[advertisement]",
+            "(스팸)", "[스팸]", "스팸)", "(spam)", "[spam]",
+            "(홍보)", "[홍보]", "홍보)", "(promotion)", "[promotion]"
+        )
+        val hasExplicitAdMark = explicitAdPatterns.any { pattern ->
+            normalizedBody.contains(pattern.lowercase())
+        }
+        
+        // 카테고리 체크 (함수 전체에서 사용)
+        val smsCategoryForFilter = classifySmsCategory(smsAddress, smsBody)
+        val isPromotionCategory = smsCategoryForFilter == com.example.agent_app.util.SmsCategory.PROMOTION
+        
+        // 광고/스팸으로 판단되면 일정 생성 차단
+        if (hasExplicitAdMark || isPromotionCategory) {
+            android.util.Log.d("HuenDongMinAiAgent", "SMS 광고/스팸 필터링됨 - 명시적 표시: $hasExplicitAdMark, 카테고리: $smsCategoryForFilter")
+            
+            // IngestItem은 저장하되 type을 "note"로 설정
+            val ingestItem = IngestItem(
+                id = originalSmsId,
+                source = "sms",
+                type = "note",
+                title = smsAddress,
+                body = smsBody,
+                timestamp = receivedTimestamp,
+                dueDate = null,
+                confidence = 0.1,
+                metaJson = buildString {
+                    append("{")
+                    append("\"category\":\"${smsCategoryForFilter.name}\",")
+                    append("\"address\":\"$smsAddress\",")
+                    append("\"filtered\":true,\"reason\":\"")
+                    append(if (hasExplicitAdMark) "explicit_ad_mark" else "promotion_category")
+                    append("\"}")
+                }
+            )
+            ingestRepository.upsert(ingestItem)
+            
+            return@withContext AiProcessingResult(
+                type = "note",
+                confidence = 0.1,
+                events = emptyList()
+            )
+        }
+        
         // 먼저 일정 요약 추출로 일정 개수 확인
         val eventSummaries = extractEventSummary(
             text = smsBody,
@@ -1878,6 +1926,7 @@ class HuenDongMinAiAgent(
                 metaJson = null
             )
             ingestRepository.upsert(ingestItem)
+            android.util.Log.d("HuenDongMinAiAgent", "SMS IngestItem 저장 완료 (Type: ${adjustedResult.type}, Events: ${adjustedResult.events.size}개, Confidence: ${adjustedResult.confidence})")
             
             // Event 저장
             adjustedResult.events.forEachIndexed { index, eventData ->
@@ -2122,7 +2171,13 @@ class HuenDongMinAiAgent(
             
             ⚠️⚠️⚠️ 중요 규칙:
             
-            **🔴 절대 금지: 일정이 없으면 일정을 생성하지 마세요!**
+            **🔴 절대 금지 1: 광고/스팸/홍보 메시지는 무조건 "note"로 반환!**
+            - SMS 본문에 "(광고)", "[광고]", "광고)", "(ad)", "[ad]", "(스팸)", "[스팸]", "(홍보)", "[홍보]" 등이 **하나라도 있으면**
+            - **절대로 일정(type: "event")을 생성하지 말고**
+            - **반드시 type: "note"와 events: []를 반환하세요**
+            - 광고 메시지에 날짜/시간이 있어도 일정으로 생성하지 마세요!
+            
+            **🔴 절대 금지 2: 일정이 없으면 일정을 생성하지 마세요!**
             - SMS 본문에 명확한 날짜, 시간, 약속, 회의 등이 **전혀 없으면**
             - **절대로 일정(type: "event")을 생성하지 말고**
             - **반드시 type: "note"와 events: []를 반환하세요**
@@ -2130,10 +2185,12 @@ class HuenDongMinAiAgent(
             - 확실한 약속/일정이 있을 때만 "event"를 생성하세요!
             
             예시:
+            - "11월 30일 (광고)" → type: "note", events: [] ✅ (광고 표시 있음)
+            - "[광고] 11월 30일 특가 이벤트" → type: "note", events: [] ✅ (광고 표시 있음)
             - "안녕하세요. 잘 지내시나요?" → type: "note", events: [] ✅
-            - "내일 3시에 만나요" → type: "event", events: [...] ✅
-            - "9월 30일 회의 있습니다" → type: "event", events: [...] ✅
-            - "다음주 수요일 오후 2시 약속" → type: "event", events: [...] ✅
+            - "내일 3시에 만나요" → type: "event", events: [...] ✅ (개인 약속)
+            - "9월 30일 회의 있습니다" → type: "event", events: [...] ✅ (개인 약속)
+            - "다음주 수요일 오후 2시 약속" → type: "event", events: [...] ✅ (개인 약속)
             
             일반 규칙:
             1. 모든 시간은 한국 표준시(KST, UTC+9) 기준으로 계산하세요!
@@ -2217,9 +2274,8 @@ class HuenDongMinAiAgent(
         // 모든 SMS 메시지를 IngestItem으로 저장 (일정이 없어도 저장)
         val firstEvent = adjustedResult.events.firstOrNull()
         
-        // SMS 카테고리 정보 추출 (SmsMessage에서 전달받음)
-        // smsAddress에서 카테고리 정보를 추출하기 위해 SmsReader의 분류 함수를 재사용
-        val smsCategory = classifySmsCategory(smsAddress, smsBody)
+        // SMS 카테고리 정보 추출 (이미 위에서 선언됨)
+        val smsCategory = smsCategoryForFilter
         
         val metaJson = buildString {
             append("{")

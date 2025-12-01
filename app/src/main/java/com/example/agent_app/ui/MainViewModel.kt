@@ -1476,6 +1476,146 @@ class MainViewModel(
     }
     
     /**
+     * 기존 IngestItem의 신뢰도 재계산 및 일정 재생성
+     * 기존에 파싱한 데이터를 다시 처리하여 신뢰도를 업데이트하고 일정을 재배열합니다.
+     */
+    fun recalculateConfidenceForAllItems() {
+        viewModelScope.launch {
+            try {
+                syncState.value = SyncState(
+                    isSyncing = true,
+                    message = "신뢰도 재계산 중..."
+                )
+                
+                withContext(Dispatchers.IO) {
+                    // 모든 IngestItem 가져오기 (각 소스별로)
+                    val allItems = mutableListOf<IngestItem>()
+                    
+                    // Gmail
+                    val gmailItems = ingestRepository.getBySource("gmail")
+                    allItems.addAll(gmailItems)
+                    
+                    // SMS
+                    val smsItems = ingestRepository.getBySource("sms")
+                    allItems.addAll(smsItems)
+                    
+                    // OCR
+                    val ocrItems = ingestRepository.getBySource("ocr")
+                    allItems.addAll(ocrItems)
+                    
+                    // Push Notification
+                    val pushItems = ingestRepository.getBySource("push_notification")
+                    allItems.addAll(pushItems)
+                    
+                    android.util.Log.d("MainViewModel", "신뢰도 재계산 시작: 총 ${allItems.size}개 항목")
+                    
+                    var processedCount = 0
+                    var updatedCount = 0
+                    
+                    // 각 IngestItem 처리
+                    for (item in allItems) {
+                        try {
+                            // 기존 이벤트 삭제 (sourceId와 sourceType으로 찾아서)
+                            val existingEvents = eventDao?.getBySourceId(item.id) ?: emptyList()
+                            existingEvents.forEach { event ->
+                                eventDao?.delete(event)
+                            }
+                            
+                            // IngestItem을 다시 처리하여 신뢰도 재계산 및 이벤트 재생성
+                            val result = when (item.source) {
+                                "sms" -> {
+                                    aiAgent.processSMSForEvent(
+                                        smsBody = item.body ?: "",
+                                        smsAddress = item.title ?: "Unknown",
+                                        receivedTimestamp = item.timestamp,
+                                        originalSmsId = item.id
+                                    )
+                                }
+                                "ocr" -> {
+                                    aiAgent.createEventFromImage(
+                                        ocrText = item.body ?: "",
+                                        currentTimestamp = item.timestamp,
+                                        originalOcrId = item.id
+                                    )
+                                }
+                                "gmail" -> {
+                                    aiAgent.processGmailForEvent(
+                                        emailSubject = item.title ?: "",
+                                        emailBody = item.body ?: "",
+                                        receivedTimestamp = item.timestamp,
+                                        originalEmailId = item.id
+                                    )
+                                }
+                                "push_notification" -> {
+                                    aiAgent.processPushNotificationForEvent(
+                                        appName = item.title ?: "Unknown",
+                                        notificationTitle = null,
+                                        notificationText = item.body ?: "",
+                                        notificationSubText = null,
+                                        receivedTimestamp = item.timestamp,
+                                        originalNotificationId = item.id
+                                    )
+                                }
+                                else -> {
+                                    android.util.Log.w("MainViewModel", "지원하지 않는 소스 타입: ${item.source}")
+                                    null
+                                }
+                            }
+                            
+                            if (result != null) {
+                                // IngestItem의 confidence 업데이트
+                                val updatedItem = item.copy(confidence = result.confidence)
+                                ingestRepository.upsert(updatedItem)
+                                updatedCount++
+                                
+                                android.util.Log.d("MainViewModel", "항목 재처리 완료: ${item.source}:${item.id}, 신뢰도: ${result.confidence}")
+                            }
+                            
+                            processedCount++
+                            
+                            // 진행률 업데이트 (10개마다)
+                            if (processedCount % 10 == 0) {
+                                syncState.value = SyncState(
+                                    isSyncing = true,
+                                    message = "신뢰도 재계산 중... ($processedCount/${allItems.size})"
+                                )
+                                yield()
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainViewModel", "항목 재처리 실패: ${item.source}:${item.id}", e)
+                        }
+                    }
+                    
+                    // 분류된 데이터 다시 로드
+                    classifiedDataRepository?.let { repo ->
+                        contactsState.value = repo.getAllContacts()
+                        eventsState.value = repo.getAllEvents()
+                        notesState.value = repo.getAllNotes()
+                    }
+                    
+                    // 각 소스별 이벤트 다시 로드
+                    loadOcrEvents(ocrItemsState.value)
+                    loadSmsEvents(smsItemsState.value)
+                    loadPushNotificationEvents(pushNotificationItemsState.value)
+                    
+                    android.util.Log.d("MainViewModel", "신뢰도 재계산 완료: ${processedCount}개 처리, ${updatedCount}개 업데이트")
+                    
+                    syncState.value = SyncState(
+                        isSyncing = false,
+                        message = "신뢰도 재계산 완료: ${updatedCount}개 항목 업데이트"
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "신뢰도 재계산 실패", e)
+                syncState.value = SyncState(
+                    isSyncing = false,
+                    message = "신뢰도 재계산 중 오류가 발생했습니다: ${e.message}"
+                )
+            }
+        }
+    }
+    
+    /**
      * 자연어 텍스트에서 일정 생성 (UI 레이어에서만 사용)
      * 기존 ChatGateway의 tryCreateEventFromQuestion 로직을 재사용
      */
