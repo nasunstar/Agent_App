@@ -3649,13 +3649,31 @@ class HuenDongMinAiAgent(
     
     private fun parseAiResponse(response: String): AiProcessingResult {
         return try {
-            // JSON 추출 (마크다운 코드 블록 제거)
-            val cleanedJson = response
-                .trim()
-                .removePrefix("```json")
-                .removePrefix("```")
-                .removeSuffix("```")
-                .trim()
+            // JSON 추출 (마크다운 코드 블록 또는 설명 텍스트가 있는 경우 처리)
+            var cleanedJson = response.trim()
+            
+            // 1. 마크다운 코드 블록에서 JSON 추출 (```json ... ```)
+            val codeBlockRegex = """```(?:json)?\s*(\{[\s\S]*?\})\s*```""".toRegex()
+            val codeBlockMatch = codeBlockRegex.find(cleanedJson)
+            if (codeBlockMatch != null) {
+                cleanedJson = codeBlockMatch.groupValues[1].trim()
+            } else {
+                // 2. 코드 블록이 없으면 JSON 객체 직접 찾기 ({ ... })
+                val jsonObjectRegex = """(\{[\s\S]*\})""".toRegex()
+                val jsonMatch = jsonObjectRegex.find(cleanedJson)
+                if (jsonMatch != null) {
+                    cleanedJson = jsonMatch.groupValues[1].trim()
+                } else {
+                    // 3. 그 외의 경우 기존 방식 (prefix/suffix 제거)
+                    cleanedJson = cleanedJson
+                        .removePrefix("```json")
+                        .removePrefix("```")
+                        .removeSuffix("```")
+                        .trim()
+                }
+            }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "추출된 JSON: ${cleanedJson.take(200)}...")
             
             val jsonObj = json.parseToJsonElement(cleanedJson).jsonObject
             

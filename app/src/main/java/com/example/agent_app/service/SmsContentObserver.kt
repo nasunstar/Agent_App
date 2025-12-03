@@ -47,15 +47,15 @@ class SmsContentObserver(
         scope.launch {
             try {
                 // 약간의 지연 후 최신 SMS 확인 (데이터베이스 쓰기 완료 대기)
-                delay(1000)
-                checkAndProcessNewSms()
+                delay(500) // 1초에서 500ms로 단축
+                checkAndProcessNewSms(previousCheckTime) // 이전 체크 시간 전달
             } catch (e: Exception) {
                 Log.e(TAG, "SMS 변경 처리 실패", e)
             }
         }
     }
     
-    private suspend fun checkAndProcessNewSms() {
+    private suspend fun checkAndProcessNewSms(sinceTimestamp: Long = lastCheckTime - 30000) {
         try {
             // 자동 처리 활성화 여부 확인
             val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
@@ -64,13 +64,15 @@ class SmsContentObserver(
                 return
             }
             
-            // 최신 SMS 읽기
-            val readResult = com.example.agent_app.util.SmsReader.readSmsMessages(context, lastCheckTime - 10000) // 최근 10초 이내
+            // 최신 SMS 읽기 (최근 30초 이내로 범위 확대)
+            val readSince = sinceTimestamp - 5000 // 5초 여유 추가
+            Log.d(TAG, "SMS 읽기 시작 - 기준 시간: $readSince (현재: ${System.currentTimeMillis()})")
+            val readResult = com.example.agent_app.util.SmsReader.readSmsMessages(context, readSince)
             when (readResult) {
                 is com.example.agent_app.util.SmsReader.SmsReadResult.Success -> {
-                    val cutoffTime = lastCheckTime - 10000 // 최근 10초 이내
+                    val now = System.currentTimeMillis()
                     val newMessages = readResult.messages.filter { 
-                        it.timestamp > cutoffTime && it.timestamp <= System.currentTimeMillis()
+                        it.timestamp > readSince && it.timestamp <= now
                     }
                     
                     if (newMessages.isNotEmpty()) {
