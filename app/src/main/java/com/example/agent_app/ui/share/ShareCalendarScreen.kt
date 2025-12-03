@@ -74,6 +74,7 @@ fun ShareCalendarScreen(
     onSearchCalendarInputChange: (String) -> Unit,
     onSearchCalendar: () -> Unit,
     onMyCalendarClick: (String) -> Unit,
+    onSearchCalendarClick: () -> Unit,
     onDismissPreview: () -> Unit,
     onApplyInternalData: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -141,6 +142,7 @@ fun ShareCalendarScreen(
                     uiState = uiState,
                     onSearchInputChange = onSearchCalendarInputChange,
                     onSearchCalendar = onSearchCalendar,
+                    onSearchCalendarClick = onSearchCalendarClick,
                 )
             }
         }
@@ -708,6 +710,7 @@ private fun SearchCalendarByShareIdSection(
     uiState: ShareCalendarUiState,
     onSearchInputChange: (String) -> Unit,
     onSearchCalendar: () -> Unit,
+    onSearchCalendarClick: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -759,6 +762,7 @@ private fun SearchCalendarByShareIdSection(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.clickable { onSearchCalendarClick() },
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -783,6 +787,13 @@ private fun SearchCalendarByShareIdSection(
                             text = "멤버 ${calendar.members.size}명, 일정 ${calendar.events.size}개",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "클릭하여 캘린더 상세 보기",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
@@ -1030,6 +1041,7 @@ private fun ShareCalendarScreenPreview() {
             onSearchCalendarInputChange = {},
             onSearchCalendar = {},
             onMyCalendarClick = {},
+            onSearchCalendarClick = {},
             onDismissPreview = {},
             onApplyInternalData = {}
         )

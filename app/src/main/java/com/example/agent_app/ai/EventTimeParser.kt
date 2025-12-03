@@ -59,7 +59,9 @@ object EventTimeParser {
     // "X월 Y일" 형식에서 "일"이 날짜의 일(day)로 인식되지 않도록 수정
     // "X일 동안" 또는 "X일간" 같은 명시적 기간 표현만 매칭 (단, "X월 Y일" 형식 제외)
     private val durationHoursPattern = Regex("""(\d+)\s*(시간|hour|시간짜리)(?:\s*(?:동안|간))?""", RegexOption.IGNORE_CASE)
-    private val durationDaysPattern = Regex("""(?<!\d{1,2}월\s*)(\d+)\s*일\s*(?:동안|간)""", RegexOption.IGNORE_CASE)
+    // Android ICU 정규식은 가변 길이 look-behind를 지원하지 않으므로, 매칭 후 검증하는 방식으로 변경
+    private val durationDaysPattern = Regex("""(\d+)\s*일\s*(?:동안|간)""", RegexOption.IGNORE_CASE)
+    private val monthDayBeforePattern = Regex("""(\d{1,2})\s*월\s*(\d+)\s*일""")
     private val relativeKeywords = mapOf(
         "오늘" to 0,
         "내일" to 1,
@@ -201,17 +203,32 @@ object EventTimeParser {
         
         // 일 기간: "3일 동안", "3일간" 등 (단, "11월 30일" 형식 제외)
         durationDaysPattern.findAll(text).forEach { match ->
-            val amount = match.groupValues[1].toInt()
-            expressions += TimeExpression(
-                text = match.value,
-                kind = TimeExprKind.DURATION,
-                startIndex = match.range.first,
-                endIndex = match.range.last + 1,
-                meta = mapOf(
-                    "amount" to amount,
-                    "unit" to "일"
+            // "X월 Y일" 형식인지 확인 - 매칭된 부분 앞에 "X월 Y일" 패턴이 있는지 검사
+            val startIdx = match.range.first
+            val matchedDay = match.groupValues[1].toIntOrNull()
+            
+            // 앞부분에 "X월 Y일" 패턴이 있고, 그 "일" 부분이 현재 매칭과 겹치는지 확인
+            val isMonthDayFormat = matchedDay != null && monthDayBeforePattern.findAll(text).any { monthDayMatch ->
+                val monthDayEnd = monthDayMatch.range.last
+                val monthDayDay = monthDayMatch.groupValues[2].toIntOrNull()
+                // "X월 Y일" 패턴의 "일" 부분이 현재 "X일 동안" 매칭과 겹치거나 가까운지 확인
+                monthDayDay == matchedDay && monthDayEnd >= startIdx - 5 && monthDayEnd <= startIdx + 2
+            }
+            
+            // "X월 Y일" 형식이 아니면 기간으로 인식
+            if (!isMonthDayFormat) {
+                val amount = matchedDay ?: match.groupValues[1].toInt()
+                expressions += TimeExpression(
+                    text = match.value,
+                    kind = TimeExprKind.DURATION,
+                    startIndex = match.range.first,
+                    endIndex = match.range.last + 1,
+                    meta = mapOf(
+                        "amount" to amount,
+                        "unit" to "일"
+                    )
                 )
-            )
+            }
         }
 
         return expressions.sortedBy { it.startIndex }

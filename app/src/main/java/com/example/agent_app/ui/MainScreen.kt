@@ -111,6 +111,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -158,6 +159,7 @@ fun AssistantApp(
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by rememberSaveable { mutableStateOf(initialTab ?: AssistantTab.Dashboard) }
     var selectedDrawerMenu by rememberSaveable { mutableStateOf(DrawerMenu.Menu) }
+    var showNeedsReviewScreen by rememberSaveable { mutableStateOf(false) }
     val shareCalendarUiState by shareCalendarViewModel.uiState.collectAsStateWithLifecycle()
     val selectedEmail = mainViewModel.getSelectedAccountEmail()
     
@@ -232,11 +234,15 @@ fun AssistantApp(
         onShareCalendarSearchProfile = shareCalendarViewModel::searchProfileByShareId,
         onShareCalendarSearchCalendarInputChange = shareCalendarViewModel::updateSearchCalendarInput,
         onShareCalendarSearchCalendar = shareCalendarViewModel::searchCalendarByShareId,
+        onShareCalendarSearchCalendarClick = shareCalendarViewModel::showSearchCalendarPreview,
         onShareCalendarMyCalendarClick = { id -> shareCalendarViewModel.loadMyCalendarDetail(selectedEmail, id) },
         onShareCalendarDismissPreview = shareCalendarViewModel::clearMyCalendarPreview,
         onShareCalendarApplyInternalData = { calendarId ->
             shareCalendarViewModel.syncInternalEvents(selectedEmail, calendarId, uiState.events)
         },
+        showNeedsReviewScreen = showNeedsReviewScreen,
+        onNavigateToNeedsReview = { showNeedsReviewScreen = true },
+        onNavigateBackFromNeedsReview = { showNeedsReviewScreen = false },
     )
     
     // 푸시 알림 권한 안내 다이얼로그
@@ -304,9 +310,13 @@ private fun AssistantScaffold(
     onShareCalendarSearchProfile: () -> Unit,
     onShareCalendarSearchCalendarInputChange: (String) -> Unit,
     onShareCalendarSearchCalendar: () -> Unit,
+    onShareCalendarSearchCalendarClick: () -> Unit,
     onShareCalendarMyCalendarClick: (String) -> Unit,
     onShareCalendarDismissPreview: () -> Unit,
     onShareCalendarApplyInternalData: (String) -> Unit,
+    showNeedsReviewScreen: Boolean,
+    onNavigateToNeedsReview: () -> Unit,
+    onNavigateBackFromNeedsReview: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -387,16 +397,25 @@ private fun AssistantScaffold(
         },
         contentWindowInsets = WindowInsets.systemBars
         ) { paddingValues ->
-            // 사이드바 메뉴에 따른 화면 표시
-            when (selectedDrawerMenu) {
-                DrawerMenu.Menu -> {
-                    // 메뉴 화면에서는 탭 화면을 표시
-                    when (selectedTab) {
+            // Needs Review 화면 표시
+            if (showNeedsReviewScreen) {
+                NeedsReviewScreen(
+                    viewModel = mainViewModel,
+                    onNavigateBack = onNavigateBackFromNeedsReview,
+                    modifier = Modifier.padding(paddingValues)
+                )
+            } else {
+                // 사이드바 메뉴에 따른 화면 표시
+                when (selectedDrawerMenu) {
+                    DrawerMenu.Menu -> {
+                        // 메뉴 화면에서는 탭 화면을 표시
+                        when (selectedTab) {
                         AssistantTab.Dashboard -> {
                             DashboardScreen(
                                 viewModel = mainViewModel,
                                 onNavigateToCalendar = { onTabSelected(AssistantTab.Calendar) },
                                 onNavigateToInbox = { onTabSelected(AssistantTab.Inbox) },
+                                onNavigateToNeedsReview = onNavigateToNeedsReview,
                                 modifier = Modifier.padding(paddingValues),
                             )
                         }
@@ -463,6 +482,7 @@ private fun AssistantScaffold(
                             onSearchProfile = onShareCalendarSearchProfile,
                             onSearchCalendarInputChange = onShareCalendarSearchCalendarInputChange,
                             onSearchCalendar = onShareCalendarSearchCalendar,
+                            onSearchCalendarClick = onShareCalendarSearchCalendarClick,
                             onMyCalendarClick = onShareCalendarMyCalendarClick,
                             onDismissPreview = onShareCalendarDismissPreview,
                             onApplyInternalData = onShareCalendarApplyInternalData,
@@ -495,6 +515,7 @@ private fun AssistantScaffold(
                     )
                 }
             }
+        }
         }
     }
 }
@@ -737,6 +758,22 @@ private fun SmsScanCard(
     onScanClick: (Long) -> Unit,
     onDatePickerClick: () -> Unit,
 ) {
+    val context = LocalContext.current
+    
+    // 자동 처리 활성화 여부 확인 (실시간 업데이트)
+    val isAutoProcessEnabled = remember {
+        mutableStateOf(
+            com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
+        )
+    }
+    // 상태 업데이트를 위해 LaunchedEffect 사용
+    LaunchedEffect(Unit) {
+        while (true) {
+            isAutoProcessEnabled.value = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
+            kotlinx.coroutines.delay(1000) // 1초마다 확인
+        }
+    }
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -750,6 +787,34 @@ private fun SmsScanCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
+            
+            // 자동 처리 활성화 상태 표시
+            if (isAutoProcessEnabled.value && !smsScanState.isScanning) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                        )
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.sms_auto_process_enabled),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             
             if (smsScanState.isScanning) {
                 Text(

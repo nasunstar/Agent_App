@@ -43,6 +43,11 @@ fun NeedsReviewScreen(
     val needsReviewEvents = uiState.needsReviewEvents
     val isLoading = uiState.isSyncing
     
+    // 화면 진입 시 검토 필요한 일정 로드
+    LaunchedEffect(Unit) {
+        viewModel.loadNeedsReviewEvents()
+    }
+    
     Scaffold(
         topBar = {
             TopAppBar(

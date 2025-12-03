@@ -292,6 +292,18 @@ class ShareCalendarViewModel(
         }
     }
 
+    fun showSearchCalendarPreview() {
+        val searchResult = _uiState.value.searchCalendarResult
+        if (searchResult != null) {
+            _uiState.update {
+                it.copy(
+                    myCalendarPreview = searchResult,
+                    isLoadingMyCalendarPreview = false,
+                )
+            }
+        }
+    }
+
     fun syncInternalEvents(
         actorEmail: String?,
         calendarId: String,

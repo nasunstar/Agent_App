@@ -18,9 +18,6 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
-    // MOA-LLM-Optimization: 중복 처리 방지를 위한 처리된 SMS ID 추적
-    private val processedSmsIds = mutableSetOf<String>()
-    
     override fun onReceive(context: Context, intent: Intent) {
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION != intent.action) {
             return
@@ -41,6 +38,7 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
             val body = smsMessage.messageBody ?: ""
             val timestamp = smsMessage.timestampMillis
             val smsId = smsMessage.indexOnIcc?.toString() ?: System.currentTimeMillis().toString()
+            val originalSmsId = "sms-auto-$smsId"
             
             Log.d(TAG, "SMS 처리 시작 - 발신자: $address, 본문 길이: ${body.length}, 타임스탬프: $timestamp")
             
@@ -60,19 +58,7 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
             
             Log.d(TAG, "SMS 자동 처리 조건 충족 - 처리 진행")
             
-            // MOA-LLM-Optimization: 중복 처리 방지
-            val uniqueKey = "${address}:${body}:${timestamp}"
-            if (processedSmsIds.contains(uniqueKey)) {
-                Log.d(TAG, "이미 처리된 SMS, 건너뜀: $uniqueKey")
-                return
-            }
-            processedSmsIds.add(uniqueKey)
-            // 메모리 관리: 최근 1000개만 유지
-            if (processedSmsIds.size > 1000) {
-                processedSmsIds.remove(processedSmsIds.first())
-            }
-            
-            // 백그라운드에서 처리
+            // 백그라운드에서 처리 (트리거 방식: SMS 수신 시에만 실행)
             scope.launch {
                 try {
                     // AppContainer에서 의존성 가져오기
@@ -80,12 +66,19 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
                     val aiAgent = appContainer.huenDongMinAiAgent
                     val ingestRepository = appContainer.ingestRepository
                     
+                    // 메모리 최적화: 데이터베이스에서 중복 체크 (메모리 사용 없음)
+                    val existingItem = ingestRepository.getById(originalSmsId)
+                    if (existingItem != null) {
+                        Log.d(TAG, "이미 처리된 SMS, 건너뜀: $originalSmsId")
+                        return@launch
+                    }
+                    
                     // SMS 메시지 처리
                     val result = aiAgent.processSMSForEvent(
                         smsBody = body,
                         smsAddress = address,
                         receivedTimestamp = timestamp,
-                        originalSmsId = "sms-auto-$smsId"
+                        originalSmsId = originalSmsId
                     )
                     
                     Log.d(TAG, "SMS 자동 처리 완료 - Type: ${result.type}, Events: ${result.events.size}")

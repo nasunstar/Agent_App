@@ -65,6 +65,7 @@ fun DashboardScreen(
     viewModel: MainViewModel,
     onNavigateToCalendar: () -> Unit = {},
     onNavigateToInbox: () -> Unit = {},
+    onNavigateToNeedsReview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -121,6 +122,9 @@ fun DashboardScreen(
         isNext7Days(event.startAt!!) && 
         !isToday(event.startAt!!)
     }.sortedBy { it.startAt }
+    
+    // Needs Review 일정 개수
+    val needsReviewCount = uiState.needsReviewEvents.size
     
     // 다크모드 자동 감지 (공통 컴포넌트에서 처리)
     val configuration = LocalConfiguration.current
@@ -184,6 +188,17 @@ fun DashboardScreen(
             }
         }
         
+        // Needs Review 배지 (검토 필요한 일정이 있을 때만 표시)
+        if (needsReviewCount > 0) {
+            item {
+                NeedsReviewBadge(
+                    count = needsReviewCount,
+                    onClick = onNavigateToNeedsReview,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        
         // 오늘/이번주 모두 비었을 때 통합 EmptyState
         if (allEmpty) {
             item {
@@ -223,6 +238,49 @@ fun DashboardScreen(
             state = pullRefreshState,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+    }
+}
+
+/**
+ * MOA-Needs-Review: 검토 필요한 일정 배지
+ */
+@Composable
+private fun NeedsReviewBadge(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    InfoCard(
+        title = stringResource(R.string.dashboard_needs_review_title),
+        summary = stringResource(R.string.dashboard_needs_review_summary, count),
+        icon = Icons.Filled.Warning,
+        iconTint = MaterialTheme.colorScheme.error,
+        accentColor = if (isDark) 
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f) 
+        else 
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⚠️ ${count}건의 일정이 검토를 기다리고 있어요",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+            )
+            androidx.compose.material3.Badge(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ) {
+                Text("$count")
+            }
+        }
     }
 }
 

@@ -21,25 +21,19 @@ onClick = onNavigateToNeedsReview,  // MainScreen에서 전달받은 콜백 사�
 
 ---
 
-### 2. Chat Gateway에서 Context 중복 조회
-**파일:** `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt:127`
-**문제:** `requestChatCompletion`에서 `fetchContext`를 다시 호출하여 불필요한 검색 수행
-**영향:** 
-- 토큰 낭비 (검색 엔진 호출 중복)
-- 응답 지연 증가
-- `ExecuteChatUseCase`에서 이미 context를 가져왔는데 다시 조회
-**수정 방법:**
-```kotlin
-// 현재 (Line 127):
-val context = fetchContext(questionText, QueryFilters(), limit = 5)
-
-// 수정 필요: ExecuteChatUseCase에서 전달받은 context를 사용하도록 변경
-// 또는 requestChatCompletion의 messages에서 context 정보 추출
-```
+### 2. ✅ Chat Gateway에서 Context 중복 조회 (수정 완료)
+**파일:** `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt`
+**상태:** ✅ **수정 완료** - 중복 조회 문제가 이미 해결됨
+**확인 내용:**
+- `ExecuteChatUseCase.kt:24`에서 `fetchContext`를 1회만 호출
+- `requestChatCompletion`에 context를 파라미터로 전달 (중복 호출 없음)
+- `ChatViewModel.toThreadEntry()`에서 `contextItems`를 `sources`로 변환하여 활용
+- 실제 코드 확인 결과, 중복 조회가 발생하지 않음
 
 **관련 파일:**
-- `app/src/main/java/com/example/agent_app/domain/chat/usecase/ExecuteChatUseCase.kt:24` - 이미 context 조회함
-- `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt:89-140` - 중복 호출 제거 필요
+- `app/src/main/java/com/example/agent_app/domain/chat/usecase/ExecuteChatUseCase.kt:24,32` - context 1회 조회 후 전달 ✅
+- `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt:89-140` - context 파라미터 사용 ✅
+- `app/src/main/java/com/example/agent_app/ui/chat/ChatViewModel.kt:121-128` - contextItems를 sources로 변환 ✅
 
 ---
 
@@ -64,15 +58,13 @@ status = "pending",
 
 ---
 
-### 4. Chat Source 표시 시 Context 중복 조회로 인한 성능 저하
-**파일:** `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt:127`
-**문제:** sources를 위해 fetchContext를 다시 호출하지만, ExecuteChatUseCase에서 이미 가져온 context를 활용하지 않음
-**영향:** 
-- 불필요한 검색 엔진 호출
-- 응답 지연
-**수정 방법:**
-- `ChatResult`에 이미 `contextItems`가 포함되어 있으므로, 이를 활용하여 sources 생성
-- `ChatViewModel.toThreadEntry()`에서 `contextItems`를 sources로 변환
+### 4. ✅ Chat Source 표시 시 Context 중복 조회 (수정 완료)
+**파일:** `app/src/main/java/com/example/agent_app/ui/chat/ChatViewModel.kt`
+**상태:** ✅ **수정 완료** - contextItems를 sources로 변환하여 활용 중
+**확인 내용:**
+- `ChatResult`에 포함된 `contextItems`를 `ChatViewModel.toThreadEntry()`에서 직접 사용
+- `fetchContext` 중복 호출 없이 기존 contextItems를 `sources`로 변환 (Line 121-128)
+- `ChatScreen.kt:394-410`에서 sources가 있으면 sources만 표시, 없으면 context 표시 (중복 방지) ✅
 
 ---
 
@@ -203,9 +195,9 @@ status = "pending",
 ## 🔧 수정 우선순위 요약
 
 ### 즉시 수정 (발표 전 필수)
-1. ✅ Needs Review 배지 네비게이션 연결
-2. ✅ Chat Gateway context 중복 조회 제거
-3. ✅ ClassifiedDataRepository needs_review 상태 설정
+1. Needs Review 배지 네비게이션 연결
+2. ✅ Chat Gateway context 중복 조회 제거 (완료)
+3. ClassifiedDataRepository needs_review 상태 설정
 
 ### 발표 전 수정 권장
 4. Needs Review 화면 네비게이션 연결
@@ -229,8 +221,8 @@ status = "pending",
 - [ ] `onNavigateToNeedsReview` 콜백 구현
 
 ### `app/src/main/java/com/example/agent_app/data/chat/HuenDongMinChatGatewayImpl.kt`
-- [ ] Line 127: context 중복 조회 제거
-- [ ] ExecuteChatUseCase에서 전달받은 context 활용
+- [x] Line 127: context 중복 조회 제거 (완료 - 중복 조회 없음 확인됨)
+- [x] ExecuteChatUseCase에서 전달받은 context 활용 (완료)
 
 ### `app/src/main/java/com/example/agent_app/data/repo/ClassifiedDataRepository.kt`
 - [ ] Line 164, 209: needs_review 상태 설정 로직 추가

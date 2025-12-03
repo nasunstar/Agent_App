@@ -58,6 +58,9 @@
     <string name="dashboard_title_today">오늘 일정</string>
     <string name="dashboard_title_week">이번주 일정</string>
     <string name="dashboard_more_events">… 외 %1$d개</string>
+    <string name="dashboard_needs_review_title">검토 필요한 일정</string>
+    <string name="dashboard_needs_review_summary">%1$d건의 일정이 검토를 기다리고 있어요</string>
+    <string name="dashboard_needs_review_empty">검토할 일정이 없어요 ✅</string>
     
     <!-- 인사말 시간대별 (greeting_*) -->
     <string name="greeting_morning">좋은 아침이에요! 오늘도 제가 도와드릴게요.</string>
@@ -84,6 +87,10 @@
     <string name="tab_inbox">수집함</string>
     <string name="tab_share_calendar">공유 캘린더</string>
     
+    <!-- Needs Review (needs_review_*) -->
+    <string name="needs_review_title">검토 필요한 일정</string>
+    <string name="needs_review_empty">검토할 일정이 없어요 ✅</string>
+    
     <!-- Gmail 수집 (gmail_*) -->
     <string name="gmail_sync_title">메일 수집함</string>
     <string name="gmail_sync_recent">최근 동기화</string>
@@ -99,6 +106,12 @@
     <string name="sms_scan_date_range">스캔 범위: %1$s ~ %2$s</string>
     <string name="sms_scan_updates">문자 최근 업데이트 기록</string>
     <string name="sms_scan_date_picker">기간 선택</string>
+    <string name="sms_auto_process_enabled">새 SMS가 오면 자동으로 처리됩니다</string>
+    
+    <!-- 일정 알림 (event_notification_*) -->
+    <string name="event_notification_1day_before">내일 \'%1$s\' 일정이 있어요</string>
+    <string name="event_notification_same_day">오늘 \'%1$s\' 일정이 있어요</string>
+    <string name="event_notification_2hours_before">곧 \'%1$s\' 일정이 시작돼요 (2시간 후)</string>
     
     <!-- 통화 녹음 (call_*) -->
     <string name="call_scan_title">통화 녹음 텍스트 스캔</string>
