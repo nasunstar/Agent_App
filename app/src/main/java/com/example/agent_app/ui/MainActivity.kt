@@ -38,7 +38,6 @@ import com.example.agent_app.util.CrashlyticsTree
 class MainActivity : ComponentActivity() {
 
     private val appContainer: AppContainer by lazy { AppContainer(applicationContext) }
-    private var smsContentObserver: com.example.agent_app.service.SmsContentObserver? = null
 
     private val mainViewModel: MainViewModel by viewModels {
         MainViewModelFactory(
@@ -171,19 +170,7 @@ class MainActivity : ComponentActivity() {
         val period = com.example.agent_app.util.AutoProcessSettings.getSmsAutoProcessPeriod(this)
         android.util.Log.d("MainActivity", "SMS 자동 처리 상태 확인 - 활성화: $isNowEnabled, 기간: $period")
         
-        // SMS ContentObserver 등록 (BroadcastReceiver 백업)
-        try {
-            val handler = android.os.Handler(android.os.Looper.getMainLooper())
-            smsContentObserver = com.example.agent_app.service.SmsContentObserver(this, handler)
-            contentResolver.registerContentObserver(
-                android.provider.Telephony.Sms.CONTENT_URI,
-                true,
-                smsContentObserver!!
-            )
-            android.util.Log.d("MainActivity", "✅ SMS ContentObserver 등록 완료")
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "SMS ContentObserver 등록 실패", e)
-        }
+        // SMS ContentObserver는 AgentApplication에서 백그라운드로 등록됨
 
         // SMS 스캔 완료 및 진행 상황 브로드캐스트 수신 등록
         val filter = IntentFilter().apply {
@@ -299,16 +286,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // SMS ContentObserver 해제
-        smsContentObserver?.let {
-            try {
-                contentResolver.unregisterContentObserver(it)
-                android.util.Log.d("MainActivity", "SMS ContentObserver 해제 완료")
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "SMS ContentObserver 해제 실패", e)
-            }
-        }
-        smsContentObserver = null
+        // SMS ContentObserver는 AgentApplication에서 관리됨 (백그라운드 유지)
         
         super.onDestroy()
         try {
