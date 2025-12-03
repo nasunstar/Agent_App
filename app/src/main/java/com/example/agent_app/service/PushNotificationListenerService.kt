@@ -65,6 +65,17 @@ class PushNotificationListenerService : NotificationListenerService() {
     ) {
         serviceScope.launch {
             try {
+                // SMS 앱에서 온 푸시 알림은 제외 (SMS는 직접 처리하므로 중복 방지)
+                val smsApps = setOf(
+                    "com.samsung.android.messaging",
+                    "com.google.android.apps.messaging",
+                    "com.android.mms"
+                )
+                if (smsApps.contains(packageName)) {
+                    Log.d(TAG, "SMS 앱 푸시 알림 제외 (SMS는 직접 처리): $packageName")
+                    return@launch
+                }
+                
                 // 설정된 차단 목록에 있는 앱이면 저장/처리하지 않음
                 val ctx = applicationContext
                 if (PushNotificationFilterSettings.isPackageExcluded(ctx, packageName)) {
