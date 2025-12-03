@@ -1393,20 +1393,31 @@ class MainViewModel(
                 
                 // 백그라운드 스레드에서 실행하여 UI 블로킹 방지
                 withContext(Dispatchers.IO) {
-                    // 분류된 데이터 새로고침
+                    // 분류된 데이터 새로고침 (Contact, Event, Note)
                     loadClassifiedData()
                     
                     // UI 업데이트를 위해 yield
                     yield()
                     
-                    // 각 소스별 이벤트 다시 로드
-                    loadOcrEvents(ocrItemsState.value)
+                    // IngestItem들을 명시적으로 다시 읽어서 Flow 트리거
+                    // (Room Flow는 자동으로 업데이트되지만, 새로고침 시 명시적으로 확인)
+                    val ocrItems = ingestRepository.getBySource("ocr")
+                    val smsItems = ingestRepository.getBySource("sms")
+                    val pushNotificationItems = ingestRepository.getBySource("push_notification")
+                    val gmailItems = ingestRepository.getBySource("gmail")
+                    
+                    android.util.Log.d("MainViewModel", "IngestItem 새로고침 - OCR: ${ocrItems.size}, SMS: ${smsItems.size}, Push: ${pushNotificationItems.size}, Gmail: ${gmailItems.size}")
+                    
                     yield()
                     
-                    loadSmsEvents(smsItemsState.value)
+                    // 각 소스별 이벤트 다시 로드 (최신 IngestItem 상태 기반)
+                    loadOcrEvents(ocrItems)
                     yield()
                     
-                    loadPushNotificationEvents(pushNotificationItemsState.value)
+                    loadSmsEvents(smsItems)
+                    yield()
+                    
+                    loadPushNotificationEvents(pushNotificationItems)
                     
                     // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
                     android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")

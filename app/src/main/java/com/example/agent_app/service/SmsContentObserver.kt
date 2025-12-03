@@ -46,8 +46,8 @@ class SmsContentObserver(
         
         scope.launch {
             try {
-                // 약간의 지연 후 최신 SMS 확인 (데이터베이스 쓰기 완료 대기)
-                delay(500) // 1초에서 500ms로 단축
+                // 데이터베이스 쓰기 완료 대기 (SMS가 완전히 저장될 때까지)
+                delay(1500) // 1.5초로 증가 (SMS 저장 완료 대기)
                 checkAndProcessNewSms(previousCheckTime) // 이전 체크 시간 전달
             } catch (e: Exception) {
                 Log.e(TAG, "SMS 변경 처리 실패", e)
@@ -64,19 +64,22 @@ class SmsContentObserver(
                 return
             }
             
-            // 최신 SMS 읽기 (최근 30초 이내로 범위 확대)
-            val readSince = sinceTimestamp - 5000 // 5초 여유 추가
-            Log.d(TAG, "SMS 읽기 시작 - 기준 시간: $readSince (현재: ${System.currentTimeMillis()})")
+            // 최신 SMS 읽기 (최근 2분 이내로 범위 확대, onChange 시점의 SMS를 확실히 포함)
+            val now = System.currentTimeMillis()
+            val readSince = now - 120000 // 최근 2분 이내
+            Log.d(TAG, "SMS 읽기 시작 - 기준 시간: $readSince (현재: $now, 차이: ${now - readSince}ms)")
             val readResult = com.example.agent_app.util.SmsReader.readSmsMessages(context, readSince)
             when (readResult) {
                 is com.example.agent_app.util.SmsReader.SmsReadResult.Success -> {
-                    val now = System.currentTimeMillis()
+                    Log.d(TAG, "SMS 읽기 성공 - 총 ${readResult.messages.size}개 메시지 발견")
+                    // 이전에 처리한 SMS ID를 추적하여 중복 방지
                     val newMessages = readResult.messages.filter { 
                         it.timestamp > readSince && it.timestamp <= now
                     }
+                    Log.d(TAG, "필터링 후 새 SMS: ${newMessages.size}개 (기준: $readSince ~ $now)")
                     
                     if (newMessages.isNotEmpty()) {
-                        Log.d(TAG, "새 SMS ${newMessages.size}개 발견 (기준 시간: $cutoffTime)")
+                        Log.d(TAG, "새 SMS ${newMessages.size}개 발견 (기준 시간: $readSince)")
                         
                         val appContainer = AppContainer(context)
                         val aiAgent = appContainer.huenDongMinAiAgent
