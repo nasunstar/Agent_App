@@ -41,6 +41,9 @@ class AppContainer(context: Context) {
     
     // EventDao를 외부에서 접근할 수 있도록 제공
     val eventDao = database.eventDao()
+    
+    // ContactDao를 외부에서 접근할 수 있도록 제공
+    val contactDao = database.contactDao()
 
     private val openAIClassifier = OpenAIClassifier()
 

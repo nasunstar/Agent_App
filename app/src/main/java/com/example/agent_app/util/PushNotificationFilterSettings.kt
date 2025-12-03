@@ -90,9 +90,46 @@ object PushNotificationFilterSettings {
     
     /**
      * 알림 내용 기반 스팸 필터링
+     * 일정 관련 키워드가 있거나 전화번호부에 있으면 스팸이 아님
      */
-    fun isSpamNotification(title: String?, text: String?, packageName: String): Boolean {
+    fun isSpamNotification(
+        title: String?, 
+        text: String?, 
+        packageName: String,
+        senderPhoneNumber: String? = null,
+        contactDao: com.example.agent_app.data.dao.ContactDao? = null
+    ): Boolean {
         val content = "${title ?: ""} ${text ?: ""}".lowercase()
+        
+        // 전화번호부 확인 (전화번호가 있고 ContactDao가 제공된 경우)
+        if (!senderPhoneNumber.isNullOrBlank() && contactDao != null) {
+            try {
+                val normalizedPhone = com.example.agent_app.util.PhoneNumberUtils.normalize(senderPhoneNumber)
+                val contact = kotlinx.coroutines.runBlocking {
+                    contactDao.findByPhoneNumber(senderPhoneNumber, normalizedPhone)
+                }
+                if (contact != null) {
+                    android.util.Log.d("PushNotificationFilter", "전화번호부에 등록된 번호 - 스팸 아님: $senderPhoneNumber (${contact.name})")
+                    return false
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("PushNotificationFilter", "전화번호부 확인 실패", e)
+            }
+        }
+        
+        // 일정 관련 키워드 체크 (일정 관련 메시지는 스팸이 아님)
+        val eventKeywords = listOf(
+            "다음주", "다음 주", "이번주", "이번 주", "내일", "모레", "오늘",
+            "토요일", "일요일", "월요일", "화요일", "수요일", "목요일", "금요일",
+            "일정", "약속", "회의", "만남", "만나", "보자", "가자", "갈까",
+            "시", "분", "오전", "오후", "아침", "점심", "저녁", "밤"
+        )
+        
+        // 일정 관련 키워드가 있으면 스팸이 아님
+        if (eventKeywords.any { keyword -> content.contains(keyword) }) {
+            android.util.Log.d("PushNotificationFilter", "일정 관련 키워드 발견 - 스팸 아님: $content")
+            return false
+        }
         
         // 스팸 패턴 체크
         if (SPAM_PATTERNS.any { pattern -> content.contains(pattern) }) {
@@ -104,10 +141,16 @@ object PushNotificationFilterSettings {
             return true
         }
         
-        // 패키지명 기반 시스템 앱 체크
+        // 패키지명 기반 시스템 앱 체크 (단, 메시징 앱은 제외)
+        val messagingApps = listOf(
+            "com.samsung.android.messaging",
+            "com.google.android.apps.messaging",
+            "com.android.mms",
+            "com.kakao.talk"
+        )
         if (packageName.startsWith("com.android.") || 
             packageName.startsWith("com.google.android.") ||
-            packageName.startsWith("com.samsung.android.")) {
+            (packageName.startsWith("com.samsung.android.") && !messagingApps.contains(packageName))) {
             return true
         }
         

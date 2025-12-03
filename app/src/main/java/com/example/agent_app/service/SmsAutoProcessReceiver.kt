@@ -19,7 +19,10 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     override fun onReceive(context: Context, intent: Intent) {
+        Log.d(TAG, "BroadcastReceiver 호출됨 - Action: ${intent.action}")
+        
         if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION != intent.action) {
+            Log.d(TAG, "SMS_RECEIVED_ACTION이 아님, 건너뜀: ${intent.action}")
             return
         }
         
@@ -42,21 +45,33 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
             
             Log.d(TAG, "SMS 처리 시작 - 발신자: $address, 본문 길이: ${body.length}, 타임스탬프: $timestamp")
             
-            // 자동 처리 활성화 여부 및 기간 확인
+            // 자동 처리 활성화 여부 확인
             val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(context)
-            val isWithinPeriod = com.example.agent_app.util.AutoProcessSettings.isWithinSmsAutoProcessPeriod(context, timestamp)
+            Log.d(TAG, "SMS 자동 처리 활성화 여부: $isAutoProcessEnabled")
             
             if (!isAutoProcessEnabled) {
-                Log.d(TAG, "SMS 자동 처리 비활성화 상태 - 처리 건너뜀")
+                Log.w(TAG, "⚠️ SMS 자동 처리 비활성화 상태 - 처리 건너뜀")
+                Log.w(TAG, "⚠️ 앱을 재시작하거나 MainActivity에서 자동 처리가 활성화되었는지 확인하세요")
                 return
             }
+            
+            // 기간 확인 (실시간 SMS는 항상 처리됨)
+            val isWithinPeriod = com.example.agent_app.util.AutoProcessSettings.isWithinSmsAutoProcessPeriod(context, timestamp)
+            val period = com.example.agent_app.util.AutoProcessSettings.getSmsAutoProcessPeriod(context)
+            val now = System.currentTimeMillis()
+            val isRecent = timestamp >= (now - 60 * 60 * 1000) // 최근 1시간 이내
+            Log.d(TAG, "기간 확인 - isWithinPeriod: $isWithinPeriod, period: $period, isRecent: $isRecent, timestamp: $timestamp, now: $now")
             
             if (!isWithinPeriod) {
-                Log.d(TAG, "SMS 타임스탬프($timestamp)가 자동 처리 기간 범위 밖 - 처리 건너뜀")
+                if (period != null) {
+                    Log.w(TAG, "⚠️ 과거 SMS가 자동 처리 기간 범위 밖 - 처리 건너뜀 (기간: ${period.first} ~ ${period.second})")
+                } else {
+                    Log.w(TAG, "⚠️ SMS 자동 처리 기간이 설정되지 않음 - 실시간 동기화 모드여야 하는데 isWithinPeriod가 false")
+                }
                 return
             }
             
-            Log.d(TAG, "SMS 자동 처리 조건 충족 - 처리 진행")
+            Log.d(TAG, "✅ SMS 자동 처리 조건 충족 - 처리 진행")
             
             // 백그라운드에서 처리 (트리거 방식: SMS 수신 시에만 실행)
             scope.launch {
@@ -65,6 +80,16 @@ class SmsAutoProcessReceiver : BroadcastReceiver() {
                     val appContainer = AppContainer(context)
                     val aiAgent = appContainer.huenDongMinAiAgent
                     val ingestRepository = appContainer.ingestRepository
+                    val contactDao = appContainer.contactDao
+                    
+                    // 전화번호부 확인 (전화번호부에 있으면 스팸이 아님)
+                    val normalizedPhone = com.example.agent_app.util.PhoneNumberUtils.normalize(address)
+                    val contact = contactDao.findByPhoneNumber(address, normalizedPhone)
+                    if (contact != null) {
+                        Log.d(TAG, "✅ 전화번호부에 등록된 번호 - 처리 진행: $address (${contact.name})")
+                    } else {
+                        Log.d(TAG, "전화번호부에 없는 번호: $address")
+                    }
                     
                     // 메모리 최적화: 데이터베이스에서 중복 체크 (메모리 사용 없음)
                     val existingItem = ingestRepository.getById(originalSmsId)

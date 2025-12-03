@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.foundation.clickable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.agent_app.R
@@ -123,11 +124,44 @@ fun ChatScreen(
     var input by rememberSaveable { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
+    val clearHistoryLabel = stringResource(R.string.chat_clear_history)
+    
     Scaffold(
         contentWindowInsets = WindowInsets.statusBars,
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        topBar = {
+            if (state.entries.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.spacingMD, vertical = Dimens.spacingSM),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { showClearHistoryDialog = true },
+                            modifier = Modifier.semantics {
+                                contentDescription = clearHistoryLabel
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Clear,
+                                contentDescription = clearHistoryLabel,
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        },
         bottomBar = {
             ChatInput(
                 value = input,
@@ -150,8 +184,6 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            CurrentTimeHeader()
-
             ChatHistory(
                 entries = state.entries,
                 modifier = Modifier.weight(1f),
@@ -185,6 +217,36 @@ fun ChatScreen(
             text = { Text(state.error ?: stringResource(R.string.error_me_retry)) },
             confirmButton = {
                 TextButton(onClick = viewModel::consumeError) {
+                    Text(stringResource(R.string.chat_confirm))
+                }
+            }
+        )
+    }
+    
+    // 대화 기록 초기화 확인 다이얼로그
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text(stringResource(R.string.chat_clear_history_confirm_title)) },
+            text = { Text(stringResource(R.string.chat_clear_history_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearHistory()
+                        showClearHistoryDialog = false
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("대화 기록이 초기화되었어요.")
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(stringResource(R.string.chat_clear_history))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) {
                     Text(stringResource(R.string.chat_confirm))
                 }
             }
@@ -779,7 +841,6 @@ private fun ChatScreenEmptyPreview() {
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
             ) {
-                CurrentTimeHeader()
                 ChatHistory(
                     entries = emptyList(),
                     modifier = Modifier.weight(1f),
@@ -806,7 +867,6 @@ private fun ChatScreenWithMessagesPreview() {
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars)
             ) {
-                CurrentTimeHeader()
                 ChatHistory(
                     entries = listOf(
                         ChatThreadEntry(

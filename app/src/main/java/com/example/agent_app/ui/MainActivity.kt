@@ -38,6 +38,7 @@ import com.example.agent_app.util.CrashlyticsTree
 class MainActivity : ComponentActivity() {
 
     private val appContainer: AppContainer by lazy { AppContainer(applicationContext) }
+    private var smsContentObserver: com.example.agent_app.service.SmsContentObserver? = null
 
     private val mainViewModel: MainViewModel by viewModels {
         MainViewModelFactory(
@@ -155,6 +156,34 @@ class MainActivity : ComponentActivity() {
         
         // 일정 알림 스케줄러 서비스 시작
         com.example.agent_app.service.EventNotificationScheduler.startService(this)
+        
+        // SMS 자동 처리 기본 활성화 (비활성화 상태일 때만)
+        val wasEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
+        if (!wasEnabled) {
+            com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcessAlways(this)
+            android.util.Log.d("MainActivity", "✅ SMS 자동 처리 기본 활성화 (실시간 동기화)")
+        } else {
+            android.util.Log.d("MainActivity", "SMS 자동 처리 이미 활성화됨")
+        }
+        
+        // 확인용 로그
+        val isNowEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
+        val period = com.example.agent_app.util.AutoProcessSettings.getSmsAutoProcessPeriod(this)
+        android.util.Log.d("MainActivity", "SMS 자동 처리 상태 확인 - 활성화: $isNowEnabled, 기간: $period")
+        
+        // SMS ContentObserver 등록 (BroadcastReceiver 백업)
+        try {
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            smsContentObserver = com.example.agent_app.service.SmsContentObserver(this, handler)
+            contentResolver.registerContentObserver(
+                android.provider.Telephony.Sms.CONTENT_URI,
+                true,
+                smsContentObserver!!
+            )
+            android.util.Log.d("MainActivity", "✅ SMS ContentObserver 등록 완료")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "SMS ContentObserver 등록 실패", e)
+        }
 
         // SMS 스캔 완료 및 진행 상황 브로드캐스트 수신 등록
         val filter = IntentFilter().apply {
@@ -270,6 +299,17 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // SMS ContentObserver 해제
+        smsContentObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+                android.util.Log.d("MainActivity", "SMS ContentObserver 해제 완료")
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "SMS ContentObserver 해제 실패", e)
+            }
+        }
+        smsContentObserver = null
+        
         super.onDestroy()
         try {
             unregisterReceiver(scanCompleteReceiver)

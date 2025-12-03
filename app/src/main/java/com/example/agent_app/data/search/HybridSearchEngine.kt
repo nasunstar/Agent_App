@@ -49,8 +49,29 @@ class HybridSearchEngine(
                 endTime = filters.endTimeMillis,
                 limit = limit * 2
             )
-            android.util.Log.d("HybridSearchEngine", "Event 검색 - 시작: ${filters.startTimeMillis}, 끝: ${filters.endTimeMillis}")
+            filters.startTimeMillis?.let { start ->
+                val startDate = java.time.Instant.ofEpochMilli(start)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                android.util.Log.d("HybridSearchEngine", "Event 검색 - 시작: $startDate ($start)")
+            } ?: android.util.Log.d("HybridSearchEngine", "Event 검색 - 시작: null")
+            
+            filters.endTimeMillis?.let { end ->
+                val endDate = java.time.Instant.ofEpochMilli(end)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                android.util.Log.d("HybridSearchEngine", "Event 검색 - 끝: $endDate ($end)")
+            } ?: android.util.Log.d("HybridSearchEngine", "Event 검색 - 끝: null")
+            
             android.util.Log.d("HybridSearchEngine", "Event 검색 결과: ${events.size}개")
+            events.forEachIndexed { index, event ->
+                event.startAt?.let { startAt ->
+                    val eventDate = java.time.Instant.ofEpochMilli(startAt)
+                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    android.util.Log.d("HybridSearchEngine", "  일정 ${index + 1}: ${event.title} - $eventDate")
+                } ?: android.util.Log.d("HybridSearchEngine", "  일정 ${index + 1}: ${event.title} - 시간 없음")
+            }
             events
         }.getOrDefault(emptyList())
 

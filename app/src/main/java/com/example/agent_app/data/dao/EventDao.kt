@@ -64,9 +64,9 @@ interface EventDao {
     
     @Query(
         "SELECT * FROM events WHERE " +
-            "(:startTime IS NULL OR start_at >= :startTime) " +
-            "AND (:endTime IS NULL OR start_at <= :endTime) " +
-            "ORDER BY start_at ASC LIMIT :limit"
+            "(:startTime IS NULL OR start_at IS NULL OR start_at >= :startTime) " +
+            "AND (:endTime IS NULL OR start_at IS NULL OR start_at <= :endTime) " +
+            "ORDER BY CASE WHEN start_at IS NULL THEN 1 ELSE 0 END, start_at ASC LIMIT :limit"
     )
     suspend fun searchByTimeRange(
         startTime: Long?,

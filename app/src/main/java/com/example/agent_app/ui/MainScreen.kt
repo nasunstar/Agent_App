@@ -866,6 +866,27 @@ private fun SmsScanCard(
                 }
             }
             
+            // 지난 일정 가져오기 버튼
+            Button(
+                onClick = { onScanClick(0L) }, // 0L = 옛날부터 지금까지 모든 SMS
+                enabled = !smsScanState.isScanning,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Text(text = stringResource(R.string.sms_scan_past_events))
+            }
+            
+            // 지난 일정 가져오기 설명
+            Text(
+                text = stringResource(R.string.sms_scan_past_events_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            
             // 최신 스캔 설명
             if (smsScanState.lastScanTimestamp > 0L || smsScanState.recentUpdates.isNotEmpty()) {
                 val lastScanTime = if (smsScanState.lastScanTimestamp > 0L) {

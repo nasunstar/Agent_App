@@ -32,6 +32,9 @@ interface ContactDao {
     @Query("SELECT * FROM contacts ORDER BY name ASC")
     suspend fun getAll(): List<Contact>
     
+    @Query("SELECT * FROM contacts WHERE phone LIKE '%' || :phoneNumber || '%' OR phone LIKE '%' || :normalizedPhone || '%' LIMIT 1")
+    suspend fun findByPhoneNumber(phoneNumber: String, normalizedPhone: String): Contact?
+    
     @Query("DELETE FROM contacts")
     suspend fun clearAll()
 }

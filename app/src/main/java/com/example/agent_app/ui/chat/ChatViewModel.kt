@@ -103,6 +103,20 @@ class ChatViewModel(
     fun consumeError() {
         _uiState.update { it.copy(error = null) }
     }
+    
+    /**
+     * 대화 기록 초기화
+     */
+    fun clearHistory() {
+        _uiState.update { 
+            ChatUiState(
+                entries = emptyList(),
+                isProcessing = false,
+                error = null,
+                failedEntryIndex = null
+            )
+        }
+    }
 
     private fun ChatResult.toThreadEntry(): ChatThreadEntry = ChatThreadEntry(
         question = question.content,

@@ -11,6 +11,8 @@ import com.example.agent_app.domain.chat.model.ChatContextItem
 import com.example.agent_app.domain.chat.model.ChatMessage
 import com.example.agent_app.domain.chat.model.QueryFilters
 import com.example.agent_app.service.EventNotificationService
+import com.example.agent_app.ai.EventTimeParser
+import com.example.agent_app.ai.ResolveContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,7 +28,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
-import java.util.concurrent.TimeUnit
 
 /**
  * AI 에이전트 "HuenDongMin" 기반 ChatGateway 구현
@@ -41,8 +42,8 @@ class HuenDongMinChatGatewayImpl(
 ) : ChatGateway {
     
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         })
@@ -69,7 +70,23 @@ class HuenDongMinChatGatewayImpl(
         // AI에게 검색 필터 생성 요청 (TimeResolver 대체)
         val aiFilters = extractSearchFilters(question, currentTimestamp)
         
-        android.util.Log.d("HuenDongMinChatGateway", "AI 필터: $aiFilters")
+        // 필터 상세 로깅
+        aiFilters.startTimeMillis?.let { start ->
+            val startDate = java.time.Instant.ofEpochMilli(start)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            android.util.Log.d("HuenDongMinChatGateway", "필터 시작 시간: $startDate ($start)")
+        } ?: android.util.Log.d("HuenDongMinChatGateway", "필터 시작 시간: null")
+        
+        aiFilters.endTimeMillis?.let { end ->
+            val endDate = java.time.Instant.ofEpochMilli(end)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            android.util.Log.d("HuenDongMinChatGateway", "필터 종료 시간: $endDate ($end)")
+        } ?: android.util.Log.d("HuenDongMinChatGateway", "필터 종료 시간: null")
+        
+        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 키워드: ${aiFilters.keywords}")
+        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 소스: ${aiFilters.source}")
         
         // 로컬 DB 검색
         val searchResults = hybridSearchEngine.search(
@@ -79,6 +96,9 @@ class HuenDongMinChatGatewayImpl(
         )
         
         android.util.Log.d("HuenDongMinChatGateway", "검색 결과: ${searchResults.size}개")
+        searchResults.forEachIndexed { index, item ->
+            android.util.Log.d("HuenDongMinChatGateway", "결과 ${index + 1}: ${item.title} (source: ${item.source}, relevance: ${item.relevance})")
+        }
         
         searchResults
     }
@@ -222,9 +242,11 @@ class HuenDongMinChatGatewayImpl(
                 
                 📋 **일정 정보 추출 규칙:**
                 1. 날짜/시간: 다양한 표현을 epoch milliseconds로 변환합니다.
+                   - ⚠️⚠️⚠️ 매우 중요: epoch milliseconds는 KST(한국 표준시, Asia/Seoul, UTC+9) 기준으로 계산합니다!
                    - 사용자가 구어체, 줄임말, 모호한 표현을 사용해도 최대한 정확하게 해석해야 합니다.
                    - 아래 [자연어 시간 표현 해석 규칙]을 반드시 따릅니다.
                    - 시간이 명시되지 않은 경우 기본값 14:00(오후 2시)을 사용합니다.
+                   - ⚠️ 시간대 변환 주의: UTC가 아닌 KST 기준으로 epoch milliseconds를 계산하세요!
                    
                 2. 제목: 일정의 핵심 내용만 자연스럽게 추출합니다.
                    - "종민이랑 점심약속" → "종민과 점심 약속"
@@ -245,42 +267,52 @@ class HuenDongMinChatGatewayImpl(
                 
                 ⏰ **자연어 시간 표현 해석 규칙:**
                 
+                ⚠️⚠️⚠️ 매우 중요: 띄어쓰기 정규화 ⚠️⚠️⚠️
+                사용자 질문에서 띄어쓰기 차이는 무시하고 동일하게 처리합니다!
+                - "이번주" = "이번 주" (동일하게 처리)
+                - "다음주" = "다음 주" (동일하게 처리)
+                - "이번달" = "이번 달" (동일하게 처리)
+                - "다음달" = "다음 달" (동일하게 처리)
+                - "내일모레" = "내일 모레" (동일하게 처리)
+                띄어쓰기 유무와 관계없이 의미가 동일하면 같은 날짜 범위로 해석합니다!
+                
                 1. 기준 시각
                    - 모든 날짜/시간 해석은 제공된 현재 시각(nowEpochMs=${currentTimestamp}ms, 한국 시간 KST, Asia/Seoul)을 기준으로 합니다.
                    - 출력하는 epoch millisecond 역시 KST 기준으로 계산합니다.
                 
-                2. 줄임말/오타 정규화 예시
-                   아래와 같은 구어/줄임/오타 표현은 먼저 표준 형태로 정규화한 뒤 계산합니다.
+                2. 줄임말/오타/띄어쓰기 정규화 예시
+                   아래와 같은 구어/줄임/오타/띄어쓰기 차이는 먼저 표준 형태로 정규화한 뒤 계산합니다.
                    - "낼", "내" → "내일"
                    - "모래" → "모레"
-                   - "낼모레", "내일 모레" → "내일모레" (현재 +2일)
-                   - "담주", "담쥬", "낸쥬" → "다음주"
-                   - "담달", "담닭" → "다음달"
+                   - "낼모레", "내일 모레" → "내일모레" (현재 +2일, 띄어쓰기 무관)
+                   - "담주", "담쥬", "낸쥬", "다음 주", "다음주" → "다음주" (모두 동일하게 처리)
+                   - "담달", "담닭", "다음 달", "다음달" → "다음달" (모두 동일하게 처리)
                    - "쫌", "좀", "쫌따", "좀따", "좀이따", "이따", "이따가" → "조금 이따가"
                    - "수욜" → "수요일", "목욜" → "목요일", "금욜" → "금요일"
                    - "퇴근후", "퇴근하고" → "퇴근 후"
                    - "지금바로" → "지금"
                 
                 3. 날짜 관련 표현
+                   ⚠️ 중요: 아래 표현들은 띄어쓰기 유무와 관계없이 동일하게 처리합니다!
                    - "오늘" → 기준 날짜의 00:00:00 ~ 23:59:59
                    - "내일" → 기준 날짜 +1일
                    - "모레" → 기준 날짜 +2일
-                   - "내일모레" → 기준 날짜 +2일
-                   - "이번 주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59
-                   - "다음주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59
-                   - "이번 주 금요일" → 이번 주의 금요일
-                   - "다음주 수요일" → 다음 주의 수요일
-                   - "다다음주" → 다음주 + 1주
-                   - "이번 달" → 이번 달 1일 00:00:00 ~ 마지막 날 23:59:59
-                   - "다음달" → 다음 달 1일 00:00:00 ~ 마지막 날 23:59:59
+                   - "내일모레", "내일 모레" → 기준 날짜 +2일 (띄어쓰기 무관)
+                   - "이번 주", "이번주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                   - "다음주", "다음 주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                   - "이번 주 금요일", "이번주 금요일" → 이번 주의 금요일 (띄어쓰기 무관)
+                   - "다음주 수요일", "다음 주 수요일" → 다음 주의 수요일 (띄어쓰기 무관)
+                   - "다다음주", "다다음 주" → 다음주 + 1주 (띄어쓰기 무관)
+                   - "이번 달", "이번달" → 이번 달 1일 00:00:00 ~ 마지막 날 23:59:59 (띄어쓰기 무관, 동일 처리)
+                   - "다음달", "다음 달" → 다음 달 1일 00:00:00 ~ 마지막 날 23:59:59 (띄어쓰기 무관, 동일 처리)
                 
-                4. 시간대 표현 → 구간 기본값
-                   아래와 같이 시간대 어휘가 나오면, 특정 시간구간으로 해석합니다.
+                4. 시간대 표현 → 구간 기본값 (시간이 구체적으로 명시되지 않은 경우만)
+                   아래와 같이 시간대 어휘만 나오면, 특정 시간구간으로 해석합니다.
                    - "새벽" → 03:00~06:00 (시작 시간: 03:00)
                    - "아침" → 06:00~09:00 (시작 시간: 07:00)
                    - "오전" → 09:00~12:00 (시작 시간: 10:00)
                    - "점심", "점심시간" → 12:00~13:00 (시작 시간: 12:00)
-                   - "오후" → 13:00~18:00 (시작 시간: 14:00)
+                   - "오후" (단독) → 13:00~18:00 (시작 시간: 14:00)
                    - "저녁" → 18:00~21:00 (시작 시간: 19:00)
                    - "밤" → 21:00~24:00 (시작 시간: 21:00)
                    - "퇴근 후" → 기본적으로 18:00~20:00 (이미 지난 시각이면 다음날 같은 시간대로 이월)
@@ -290,20 +322,34 @@ class HuenDongMinChatGatewayImpl(
                    - "내일 아침" → 내일 06:00~09:00
                    - "담주 수욜 밤" → 다음주 수요일 21:00~24:00
                 
-                5. 상대 시간 표현
+                5. 구체적인 시간 표현 (⚠️ 매우 중요! 시간이 명시된 경우 이 규칙을 우선 적용)
+                   - "오후 N시", "PM N시" 형식: 정확히 24시간 형식으로 변환합니다.
+                     * "오후 1시" → 13:00 (정확히, 13:20 아님!)
+                     * "오후 6시" → 18:00 (정확히, 17:20 아님!)
+                     * "오후 12시" → 12:00 (정확히)
+                   - "오전 N시", "AM N시" 형식:
+                     * "오전 1시" → 01:00
+                     * "오전 12시" → 00:00
+                   - 분이 명시되지 않으면 반드시 00분으로 설정합니다.
+                     * "오후 6시" → 18:00 (정확히)
+                     * "오후 6시 20분" → 18:20 (분이 명시된 경우에만)
+                   - ⚠️ 주의: 사용자가 "오후 6시"라고 명확히 말했다면, 반드시 18:00으로 해석해야 합니다.
+                     시간대 기본값(14:00)을 사용하지 마세요!
+                
+                6. 상대 시간 표현
                    - "N일 뒤", "N일 후" → 기준 날짜 +N일, 시간이 따로 없으면 기본 14:00
-                   - "3일뒤 오후 1시" → 기준 날짜 +3일, 13:00
+                   - "3일뒤 오후 1시" → 기준 날짜 +3일, 13:00 (정확히)
                    - "조금 이따가", "좀 이따", "쫌따", "좀따" → 기준 시각 +30분을 중심으로 1시간 범위로 해석
                      (예: now +30분 ~ now +90분, body에 '사용자가 "조금 이따가"라고 표현하여 대략적인 시간으로 설정'이라고 명시)
                    - "나중에 보자", "언제 한번 보자" 처럼 매우 모호한 표현은
                      → 구체적인 날짜/시간이 부족하다고 판단하고, 일정 생성/검색 범위에는 사용하지 않습니다.
                 
-                6. 과거 시간대 처리
+                7. 과거 시간대 처리
                    - "오늘 저녁에 보자"인데 현재 시각이 이미 오늘 21시 이후라면
                      → 자동으로 "내일 저녁"으로 이월하여 해석했다고 body에 명시합니다.
                    - 사용자가 과거 날짜를 명확히 말한 경우(예: "지난주 금요일")는 그대로 과거 범위로 유지합니다.
                 
-                7. 시간이 생략된 경우의 기본값
+                8. 시간이 생략된 경우의 기본값
                    - 날짜만 있고 시간 정보가 전혀 없으면 기본 14:00(오후 2시)로 설정합니다.
                    - "저녁에 보자"처럼 시간대만 있으면 위 시간대 표에 따라 시작/끝 시간을 설정하고,
                      body에 "사용자가 '저녁'이라고 표현하여 18~21시 구간으로 해석"이라고 남깁니다.
@@ -330,12 +376,19 @@ class HuenDongMinChatGatewayImpl(
                 {
                   "shouldCreate": true,
                   "title": "일정 제목",
-                  "startAt": 1234567890123,
-                  "endAt": 1234567890123,
+                  "startAt": 1234567890123,  // ⚠️ KST 기준 epoch milliseconds (UTC 아님!)
+                  "endAt": 1234567890123,    // ⚠️ KST 기준 epoch milliseconds (UTC 아님!)
                   "location": "장소 또는 null",
                   "body": "일정 설명 (시간 해석 시 가정이 있었으면 여기 자연스럽게 적기)",
                   "type": "약속"
                 }
+                
+                ⚠️⚠️⚠️ epoch milliseconds 계산 시 주의사항 ⚠️⚠️⚠️
+                - 현재 시간(nowEpochMs)은 이미 KST 기준입니다.
+                - "오후 6시" = 18:00 (KST) → 해당 날짜의 18:00 KST를 epoch milliseconds로 변환
+                - 예: "2025-12-03 오후 6시" → 2025-12-03 18:00 KST → epoch milliseconds
+                - ⚠️ UTC로 변환하지 마세요! KST 그대로 epoch milliseconds를 계산하세요!
+                - ⚠️ "오후 6시"를 19:20으로 계산하지 마세요! 정확히 18:00입니다!
                 
                 일정 생성 의도가 없으면:
                 {
@@ -358,6 +411,14 @@ class HuenDongMinChatGatewayImpl(
                 
                 ⚠️ 중요: 질문에 시간/날짜와 일정 관련 내용이 모두 포함되어 있으면 반드시 shouldCreate: true로 설정하세요.
                 예: "3일뒤 오후 1시에 종민이랑 점심약속 있어" → shouldCreate: true
+                
+                ⚠️ 시간 파싱 중요 예시:
+                - "오늘 오후 6시에 졸업 프로젝트 발표가 있어" 
+                  → startAt: 오늘 18:00 (정확히 18:00, 17:20 아님!)
+                - "내일 오후 3시 회의"
+                  → startAt: 내일 15:00 (정확히 15:00)
+                - "오후 6시 20분"
+                  → startAt: 18:20 (분이 명시된 경우만)
             """.trimIndent()
             
             val messages = listOf(
@@ -366,7 +427,21 @@ class HuenDongMinChatGatewayImpl(
             )
             
             val response = callOpenAiInternal(messages)
+            
+            // ⚠️ 디버깅: LLM 응답 로깅
+            android.util.Log.d("HuenDongMinChatGateway", "=== LLM 일정 생성 응답 ===")
+            android.util.Log.d("HuenDongMinChatGateway", "원본 질문: $question")
+            android.util.Log.d("HuenDongMinChatGateway", "LLM 응답: $response")
+            
             val eventData = parseEventCreationResponse(response)
+            
+            // ⚠️ 디버깅: 파싱된 데이터 로깅
+            eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { startAt ->
+                val parsedTime = java.time.Instant.ofEpochMilli(startAt)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                android.util.Log.d("HuenDongMinChatGateway", 
+                    "파싱된 시작 시간: ${parsedTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}")
+            }
             
             // shouldCreate를 boolean 또는 문자열로 처리
             val shouldCreate = eventData["shouldCreate"]?.let { element ->
@@ -381,13 +456,39 @@ class HuenDongMinChatGatewayImpl(
             
             if (shouldCreate) {
                 val title = eventData["title"]?.jsonPrimitive?.content ?: "약속"
-                val startAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
-                val endAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                var startAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+                var endAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()
                 val location = eventData["location"]?.jsonPrimitive?.content
-                val body = eventData["body"]?.jsonPrimitive?.content
+                var body = eventData["body"]?.jsonPrimitive?.content
                 val typeName = eventData["type"]?.jsonPrimitive?.content ?: "약속"
                 
                 if (startAt != null) {
+                    // ⚠️ 시간 파싱 검증: 규칙 기반 파서로 재검증
+                    val validatedTime = validateTimeParsing(question, startAt, currentTimestamp)
+                    if (validatedTime != null) {
+                        val timeDiff = kotlin.math.abs(validatedTime - startAt)
+                        val diffMinutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(timeDiff)
+                        
+                        // 시간 차이가 30분 이상이면 검토 필요로 표시
+                        if (diffMinutes >= 30) {
+                            android.util.Log.w("HuenDongMinChatGateway", 
+                                "⚠️ 시간 파싱 불일치 감지! LLM: ${java.time.Instant.ofEpochMilli(startAt).atZone(java.time.ZoneId.of("Asia/Seoul"))}, " +
+                                "규칙 기반: ${java.time.Instant.ofEpochMilli(validatedTime).atZone(java.time.ZoneId.of("Asia/Seoul"))}, " +
+                                "차이: ${diffMinutes}분")
+                            
+                            // 규칙 기반 파서 결과를 우선 사용
+                            startAt = validatedTime
+                            endAt = validatedTime + (60 * 60 * 1000) // 기본 1시간
+                            
+                            // body에 검증 메시지 추가
+                            val validationNote = "\n\n[시스템 검증: 원본 텍스트에서 추출한 시간으로 수정되었습니다]"
+                            body = (body ?: "") + validationNote
+                        } else {
+                            android.util.Log.d("HuenDongMinChatGateway", 
+                                "✅ 시간 파싱 검증 통과 (차이: ${diffMinutes}분)")
+                        }
+                    }
+                    
                     // EventType 가져오기 또는 생성
                     val eventType = huenDongMinAiAgent.getOrCreateEventType(typeName)
                     
@@ -422,6 +523,50 @@ class HuenDongMinChatGatewayImpl(
             null
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinChatGateway", "일정 생성 실패", e)
+            null
+        }
+    }
+    
+    /**
+     * LLM이 파싱한 시간을 규칙 기반 파서로 검증
+     * 
+     * @param originalText 원본 사용자 질문
+     * @param llmParsedTime LLM이 파싱한 시간 (epoch milliseconds)
+     * @param referenceTimestamp 기준 시점
+     * @return 규칙 기반 파서가 추출한 시간 (epoch milliseconds), 실패 시 null
+     */
+    private fun validateTimeParsing(
+        originalText: String,
+        llmParsedTime: Long,
+        referenceTimestamp: Long
+    ): Long? {
+        return try {
+            // 규칙 기반 파서로 시간 추출
+            val expressions = EventTimeParser.extractTimeExpressions(originalText)
+            if (expressions.isEmpty()) {
+                android.util.Log.d("HuenDongMinChatGateway", "규칙 기반 파서: 시간 표현 없음")
+                return null
+            }
+            
+            val resolved = EventTimeParser.resolveExpressions(
+                originalText,
+                expressions,
+                ResolveContext(referenceTimestamp, "Asia/Seoul")
+            )
+            
+            if (resolved.isEmpty()) {
+                android.util.Log.d("HuenDongMinChatGateway", "규칙 기반 파서: 시간 해석 실패")
+                return null
+            }
+            
+            val ruleBasedTime = resolved.first().startEpochMs
+            android.util.Log.d("HuenDongMinChatGateway", 
+                "시간 검증 - LLM: ${java.time.Instant.ofEpochMilli(llmParsedTime).atZone(java.time.ZoneId.of("Asia/Seoul"))}, " +
+                "규칙 기반: ${java.time.Instant.ofEpochMilli(ruleBasedTime).atZone(java.time.ZoneId.of("Asia/Seoul"))}")
+            
+            ruleBasedTime
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinChatGateway", "시간 검증 실패", e)
             null
         }
     }
@@ -520,32 +665,45 @@ class HuenDongMinChatGatewayImpl(
             
             ⏰ **자연어 시간 표현 해석 규칙:**
             
+            ⚠️⚠️⚠️ 매우 중요: 띄어쓰기 정규화 ⚠️⚠️⚠️
+            사용자 질문에서 띄어쓰기 차이는 무시하고 동일하게 처리합니다!
+            - "이번주" = "이번 주" (동일하게 처리)
+            - "다음주" = "다음 주" (동일하게 처리)
+            - "이번달" = "이번 달" (동일하게 처리)
+            - "다음달" = "다음 달" (동일하게 처리)
+            - "내일모레" = "내일 모레" (동일하게 처리)
+            띄어쓰기 유무와 관계없이 의미가 동일하면 같은 날짜 범위로 해석합니다!
+            
             1. 기준 시각
                - 모든 날짜/시간 해석은 제공된 현재 시각(nowEpochMs=${currentTimestamp}ms, 한국 시간 KST)을 기준으로 합니다.
                - 출력하는 epoch millisecond 역시 KST 기준으로 계산합니다.
             
-            2. 줄임말/오타 정규화 예시
-               아래와 같은 구어/줄임/오타 표현은 먼저 표준 형태로 정규화한 뒤 계산합니다.
+            2. 줄임말/오타/띄어쓰기 정규화 예시
+               아래와 같은 구어/줄임/오타/띄어쓰기 차이는 먼저 표준 형태로 정규화한 뒤 계산합니다.
                - "낼", "내" → "내일"
                - "모래" → "모레"
-               - "담주", "담쥬", "낸쥬" → "다음주"
-               - "담달", "담닭" → "다음달"
+               - "담주", "담쥬", "낸쥬", "다음 주", "다음주" → "다음주" (모두 동일하게 처리)
+               - "담달", "담닭", "다음 달", "다음달" → "다음달" (모두 동일하게 처리)
                - "수욜" → "수요일", "목욜" → "목요일", "금욜" → "금요일"
-               - "이번주말" → 이번 주 토요일~일요일
-               - "다음주말" → 다음 주 토요일~일요일
+               - "이번주말", "이번 주말", "이번 주 말" → 이번 주 토요일~일요일 (모두 동일하게 처리)
+               - "다음주말", "다음 주말", "다음 주 말" → 다음 주 토요일~일요일 (모두 동일하게 처리)
+               - "이번주", "이번 주" → 이번 주 월요일~일요일 (띄어쓰기 유무와 관계없이 동일하게 처리)
             
             3. 날짜 관련 표현
+               ⚠️ 중요: 아래 표현들은 띄어쓰기 유무와 관계없이 동일하게 처리합니다!
                - "오늘" → 오늘 00:00:00 ~ 23:59:59
                - "내일" → 내일 00:00:00 ~ 23:59:59
                - "어제" → 어제 00:00:00 ~ 23:59:59
                - "모레" → 모레 00:00:00 ~ 23:59:59
-               - "이번 주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "다음주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59
-               - "이번 주 금요일" → 이번 주 금요일 하루 (00:00:00 ~ 23:59:59)
-               - "다음주 수요일" → 다음 주 수요일 하루 (00:00:00 ~ 23:59:59)
-               - "이번 달" → 이번 달 1일 00:00:00 ~ 마지막 날 23:59:59
-               - "지난달", "저번달" → 지난 달 전체 (1일 00:00:00 ~ 마지막 날 23:59:59)
-               - "다음달", "담달" → 다음 달 전체 (1일 00:00:00 ~ 마지막 날 23:59:59)
+               - "이번 주", "이번주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                 * 현재 날짜를 기준으로 이번 주 월요일과 일요일을 계산합니다.
+                 * 예: 현재가 2025년 12월 3일(수요일)이면, 이번 주는 2025년 12월 1일(월) 00:00:00 ~ 12월 7일(일) 23:59:59
+               - "다음주", "다음 주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+               - "이번 주 금요일", "이번주 금요일" → 이번 주 금요일 하루 (00:00:00 ~ 23:59:59) (띄어쓰기 무관)
+               - "다음주 수요일", "다음 주 수요일" → 다음 주 수요일 하루 (00:00:00 ~ 23:59:59) (띄어쓰기 무관)
+               - "이번 달", "이번달" → 이번 달 1일 00:00:00 ~ 마지막 날 23:59:59 (띄어쓰기 무관, 동일 처리)
+               - "지난달", "저번달", "지난 달", "저번 달" → 지난 달 전체 (1일 00:00:00 ~ 마지막 날 23:59:59) (띄어쓰기 무관)
+               - "다음달", "담달", "다음 달" → 다음 달 전체 (1일 00:00:00 ~ 마지막 날 23:59:59) (띄어쓰기 무관)
                - "10월 30일" → ${currentDate.year}년 10월 30일 00:00:00 ~ 23:59:59 (과거면 다음 해)
             
             4. 시간대 표현 (검색 필터용)
