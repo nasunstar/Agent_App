@@ -96,16 +96,28 @@
                 android:resource="@xml/today_summary_widget_info" />
         </receiver>
         
-        <!-- 4x2 위젯 - 오늘 + 이번주 일정 -->
+        <!-- 4x2 위젯 - 이번주/다음주 캘린더 -->
         <receiver
-            android:name=".widget.TodayWeekWidgetReceiver"
+            android:name=".widget.WeeklyCalendarWidgetReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/today_week_widget_info" />
+                android:resource="@xml/weekly_calendar_widget_info" />
+        </receiver>
+        
+        <!-- 4x4 위젯 - 이번달 캘린더 -->
+        <receiver
+            android:name=".widget.MonthlyCalendarWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/monthly_calendar_widget_info" />
         </receiver>
         
         <!-- 일정 알림 스케줄러 서비스 -->

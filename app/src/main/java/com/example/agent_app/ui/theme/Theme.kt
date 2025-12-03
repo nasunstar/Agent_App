@@ -105,7 +105,8 @@ fun AgentAppTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
+            // statusBarColor는 deprecated되었으므로 새로운 방식 사용
+            // window.statusBarColor = colorScheme.primary.toArgb() // deprecated
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }

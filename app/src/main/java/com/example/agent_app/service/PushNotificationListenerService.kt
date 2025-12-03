@@ -71,10 +71,16 @@ class PushNotificationListenerService : NotificationListenerService() {
                     Log.d(TAG, "차단된 앱의 푸시 알림, 저장/처리 건너뜀: $packageName")
                     return@launch
                 }
-
+                
                 val appName = getAppName(packageName)
                 val title = notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
                 val text = notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+                
+                // 내용 기반 스팸 필터링 추가
+                if (PushNotificationFilterSettings.isSpamNotification(title, text, packageName)) {
+                    Log.d(TAG, "스팸 알림으로 판단되어 처리 건너뜀: $packageName - $title")
+                    return@launch
+                }
                 val subText = notification.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT)?.toString()
                 
                 // 추가 메타데이터 수집

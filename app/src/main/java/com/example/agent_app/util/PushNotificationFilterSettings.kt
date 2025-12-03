@@ -24,7 +24,26 @@ object PushNotificationFilterSettings {
         "com.nhn.android.search",          // Naver (일부 기기에서 메일 알림 제공)
         "com.google.android.apps.messaging",
         "com.samsung.android.messaging",
-        "com.android.mms"
+        "com.android.mms",
+        "com.kakao.talk",                  // 카카오톡
+        "com.tencent.mm",                  // 위챗
+        "com.whatsapp",                    // 왓츠앱
+        "com.telegram.messenger"           // 텔레그램
+    )
+    
+    // 스팸/광고 패턴 (제목이나 내용에 포함된 경우 차단)
+    private val SPAM_PATTERNS = setOf(
+        "광고", "홍보", "이벤트", "할인", "쿠폰", "적립", "포인트",
+        "배달", "주문", "결제", "로그인", "인증", "보안", "알림",
+        "업데이트", "설치", "다운로드", "앱", "게임", "무료",
+        "당첨", "추천", "신청", "참여", "혜택", "특가", "세일"
+    )
+    
+    // 시스템 알림 패턴
+    private val SYSTEM_PATTERNS = setOf(
+        "시스템", "system", "android", "google", "samsung",
+        "battery", "배터리", "충전", "업데이트", "보안", "wifi",
+        "bluetooth", "네트워크", "연결", "동기화", "백업"
     )
 
     private fun getPrefs(context: Context) =
@@ -67,6 +86,32 @@ object PushNotificationFilterSettings {
         if (excluded.contains(packageName)) return true
         // 기본적으로 허용 목록에 없는 앱은 차단
         return true
+    }
+    
+    /**
+     * 알림 내용 기반 스팸 필터링
+     */
+    fun isSpamNotification(title: String?, text: String?, packageName: String): Boolean {
+        val content = "${title ?: ""} ${text ?: ""}".lowercase()
+        
+        // 스팸 패턴 체크
+        if (SPAM_PATTERNS.any { pattern -> content.contains(pattern) }) {
+            return true
+        }
+        
+        // 시스템 알림 패턴 체크
+        if (SYSTEM_PATTERNS.any { pattern -> content.contains(pattern) }) {
+            return true
+        }
+        
+        // 패키지명 기반 시스템 앱 체크
+        if (packageName.startsWith("com.android.") || 
+            packageName.startsWith("com.google.android.") ||
+            packageName.startsWith("com.samsung.android.")) {
+            return true
+        }
+        
+        return false
     }
 
     fun addExcludedPackage(context: Context, packageName: String) {

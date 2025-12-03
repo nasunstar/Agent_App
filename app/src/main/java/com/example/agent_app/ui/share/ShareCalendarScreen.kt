@@ -331,10 +331,13 @@ private fun MyPersonalCalendarSection(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { onCalendarClick(calendar.id) },
+                            onClick = { 
+                                android.util.Log.d("ShareCalendarScreen", "캘린더 클릭: ${calendar.id}")
+                                onCalendarClick(calendar.id) 
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("공유 캘린더 확인하기")
+                            Text("📅 캘린더 상세보기")
                         }
                     }
                 }
@@ -377,7 +380,10 @@ private fun MyCalendarsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 2.dp),
-                    onClick = { onCalendarClick(calendar.id) },
+                    onClick = { 
+                        android.util.Log.d("ShareCalendarScreen", "내 캘린더 카드 클릭: ${calendar.id}")
+                        onCalendarClick(calendar.id) 
+                    },
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
@@ -456,7 +462,7 @@ private fun MyCalendarPreviewDialog(
             }
         },
         title = {
-            Text("공유 캘린더 상세")
+            Text("📅 공유 캘린더 상세")
         },
         text = {
             if (isLoading && calendar == null) {
@@ -468,7 +474,13 @@ private fun MyCalendarPreviewDialog(
                 ) {
                     CircularProgressIndicator()
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("캘린더 정보를 불러오는 중입니다...")
+                    Text("📊 캘린더 정보를 불러오는 중입니다...")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "잠시만 기다려주세요",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else if (calendar != null) {
                 Column(

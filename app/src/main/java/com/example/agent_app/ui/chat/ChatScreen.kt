@@ -611,7 +611,7 @@ private fun EventPreviewCard(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Event,
-                    contentDescription = null,
+                    contentDescription = "전송",
                     modifier = Modifier.size(Dimens.iconSmall),
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -631,7 +631,7 @@ private fun EventPreviewCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Schedule,
-                        contentDescription = null,
+                        contentDescription = "전송",
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
@@ -657,7 +657,7 @@ private fun EventPreviewCard(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LocationOn,
-                        contentDescription = null,
+                        contentDescription = "전송",
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )

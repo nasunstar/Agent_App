@@ -50,7 +50,7 @@ fun ActionChip(
             if (icon != null) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = null, // 텍스트가 있으므로 null
+                    contentDescription = "액션", // 텍스트가 있으므로 null
                     modifier = Modifier.size(Dimens.iconSmall)
                 )
             }

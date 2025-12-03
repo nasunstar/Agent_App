@@ -197,5 +197,6 @@
     <string name="widget_syncing">동기화 중…</string>
     <string name="widget_today_count_description">오늘 일정 개수를 빠르게 확인해요</string>
     <string name="widget_today_summary_description">오늘 일정을 한눈에 볼 수 있어요</string>
-    <string name="widget_today_week_description">오늘과 이번주 일정을 함께 확인해요</string>
+    <string name="widget_weekly_calendar_description">이번주와 다음주의 캘린더를 보여줍니다</string>
+    <string name="widget_monthly_calendar_description">이번달의 캘린더를 보여줍니다</string>
 </resources>
