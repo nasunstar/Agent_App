@@ -157,20 +157,38 @@ class MainActivity : ComponentActivity() {
         com.example.agent_app.service.EventNotificationScheduler.startService(this)
         
         // SMS 자동 처리 기본 활성화 (비활성화 상태일 때만)
-        val wasEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
-        if (!wasEnabled) {
+        val wasSmsEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
+        if (!wasSmsEnabled) {
             com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcessAlways(this)
             android.util.Log.d("MainActivity", "✅ SMS 자동 처리 기본 활성화 (실시간 동기화)")
         } else {
             android.util.Log.d("MainActivity", "SMS 자동 처리 이미 활성화됨")
         }
         
-        // 확인용 로그
-        val isNowEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
-        val period = com.example.agent_app.util.AutoProcessSettings.getSmsAutoProcessPeriod(this)
-        android.util.Log.d("MainActivity", "SMS 자동 처리 상태 확인 - 활성화: $isNowEnabled, 기간: $period")
+        // Gmail 자동 처리 기본 활성화 (비활성화 상태일 때만, 6시간마다 자동 동기화)
+        val wasGmailEnabled = com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(this)
+        if (!wasGmailEnabled) {
+            com.example.agent_app.util.AutoProcessSettings.enableGmailAutoProcessAlways(this)
+            android.util.Log.d("MainActivity", "✅ Gmail 자동 처리 기본 활성화 (6시간마다 자동 동기화)")
+        } else {
+            android.util.Log.d("MainActivity", "Gmail 자동 처리 이미 활성화됨")
+        }
         
-        // SMS ContentObserver는 AgentApplication에서 백그라운드로 등록됨
+        // Gmail 동기화 서비스 시작 (주기적 자동 동기화)
+        try {
+            com.example.agent_app.service.GmailSyncService.startService(this)
+            android.util.Log.d("MainActivity", "✅ Gmail 동기화 서비스 시작 (6시간마다 자동 동기화)")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Gmail 동기화 서비스 시작 실패", e)
+        }
+        
+        // 확인용 로그
+        val isSmsEnabled = com.example.agent_app.util.AutoProcessSettings.isSmsAutoProcessEnabled(this)
+        val smsPeriod = com.example.agent_app.util.AutoProcessSettings.getSmsAutoProcessPeriod(this)
+        android.util.Log.d("MainActivity", "SMS 자동 처리 상태 확인 - 활성화: $isSmsEnabled, 기간: $smsPeriod")
+        
+        // SMS ContentObserver는 Application 레벨에서 등록됨 (백그라운드에서도 동작)
+        android.util.Log.d("MainActivity", "ℹ️ SMS ContentObserver는 Application 레벨에서 등록됨 (백그라운드 지원)")
 
         // SMS 스캔 완료 및 진행 상황 브로드캐스트 수신 등록
         val filter = IntentFilter().apply {
@@ -286,7 +304,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // SMS ContentObserver는 AgentApplication에서 관리됨 (백그라운드 유지)
+        // SMS ContentObserver는 Application 레벨에서 관리되므로 여기서 해제하지 않음
         
         super.onDestroy()
         try {

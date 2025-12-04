@@ -138,5 +138,8 @@ dependencies {
     
     // MOA-Logging: Timber 로깅 라이브러리
     implementation("com.jakewharton.timber:timber:5.0.1")
+    
+    // WorkManager (Gmail 실시간 동기화용)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
 }

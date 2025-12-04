@@ -72,6 +72,7 @@
     <string name="chat_title">대화</string>
     <string name="chat_error_title">제가 처리하지 못했어요</string>
     <string name="chat_confirm">알겠어요</string>
+    <string name="chat_cancel">취소</string>
     <string name="chat_question_label">질문하신 내용</string>
     <string name="chat_answer_label">제가 찾아본 내용</string>
     <string name="chat_context_label">참고한 내용</string>
@@ -96,11 +97,15 @@
     
     <!-- Gmail 수집 (gmail_*) -->
     <string name="gmail_sync_title">메일 수집함</string>
-    <string name="gmail_sync_recent">최근 동기화</string>
+    <string name="gmail_sync_recent">지금 바로 동기화</string>
+    <string name="gmail_sync_now">지금 바로 동기화</string>
     <string name="gmail_sync_button">최근 20개 동기화</string>
     <string name="gmail_sync_progress">제가 메일을 확인하고 있어요…</string>
     <string name="gmail_sync_updates">메일 최근 업데이트 기록</string>
     <string name="gmail_sync_updates_with_account">메일 최근 업데이트 기록: %1$s</string>
+    <string name="gmail_sync_past_events">지난 일정 가져오기</string>
+    <string name="gmail_sync_past_events_description">언제부터 가져올까요? 선택한 날짜부터 지금까지의 Gmail을 확인해서 일정을 생성해드려요</string>
+    <string name="gmail_sync_past_events_date_picker_title">언제부터 가져올까요?</string>
     
     <!-- SMS 스캔 (sms_*) -->
     <string name="sms_scan_title">문자 메시지 스캔</string>
@@ -108,10 +113,10 @@
     <string name="sms_scan_progress">제가 문자를 확인하고 있어요…</string>
     <string name="sms_scan_date_range">스캔 범위: %1$s ~ %2$s</string>
     <string name="sms_scan_updates">문자 최근 업데이트 기록</string>
-    <string name="sms_scan_date_picker">기간 선택</string>
     <string name="sms_auto_process_enabled">새 SMS가 오면 자동으로 처리됩니다</string>
     <string name="sms_scan_past_events">지난 일정 가져오기</string>
-    <string name="sms_scan_past_events_description">옛날부터 지금까지의 SMS를 확인해서 일정을 생성해드려요</string>
+    <string name="sms_scan_past_events_description">언제부터 가져올까요? 선택한 날짜부터 지금까지의 SMS를 확인해서 일정을 생성해드려요</string>
+    <string name="sms_scan_past_events_date_picker_title">언제부터 가져올까요?</string>
     
     <!-- 일정 알림 (event_notification_*) -->
     <string name="event_notification_1day_before">내일 \'%1$s\' 일정이 있어요</string>

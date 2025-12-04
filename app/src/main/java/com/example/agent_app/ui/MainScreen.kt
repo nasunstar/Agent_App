@@ -88,6 +88,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.border
@@ -549,7 +550,9 @@ internal fun DeveloperContent(
         initialSelectedDateMillis = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000) // 30일 전 기본값
     )
     
-    // 권한 요청 런처
+    val context = LocalContext.current
+    
+    // 권한 요청 런처 (SMS 읽기 권한만 요청)
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -557,8 +560,18 @@ internal fun DeveloperContent(
             // 권한이 허용되면 날짜 선택 다이얼로그 표시
             showDatePicker = true
         } else {
-            // 권한이 거부된 경우
-            // UI는 그대로 유지 (사용자가 다시 시도할 수 있도록)
+            // 거부된 경우는 UI만 유지 (사용자가 나중에 다시 시도 가능)
+        }
+    }
+
+    // 앱 시작 시 SMS 읽기 권한이 없으면 바로 요청
+    LaunchedEffect(Unit) {
+        val readGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_SMS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!readGranted) {
+            permissionLauncher.launch(Manifest.permission.READ_SMS)
         }
     }
     
@@ -632,13 +645,6 @@ internal fun DeveloperContent(
                     permissionLauncher.launch(Manifest.permission.READ_SMS)
                 }
             },
-            onDatePickerClick = {
-                if (mainViewModel.checkSmsPermission()) {
-                    showDatePicker = true
-                } else {
-                    permissionLauncher.launch(Manifest.permission.READ_SMS)
-                }
-            }
         )
         
         // 최근 업데이트 기록 표시
@@ -752,12 +758,13 @@ internal fun DeveloperContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SmsScanCard(
     smsScanState: com.example.agent_app.ui.SmsScanState,
     onScanClick: (Long) -> Unit,
-    onDatePickerClick: () -> Unit,
 ) {
+    var showDatePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
     // 자동 처리 활성화 여부 확인 (실시간 업데이트)
@@ -825,50 +832,80 @@ private fun SmsScanCard(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(com.example.agent_app.ui.theme.Dimens.spacingSM),
-            ) {
-                // 최신 스캔 버튼 (마지막 스캔 시간부터 현재까지)
-                Button(
-                    onClick = { 
-                        val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
-                            smsScanState.lastScanTimestamp
-                        } else {
-                            // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
-                            // 그것도 없으면 0L (전체 스캔)
-                            smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
-                        }
-                        onScanClick(sinceTimestamp)
-                    },
-                    enabled = !smsScanState.isScanning,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    if (smsScanState.isScanning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                        Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
-                        Text(text = stringResource(R.string.sms_scan_progress))
+            // 지금 바로 동기화 버튼 (마지막 스캔 시간부터 현재까지)
+            Button(
+                onClick = { 
+                    val sinceTimestamp = if (smsScanState.lastScanTimestamp > 0L) {
+                        smsScanState.lastScanTimestamp
                     } else {
-                        Text(text = stringResource(R.string.sms_scan_recent))
+                        // 마지막 스캔 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
+                        // 그것도 없으면 0L (전체 스캔)
+                        smsScanState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
                     }
-                }
-                // 기간 선택 버튼
-                Button(
-                    onClick = onDatePickerClick,
-                    enabled = !smsScanState.isScanning,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(text = stringResource(R.string.sms_scan_date_picker))
+                    onScanClick(sinceTimestamp)
+                },
+                enabled = !smsScanState.isScanning,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (smsScanState.isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
+                    Text(text = stringResource(R.string.sms_scan_progress))
+                } else {
+                    Text(text = stringResource(R.string.sms_scan_recent))
                 }
             }
             
-            // 지난 일정 가져오기 버튼
+            // 날짜 선택 다이얼로그
+            if (showDatePicker) {
+                val datePickerState = rememberDatePickerState(
+                    initialSelectedDateMillis = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000, // 기본값: 7일 전
+                )
+                DatePickerDialog(
+                    onDismissRequest = { showDatePicker = false },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val selectedDate = datePickerState.selectedDateMillis
+                                if (selectedDate != null) {
+                                    android.util.Log.d("SmsScanCard", "지난 일정 가져오기 시작 - 날짜: $selectedDate")
+                                    onScanClick(selectedDate)
+                                } else {
+                                    android.util.Log.w("SmsScanCard", "날짜가 선택되지 않음")
+                                }
+                                showDatePicker = false
+                            }
+                        ) {
+                            Text(stringResource(R.string.chat_confirm))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDatePicker = false }) {
+                            Text(stringResource(R.string.chat_cancel))
+                        }
+                    },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.sms_scan_past_events_date_picker_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        DatePicker(state = datePickerState)
+                    }
+                }
+            }
+            
+            // 지난 일정 가져오기 버튼 (날짜 선택 다이얼로그 표시)
             Button(
-                onClick = { onScanClick(0L) }, // 0L = 옛날부터 지금까지 모든 SMS
+                onClick = { showDatePicker = true },
                 enabled = !smsScanState.isScanning,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
@@ -1789,7 +1826,35 @@ private fun SingleAccountSyncCard(
                 }
             }
             
-            // 날짜 선택 다이얼로그
+            // 지금 바로 동기화 버튼 (마지막 동기화 시간부터 현재까지)
+            Button(
+                onClick = { 
+                    val sinceTimestamp = if (accountState.lastSyncTimestamp > 0L) {
+                        accountState.lastSyncTimestamp
+                    } else {
+                        // 마지막 동기화 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
+                        // 그것도 없으면 0L (전체 스캔)
+                        accountState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
+                    }
+                    onSync(accountEmail, sinceTimestamp)
+                },
+                enabled = !accountState.isSyncing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (accountState.isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.width(com.example.agent_app.ui.theme.Dimens.spacingSM))
+                    Text(text = stringResource(R.string.gmail_sync_progress))
+                } else {
+                    Text(text = stringResource(R.string.gmail_sync_now))
+                }
+            }
+            
+            // 날짜 선택 다이얼로그 (지난 일정 가져오기용)
             if (showDatePicker) {
                 val datePickerState = rememberDatePickerState(
                     initialSelectedDateMillis = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000, // 기본값: 7일 전
@@ -1801,7 +1866,7 @@ private fun SingleAccountSyncCard(
                             onClick = {
                                 val selectedDate = datePickerState.selectedDateMillis
                                 if (selectedDate != null) {
-                                    android.util.Log.d("SingleAccountSyncCard", "기간 선택 동기화 시작 - 날짜: $selectedDate, 이메일: $accountEmail")
+                                    android.util.Log.d("SingleAccountSyncCard", "지난 일정 가져오기 시작 - 날짜: $selectedDate, 이메일: $accountEmail")
                                     onSync(accountEmail, selectedDate)
                                 } else {
                                     android.util.Log.w("SingleAccountSyncCard", "날짜가 선택되지 않음")
@@ -1809,12 +1874,12 @@ private fun SingleAccountSyncCard(
                                 showDatePicker = false
                             }
                         ) {
-                            Text("확인")
+                            Text(stringResource(R.string.chat_confirm))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showDatePicker = false }) {
-                            Text("취소")
+                            Text(stringResource(R.string.chat_cancel))
                         }
                     },
                 ) {
@@ -1822,76 +1887,28 @@ private fun SingleAccountSyncCard(
                 }
             }
             
-            // refresh token 없을 때 기간 선택 후 기간 선택 버튼 숨김
-            if (shouldHideDatePicker) {
-                // 최신 동기화 버튼만 표시
-                Button(
-                    onClick = { 
-                        val sinceTimestamp = if (accountState.lastSyncTimestamp > 0L) {
-                            accountState.lastSyncTimestamp
-                        } else {
-                            accountState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
-                        }
-                        onSync(accountEmail, sinceTimestamp)
-                    },
-                    enabled = !accountState.isSyncing && (accountState.lastSyncTimestamp > 0L || accountState.recentUpdates.isNotEmpty()),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (accountState.isSyncing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "동기화 중...")
-                    } else {
-                        Text(text = "최신 동기화")
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // 최신 동기화 버튼 (왼쪽)
-                    Button(
-                        onClick = { 
-                            val sinceTimestamp = if (accountState.lastSyncTimestamp > 0L) {
-                                accountState.lastSyncTimestamp
-                            } else {
-                                // 마지막 동기화 기록이 없으면 최근 업데이트 기록의 endTimestamp 사용
-                                accountState.recentUpdates.firstOrNull()?.endTimestamp ?: 0L
-                            }
-                            onSync(accountEmail, sinceTimestamp)
-                        },
-                        enabled = !accountState.isSyncing && (accountState.lastSyncTimestamp > 0L || accountState.recentUpdates.isNotEmpty()),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        if (accountState.isSyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "동기화 중...")
-                        } else {
-                            Text(text = "최신 동기화")
-                        }
-                    }
-                    // 기간 선택 버튼 (오른쪽)
-                    Button(
-                        onClick = { showDatePicker = true },
-                        enabled = !accountState.isSyncing,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(text = "기간 선택")
-                    }
-                }
+            // 지난 일정 가져오기 버튼 (날짜 선택 다이얼로그 표시)
+            Button(
+                onClick = { showDatePicker = true },
+                enabled = !accountState.isSyncing,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Text(text = stringResource(R.string.gmail_sync_past_events))
             }
             
-            // 최신 동기화 설명
+            // 지난 일정 가져오기 설명
+            Text(
+                text = stringResource(R.string.gmail_sync_past_events_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            
+            // 마지막 동기화 시간 표시
             if (accountState.lastSyncTimestamp > 0L || accountState.recentUpdates.isNotEmpty()) {
                 val lastSyncTime = if (accountState.lastSyncTimestamp > 0L) {
                     accountState.lastSyncTimestamp
@@ -2890,25 +2907,47 @@ private fun GmailItemCard(
                 )
             }
             
+            // 연결된 이벤트 표시
             if (events.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                
                 Text(
-                    text = "추출된 일정: ${events.size}개",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = "📅 추출된 일정 (${events.size}개)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
                 )
-            } else if (onCreateEvent != null) {
+                
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    events.forEach { event ->
+                        EventDetailRow(
+                            event = event,
+                            onUpdateEvent = onUpdateEvent,
+                            onDeleteEvent = onDeleteEvent,
+                        )
+                    }
+                }
+            } else {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    text = "추출된 일정 없음",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
                 // 일정 생성 버튼
-                Button(
-                    onClick = { onCreateEvent(item) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+                if (onCreateEvent != null) {
+                    Button(
+                        onClick = { onCreateEvent(item) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
                             contentDescription = "일정 추가",
                             modifier = Modifier.size(18.dp),
                         )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("일정 생성")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("일정 생성")
+                    }
                 }
             }
             Row(

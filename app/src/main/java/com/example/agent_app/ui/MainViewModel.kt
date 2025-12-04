@@ -769,14 +769,9 @@ class MainViewModel(
                     android.util.Log.d("MainViewModel", "갱신된 Access Token 저장 완료")
                 }
                 
-                // 기간 선택 시 Gmail 자동 처리 활성화 및 기간 저장
-                if (sinceTimestamp > 0L) {
-                    com.example.agent_app.util.AutoProcessSettings.enableGmailAutoProcess(
-                        context,
-                        sinceTimestamp,
-                        System.currentTimeMillis()
-                    )
-                }
+                // Gmail 자동 처리는 수동 동기화 시에만 활성화하지 않음
+                // (주기적 자동 동기화 제거, 사용자가 수동으로만 동기화)
+                // 기간 선택 시에도 자동 처리 활성화하지 않음
                 
                 when (val result = gmailRepository.syncRecentMessages(
                     accessToken = accessToken,
@@ -1057,10 +1052,17 @@ class MainViewModel(
     }
     
     fun checkSmsPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
+        val readGranted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
+
+        android.util.Log.d(
+            "MainViewModel",
+            "SMS 권한 체크 - READ_SMS: $readGranted"
+        )
+
+        return readGranted
     }
     
     /**

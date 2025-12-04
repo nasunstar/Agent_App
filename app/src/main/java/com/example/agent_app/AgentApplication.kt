@@ -19,6 +19,18 @@ class AgentApplication : Application() {
         
         // SMS ContentObserver 등록 (백그라운드에서도 작동)
         registerSmsContentObserver()
+        
+        // Gmail 실시간 동기화 WorkManager 시작 (테스트용: 5초마다 실행)
+        // PeriodicWorkRequest는 시스템 제약으로 최소 15분 간격이 적용될 수 있으므로
+        // 더 짧은 간격을 보장하려면 체인 방식을 사용
+        try {
+            Log.d("AgentApplication", "📧 Gmail 실시간 동기화 WorkManager 시작 시도...")
+            com.example.agent_app.service.GmailRealtimeSyncWorker.startRepeatingWork(this)
+            Log.d("AgentApplication", "✅ Gmail 실시간 동기화 WorkManager 시작 완료 (5초 주기)")
+        } catch (e: Exception) {
+            Log.e("AgentApplication", "❌ Gmail 실시간 동기화 WorkManager 시작 실패", e)
+            e.printStackTrace()
+        }
     }
     
     private fun registerSmsContentObserver() {

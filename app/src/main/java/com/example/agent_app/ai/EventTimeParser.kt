@@ -307,13 +307,26 @@ object EventTimeParser {
                         val weekdayStr = expr.meta["weekday"] as? String ?: ""
                         val weekOffset = expr.meta["weekOffset"] as? Int ?: 0
                         val weekday = parseWeekday(weekdayStr)
-                        if (weekday != null) {
-                            val currentWeekday = targetDate?.dayOfWeek?.value ?: 1
+                        if (weekday != null && targetDate != null) {
+                            val currentWeekday = targetDate.dayOfWeek.value
                             val targetWeekday = weekday.value
-                            var daysToAdd = (targetWeekday - currentWeekday + 7) % 7
-                            if (daysToAdd == 0 && weekOffset > 0) daysToAdd = 7
-                            daysToAdd += weekOffset * 7
-                            targetDate = targetDate?.plusDays(daysToAdd.toLong())
+                            
+                            if (weekOffset == 0) {
+                                // "이번주" 또는 요일만: 현재 날짜 이후 가장 가까운 해당 요일
+                                var daysToAdd = (targetWeekday - currentWeekday + 7) % 7
+                                if (daysToAdd == 0) daysToAdd = 7 // 같은 요일이면 다음 주
+                                targetDate = targetDate.plusDays(daysToAdd.toLong())
+                            } else {
+                                // "다음주": 다음 주의 해당 요일
+                                // 현재 주의 월요일 찾기
+                                val daysFromMonday = (currentWeekday - 1 + 7) % 7
+                                val thisWeekMonday = targetDate.minusDays(daysFromMonday.toLong())
+                                // 다음 주 월요일
+                                val nextWeekMonday = thisWeekMonday.plusDays(7)
+                                // 다음 주의 해당 요일 (월요일=1이므로 -1)
+                                val daysToTargetWeekday = (targetWeekday - 1).toLong()
+                                targetDate = nextWeekMonday.plusDays(daysToTargetWeekday)
+                            }
                         }
                     }
                     else -> {}

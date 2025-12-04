@@ -46,7 +46,7 @@ class GmailSyncService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "gmail_sync_channel"
-        private const val SYNC_INTERVAL_HOURS = 6L // 6시간마다 동기화
+        private const val SYNC_INTERVAL_HOURS = 6L // 6시간마다 동기화 (메모리 효율을 위해 적절한 간격 유지)
         
         private const val EXTRA_ACCOUNT_EMAIL = "account_email"
         private const val EXTRA_SINCE_TIMESTAMP = "since_timestamp"
@@ -126,13 +126,23 @@ class GmailSyncService : Service() {
     }
     
     /**
-     * 주기적 동기화 시작
+     * 주기적 동기화 시작 (6시간마다 자동 동기화)
+     * Gmail은 클라우드 서비스이므로 주기적 API 호출 필요
+     * 사용자가 "지금 바로 동기화" 버튼을 누르면 즉시 동기화, 그 외에는 6시간마다 자동 동기화
      */
     private fun startPeriodicSync() {
         syncJob = serviceScope.launch {
             while (true) {
                 try {
-                    performSync()
+                    // Gmail 자동 처리 활성화 여부 확인
+                    val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(applicationContext)
+                    if (isAutoProcessEnabled) {
+                        performSync()
+                    } else {
+                        Log.d("GmailSyncService", "Gmail 자동 처리 비활성화 - 동기화 건너뜀")
+                    }
+                    
+                    // 메모리 효율을 위해 6시간 간격으로 동기화
                     delay(TimeUnit.HOURS.toMillis(SYNC_INTERVAL_HOURS))
                 } catch (e: Exception) {
                     Log.e("GmailSyncService", "동기화 오류", e)
@@ -246,15 +256,17 @@ class GmailSyncService : Service() {
             return
         }
         
-        // 자동 처리 기간 가져오기
+        // 자동 처리 기간 가져오기 (기간이 없으면 최근 1시간 이내 메시지만 동기화)
         val period = com.example.agent_app.util.AutoProcessSettings.getGmailAutoProcessPeriod(applicationContext)
-        if (period == null) {
-            Log.d("GmailSyncService", "Gmail 자동 처리 기간이 설정되지 않음 - 동기화 건너뜀")
-            return
+        val sinceTimestamp = if (period != null) {
+            period.first
+        } else {
+            // 기간이 설정되지 않았으면 최근 1시간 이내 메시지만 동기화 (메모리 효율)
+            val oneHourAgo = System.currentTimeMillis() - (60 * 60 * 1000)
+            Log.d("GmailSyncService", "Gmail 자동 처리 기간 없음 - 최근 1시간 이내 메시지만 동기화 (메모리 효율)")
+            oneHourAgo
         }
-        
-        val sinceTimestamp = period.first
-        Log.d("GmailSyncService", "Gmail 자동 처리 기간 확인 - 시작: $sinceTimestamp, 종료: ${period.second}")
+        Log.d("GmailSyncService", "Gmail 동기화 시작 - sinceTimestamp: $sinceTimestamp")
         
         // 모든 Google 계정에 대해 동기화
         val accounts = authRepository.getAllGoogleTokens()
