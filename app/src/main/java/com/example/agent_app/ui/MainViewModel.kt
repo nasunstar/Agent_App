@@ -652,7 +652,19 @@ class MainViewModel(
             val currentStates = gmailSyncState.value.syncStatesByEmail.toMutableMap()
             
             try {
-                android.util.Log.d("MainViewModel", "syncGmail 호출 - accountEmail: $accountEmail, sinceTimestamp: $sinceTimestamp, useBackgroundService: $useBackgroundService")
+                // 날짜 선택 시 해당 날짜의 00:00:00부터 23:59:59까지로 설정
+                val actualSinceTimestamp = if (sinceTimestamp > 0L) {
+                    val selectedDate = java.time.Instant.ofEpochMilli(sinceTimestamp)
+                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                        .toLocalDate()
+                    
+                    val startOfDay = selectedDate.atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+                    startOfDay.toInstant().toEpochMilli()
+                } else {
+                    sinceTimestamp
+                }
+                
+                android.util.Log.d("MainViewModel", "syncGmail 호출 - accountEmail: $accountEmail, sinceTimestamp: $sinceTimestamp -> $actualSinceTimestamp, useBackgroundService: $useBackgroundService")
                 
                 // 백그라운드 서비스 사용 시
                 if (useBackgroundService) {
@@ -660,7 +672,7 @@ class MainViewModel(
                     com.example.agent_app.service.GmailSyncService.startService(
                         context = context,
                         accountEmail = accountEmail,
-                        sinceTimestamp = sinceTimestamp,
+                        sinceTimestamp = actualSinceTimestamp,
                         manualSync = true
                     )
                     
@@ -793,7 +805,7 @@ class MainViewModel(
                 
                 when (val result = gmailRepository.syncRecentMessages(
                     accessToken = accessToken,
-                    sinceTimestamp = sinceTimestamp,
+                    sinceTimestamp = actualSinceTimestamp,
                     onProgress = { progress, message ->
                         // 진행률 실시간 업데이트
                         currentStates[emailKey] = currentStates[emailKey]!!.copy(
@@ -860,7 +872,7 @@ class MainViewModel(
                                     // 갱신된 토큰으로 재시도
                                     when (val retryResult = gmailRepository.syncRecentMessages(
                                         accessToken = refreshResult.accessToken,
-                                        sinceTimestamp = sinceTimestamp,
+                                        sinceTimestamp = actualSinceTimestamp,
                                         onProgress = { progress, message ->
                                             // 진행률 실시간 업데이트
                                             currentStates[emailKey] = currentStates[emailKey]!!.copy(
@@ -1177,18 +1189,32 @@ class MainViewModel(
             return
         }
         
+        // 날짜 선택 시 해당 날짜의 00:00:00부터 23:59:59까지로 설정
+        val (startTimestamp, endTimestamp) = if (sinceTimestamp > 0L) {
+            val selectedDate = java.time.Instant.ofEpochMilli(sinceTimestamp)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                .toLocalDate()
+            
+            val startOfDay = selectedDate.atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+            val endOfDay = selectedDate.atTime(23, 59, 59).atZone(java.time.ZoneId.of("Asia/Seoul"))
+            
+            Pair(startOfDay.toInstant().toEpochMilli(), endOfDay.toInstant().toEpochMilli())
+        } else {
+            Pair(sinceTimestamp, System.currentTimeMillis())
+        }
+        
         // 기간 선택 시 SMS 자동 처리 활성화 및 기간 저장
         if (sinceTimestamp > 0L) {
             com.example.agent_app.util.AutoProcessSettings.enableSmsAutoProcess(
                 context,
-                sinceTimestamp,
-                System.currentTimeMillis()
+                startTimestamp,
+                endTimestamp
             )
         }
         
         // Foreground Service로 백그라운드 처리 시작
         val intent = android.content.Intent(context, com.example.agent_app.service.SmsScanService::class.java).apply {
-            putExtra("since_timestamp", sinceTimestamp)
+            putExtra("since_timestamp", startTimestamp)
         }
         
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -1203,8 +1229,8 @@ class MainViewModel(
             message = "SMS 스캔 시작...",
             progress = 0f,
             progressMessage = "SMS 메시지 읽는 중...",
-            scanStartTimestamp = sinceTimestamp,
-            scanEndTimestamp = System.currentTimeMillis(),
+            scanStartTimestamp = startTimestamp,
+            scanEndTimestamp = endTimestamp,
             processedCount = 0,
             totalCount = 0,
         )
@@ -1337,10 +1363,13 @@ class MainViewModel(
     
     /**
      * 분류된 데이터 다시 로드
+     * @param manageRefreshingState true이면 isRefreshingState를 관리하고, false이면 관리하지 않음
      */
-    suspend fun loadClassifiedData() {
+    suspend fun loadClassifiedData(manageRefreshingState: Boolean = true) {
         try {
-            isRefreshingState.value = true
+            if (manageRefreshingState) {
+                isRefreshingState.value = true
+            }
             classifiedDataRepository?.let { repo ->
                 withContext(Dispatchers.IO) {
                     contactsState.value = repo.getAllContacts()
@@ -1349,7 +1378,9 @@ class MainViewModel(
                 }
             }
         } finally {
-            isRefreshingState.value = false
+            if (manageRefreshingState) {
+                isRefreshingState.value = false
+            }
         }
     }
     
@@ -1411,37 +1442,89 @@ class MainViewModel(
             try {
                 isRefreshingState.value = true
                 
-                // 백그라운드 스레드에서 실행하여 UI 블로킹 방지
-                withContext(Dispatchers.IO) {
-                    // 분류된 데이터 새로고침 (Contact, Event, Note)
-                    loadClassifiedData()
-                    
-                    // UI 업데이트를 위해 yield
-                    yield()
-                    
-                    // IngestItem들을 명시적으로 다시 읽어서 Flow 트리거
-                    // (Room Flow는 자동으로 업데이트되지만, 새로고침 시 명시적으로 확인)
-                    val ocrItems = ingestRepository.getBySource("ocr")
-                    val smsItems = ingestRepository.getBySource("sms")
-                    val pushNotificationItems = ingestRepository.getBySource("push_notification")
-                    val gmailItems = ingestRepository.getBySource("gmail")
-                    
-                    android.util.Log.d("MainViewModel", "IngestItem 새로고침 - OCR: ${ocrItems.size}, SMS: ${smsItems.size}, Push: ${pushNotificationItems.size}, Gmail: ${gmailItems.size}")
-                    
-                    yield()
-                    
-                    // 각 소스별 이벤트 다시 로드 (최신 IngestItem 상태 기반)
-                    loadOcrEvents(ocrItems)
-                    yield()
-                    
-                    loadSmsEvents(smsItems)
-                    yield()
-                    
-                    loadPushNotificationEvents(pushNotificationItems)
-                    
-                    // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
-                    android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료")
+                // 분류된 데이터 새로고침 (Contact, Event, Note)
+                // isRefreshingState는 여기서 관리하므로 loadClassifiedData에서는 관리하지 않음
+                loadClassifiedData(manageRefreshingState = false)
+                
+                // UI 업데이트를 위해 yield
+                yield()
+                
+                // 데이터베이스에서 직접 조회하여 최신 데이터 가져오기
+                // StateFlow의 값이 0일 수 있으므로 DB에서 직접 확인
+                val ocrItems = withContext(Dispatchers.IO) {
+                    ingestRepository.getBySource("ocr")
                 }
+                val smsItems = withContext(Dispatchers.IO) {
+                    ingestRepository.getBySource("sms")
+                }
+                val pushNotificationItems = withContext(Dispatchers.IO) {
+                    ingestRepository.getBySource("push_notification")
+                }
+                val gmailItems = withContext(Dispatchers.IO) {
+                    ingestRepository.getBySource("gmail")
+                }
+                
+                android.util.Log.d("MainViewModel", "IngestItem 새로고침 (DB 직접 조회) - OCR: ${ocrItems.size}, SMS: ${smsItems.size}, Push: ${pushNotificationItems.size}, Gmail: ${gmailItems.size}")
+                
+                // Room Flow를 트리거하기 위해 더미 업데이트 수행
+                // (데이터베이스 변경이 없으면 Flow가 emit하지 않으므로)
+                // 가장 최근 항목을 업데이트하여 Flow를 트리거
+                withContext(Dispatchers.IO) {
+                    if (smsItems.isNotEmpty()) {
+                        val latestSms = smsItems.first()
+                        ingestRepository.upsert(latestSms.copy()) // 복사본으로 업데이트하여 Flow 트리거
+                    }
+                    if (ocrItems.isNotEmpty()) {
+                        val latestOcr = ocrItems.first()
+                        ingestRepository.upsert(latestOcr.copy())
+                    }
+                    if (pushNotificationItems.isNotEmpty()) {
+                        val latestPush = pushNotificationItems.first()
+                        ingestRepository.upsert(latestPush.copy())
+                    }
+                    if (gmailItems.isNotEmpty()) {
+                        val latestGmail = gmailItems.first()
+                        ingestRepository.upsert(latestGmail.copy())
+                    }
+                }
+                
+                // Flow가 업데이트될 시간을 주기 위해 잠시 대기
+                yield()
+                kotlinx.coroutines.delay(100)
+                
+                // 각 소스별 이벤트 다시 로드 (최신 IngestItem 상태 기반)
+                // 이벤트 상태를 명시적으로 업데이트하여 UI가 변경을 감지하도록 함
+                loadOcrEvents(ocrItems)
+                yield()
+                
+                loadSmsEvents(smsItems)
+                yield()
+                
+                loadPushNotificationEvents(pushNotificationItems)
+                
+                // Gmail 이벤트는 eventsState에서 필터링되므로 자동 업데이트됨
+                // 하지만 eventsState가 이미 업데이트되었으므로 추가 작업 불필요
+                
+                // UI가 변경을 감지하도록 이벤트 상태를 강제로 갱신
+                // (같은 값이어도 StateFlow에 다시 설정하여 UI 재구성을 트리거)
+                val currentOcrEvents = ocrEventsState.value
+                ocrEventsState.value = emptyMap()
+                yield()
+                ocrEventsState.value = currentOcrEvents
+                
+                val currentSmsEvents = smsEventsState.value
+                smsEventsState.value = emptyMap()
+                yield()
+                smsEventsState.value = currentSmsEvents
+                
+                val currentPushEvents = pushNotificationEventsState.value
+                pushNotificationEventsState.value = emptyMap()
+                yield()
+                pushNotificationEventsState.value = currentPushEvents
+                
+                android.util.Log.d("MainViewModel", "인박스 데이터 새로고침 완료 - 이벤트: OCR=${currentOcrEvents.size}, SMS=${currentSmsEvents.size}, Push=${currentPushEvents.size}")
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "인박스 데이터 새로고침 실패", e)
             } finally {
                 isRefreshingState.value = false
             }

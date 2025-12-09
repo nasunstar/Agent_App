@@ -362,7 +362,7 @@ class GmailSyncService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Gmail 동기화",
-                NotificationManager.IMPORTANCE_MIN // 최대한 조용/비표시
+                NotificationManager.IMPORTANCE_NONE // 알림 숨김
             ).apply {
                 description = "Gmail 실시간 동기화 상태"
                 setShowBadge(false)

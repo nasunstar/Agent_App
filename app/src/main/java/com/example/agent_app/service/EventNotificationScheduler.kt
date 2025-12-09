@@ -142,6 +142,20 @@ class EventNotificationScheduler : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
+        // 알림을 숨기기 위해 IMPORTANCE_NONE 사용 (Android O 이상)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                CHANNEL_ID,
+                "일정 알림 모니터링",
+                android.app.NotificationManager.IMPORTANCE_NONE // 알림 숨김
+            ).apply {
+                description = "일정 알림을 확인하고 있습니다"
+                setShowBadge(false)
+            }
+            val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+        }
+        
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("일정 알림 모니터링")
             .setContentText("일정 알림을 확인하고 있습니다")

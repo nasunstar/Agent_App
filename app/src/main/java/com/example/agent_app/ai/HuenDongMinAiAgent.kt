@@ -122,9 +122,30 @@ class HuenDongMinAiAgent(
 
         android.util.Log.d("HuenDongMinAiAgent", "규칙 기반 분석 실패, LLM 보조 호출 ($sourceType)")
 
+        // 현재 시간은 이미 위에서 계산됨 (now 변수 재사용)
+        val dayOfWeekKorean = when (now.dayOfWeek) {
+            java.time.DayOfWeek.MONDAY -> "월요일"
+            java.time.DayOfWeek.TUESDAY -> "화요일"
+            java.time.DayOfWeek.WEDNESDAY -> "수요일"
+            java.time.DayOfWeek.THURSDAY -> "목요일"
+            java.time.DayOfWeek.FRIDAY -> "금요일"
+            java.time.DayOfWeek.SATURDAY -> "토요일"
+            java.time.DayOfWeek.SUNDAY -> "일요일"
+        }
+        
         val systemPrompt = """
             한국어 텍스트에서 시간 정보 추출. KST 기준, ISO 포맷(YYYY-MM-DD, HH:mm) 사용.
             epoch milliseconds 계산 금지 - 날짜/시간 문자열만 반환.
+            
+            🔴🔴🔴 현재 날짜 (모든 상대적 표현 계산의 기준!) 🔴🔴🔴
+            📅 현재 시간:
+            - **현재 연도: ${now.year}년**
+            - **현재 월: ${now.monthValue}월**
+            - **현재 일: ${now.dayOfMonth}일**
+            - **현재 요일: $dayOfWeekKorean**
+            - **현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms**
+            
+            ⚠️ **"내일", "다음주" 등 상대적 표현은 반드시 위의 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)를 기준으로 계산하세요!**
         """.trimIndent()
 
         // 간소화된 예시
@@ -232,6 +253,16 @@ class HuenDongMinAiAgent(
         val userPrompt = """
             기준 시각: ${referenceDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}
             텍스트: ${normalizedText.ifBlank { "(내용 없음)" }}
+            
+            🔴🔴🔴 현재 날짜 (상대적 표현 계산 기준!) 🔴🔴🔴
+            - 현재 연도: ${now.year}년
+            - 현재 월: ${now.monthValue}월
+            - 현재 일: ${now.dayOfMonth}일
+            - 현재 요일: $dayOfWeekKorean
+            
+            ⚠️ **"내일", "다음주" 등 상대적 표현은 반드시 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)를 기준으로 계산하세요!**
+            - "내일" → ${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일
+            - "모레" → ${now.plusDays(2).year}년 ${now.plusDays(2).monthValue}월 ${now.plusDays(2).dayOfMonth}일
 
             결과를 JSON으로만 반환하세요:
             {
@@ -247,7 +278,10 @@ class HuenDongMinAiAgent(
               "finalEndTime": "HH:mm" 또는 null
             }
             
-            ⚠️ **중요**: epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
+            ⚠️ **중요**: 
+            - epoch milliseconds를 계산하지 마세요! 날짜와 시간 문자열만 반환하세요.
+            - 상대적 표현("내일", "다음주" 등)이 있으면 `hasExplicitDate`는 false, `explicitDate`는 null로 설정하세요.
+            - `finalDate`는 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)를 기준으로 계산한 결과를 반환하세요.
         """.trimIndent()
         
         val fullSystemPrompt = systemPrompt + fewShotExamples
@@ -1014,7 +1048,7 @@ class HuenDongMinAiAgent(
     }
     
     /**
-     * 상대적 시간 표현 처리 (예: "내일", "다음주 수요일")
+     * 상대적 시간 표현 처리 (예: "내일", "이번주 금요일", "다음주 수요일")
      */
     private fun processRelativeTimeExpressions(
         expressions: List<String>,
@@ -1022,11 +1056,51 @@ class HuenDongMinAiAgent(
     ): java.time.ZonedDateTime {
         var result = baseDate
         
+        val dayOfWeekMap = mapOf(
+            "월요일" to java.time.DayOfWeek.MONDAY,
+            "화요일" to java.time.DayOfWeek.TUESDAY,
+            "수요일" to java.time.DayOfWeek.WEDNESDAY,
+            "목요일" to java.time.DayOfWeek.THURSDAY,
+            "금요일" to java.time.DayOfWeek.FRIDAY,
+            "토요일" to java.time.DayOfWeek.SATURDAY,
+            "일요일" to java.time.DayOfWeek.SUNDAY
+        )
+        
         for (expr in expressions) {
             when {
                 expr.contains("내일") -> result = result.plusDays(1)
                 expr.contains("모레") -> result = result.plusDays(2)
-                expr.contains("다음주") || expr.contains("담주") -> {
+                expr.contains("이번주") || expr.contains("이번 주") -> {
+                    // 이번 주의 월요일 찾기
+                    val daysFromMonday = when (result.dayOfWeek) {
+                        java.time.DayOfWeek.MONDAY -> 0L
+                        java.time.DayOfWeek.TUESDAY -> 1L
+                        java.time.DayOfWeek.WEDNESDAY -> 2L
+                        java.time.DayOfWeek.THURSDAY -> 3L
+                        java.time.DayOfWeek.FRIDAY -> 4L
+                        java.time.DayOfWeek.SATURDAY -> 5L
+                        java.time.DayOfWeek.SUNDAY -> 6L
+                    }
+                    val thisWeekMonday = result.minusDays(daysFromMonday)
+                    
+                    // 요일이 지정된 경우 이번 주의 해당 요일로 설정
+                    var foundWeekday = false
+                    for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
+                        if (expr.contains(koreanDay)) {
+                            val targetWeekday = dayOfWeek.value
+                            val daysToAdd = (targetWeekday - 1).toLong() // 월요일=1이므로 -1
+                            result = thisWeekMonday.plusDays(daysToAdd)
+                            foundWeekday = true
+                            break
+                        }
+                    }
+                    
+                    // 요일이 지정되지 않았으면 이번 주 월요일 사용
+                    if (!foundWeekday) {
+                        result = thisWeekMonday
+                    }
+                }
+                expr.contains("다음주") || expr.contains("담주") || expr.contains("다음 주") -> {
                     // 다음 주 월요일 찾기
                     val daysUntilMonday = when (result.dayOfWeek) {
                         java.time.DayOfWeek.MONDAY -> 7L
@@ -1037,27 +1111,34 @@ class HuenDongMinAiAgent(
                         java.time.DayOfWeek.SATURDAY -> 2L
                         java.time.DayOfWeek.SUNDAY -> 1L
                     }
-                    result = result.plusDays(daysUntilMonday)
+                    val nextWeekMonday = result.plusDays(daysUntilMonday)
                     
-                    // 요일이 지정된 경우 추가 계산
-                    val dayOfWeekMap = mapOf(
-                        "월요일" to java.time.DayOfWeek.MONDAY,
-                        "화요일" to java.time.DayOfWeek.TUESDAY,
-                        "수요일" to java.time.DayOfWeek.WEDNESDAY,
-                        "목요일" to java.time.DayOfWeek.THURSDAY,
-                        "금요일" to java.time.DayOfWeek.FRIDAY,
-                        "토요일" to java.time.DayOfWeek.SATURDAY,
-                        "일요일" to java.time.DayOfWeek.SUNDAY
-                    )
+                    // 요일이 지정된 경우 다음 주의 해당 요일로 설정
+                    var foundWeekday = false
+                    for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
+                        if (expr.contains(koreanDay)) {
+                            val targetWeekday = dayOfWeek.value
+                            val daysToAdd = (targetWeekday - 1).toLong() // 월요일=1이므로 -1
+                            result = nextWeekMonday.plusDays(daysToAdd)
+                            foundWeekday = true
+                            break
+                        }
+                    }
                     
+                    // 요일이 지정되지 않았으면 다음 주 월요일 사용
+                    if (!foundWeekday) {
+                        result = nextWeekMonday
+                    }
+                }
+                // 요일만 있는 경우 (이번주/다음주 없이)
+                else -> {
                     for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
                         if (expr.contains(koreanDay)) {
                             val currentDayOfWeek = result.dayOfWeek.value
                             val targetDayOfWeek = dayOfWeek.value
-                            val daysToAdd = (targetDayOfWeek - currentDayOfWeek + 7) % 7
-                            if (daysToAdd > 0) {
-                                result = result.plusDays(daysToAdd.toLong())
-                            }
+                            var daysToAdd = (targetDayOfWeek - currentDayOfWeek + 7) % 7
+                            if (daysToAdd == 0) daysToAdd = 7 // 같은 요일이면 다음 주
+                            result = result.plusDays(daysToAdd.toLong())
                             break
                         }
                     }
@@ -1395,6 +1476,16 @@ class HuenDongMinAiAgent(
                 val eventId = eventDao.upsert(event)
                 val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                try {
+                    com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                        event = savedEvent,
+                        eventDao = eventDao
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 리마인더 스케줄링 실패", e)
+                }
                 
                 // Gmail 일정 생성 시 푸시 알림
                 try {
@@ -1781,6 +1872,16 @@ class HuenDongMinAiAgent(
                 val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
                 android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
                 
+                // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                try {
+                    com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                        event = savedEvent,
+                        eventDao = eventDao
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 리마인더 스케줄링 실패", e)
+                }
+                
                 // Gmail 일정 생성 시 푸시 알림
                 try {
                     showGmailEventCreatedNotification(savedEvent, emailSubject ?: "제목 없음")
@@ -1993,6 +2094,16 @@ class HuenDongMinAiAgent(
                 val eventId = eventDao.upsert(event)
                 val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                try {
+                    com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                        event = savedEvent,
+                        eventDao = eventDao
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 리마인더 스케줄링 실패", e)
+                }
                 
                 // SMS 일정 생성 시 푸시 알림
                 try {
@@ -2299,7 +2410,7 @@ class HuenDongMinAiAgent(
                 val location = eventData["location"]?.jsonPrimitive?.content
                 
                 // 시간 분석 결과를 사용하여 JSON 변환
-                val correctedEventData = convertTimeAnalysisToJson(
+                var correctedEventData = convertTimeAnalysisToJson(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
@@ -2307,12 +2418,29 @@ class HuenDongMinAiAgent(
                     sourceType = "sms"
                 )
                 
+                // SMS 본문에서 명시적 날짜를 찾아서 AI 응답과 비교하고 수정 (OCR과 동일한 검증)
+                val smsReceivedDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                correctedEventData = validateAndCorrectSmsDate(
+                    eventData = correctedEventData,
+                    smsBody = smsBody,
+                    smsReceivedDate = smsReceivedDate
+                )
+                
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} - 시간 분석 결과로 보정됨")
                 correctedEventData
             }
         } else {
-            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
-            result.events
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용하되, 날짜 검증은 수행
+            result.events.mapIndexed { index, eventData ->
+                val smsReceivedDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                validateAndCorrectSmsDate(
+                    eventData = eventData,
+                    smsBody = smsBody,
+                    smsReceivedDate = smsReceivedDate
+                )
+            }
         }
         
         // 보정된 이벤트로 결과 업데이트
@@ -2392,6 +2520,16 @@ class HuenDongMinAiAgent(
                 val eventId = eventDao.upsert(event)
                 val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
                 android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                try {
+                    com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                        event = savedEvent,
+                        eventDao = eventDao
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 리마인더 스케줄링 실패", e)
+                }
                 
                 // SMS 일정 생성 시 푸시 알림
                 try {
@@ -2592,7 +2730,7 @@ class HuenDongMinAiAgent(
                 val location = eventData["location"]?.jsonPrimitive?.content
                 
                 // 시간 분석 결과를 사용하여 JSON 변환
-                val correctedEventData = convertTimeAnalysisToJson(
+                var correctedEventData = convertTimeAnalysisToJson(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
@@ -2600,12 +2738,25 @@ class HuenDongMinAiAgent(
                     sourceType = "push_notification"
                 )
                 
+                // 푸시 알림 본문에서 명시적 날짜를 찾아서 AI 응답과 비교하고 수정 (SMS와 동일한 검증)
+                correctedEventData = validateAndCorrectPushNotificationDate(
+                    eventData = correctedEventData,
+                    fullText = fullText,
+                    notificationReceivedDate = notificationReceivedDate
+                )
+                
                 android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} - 시간 분석 결과로 보정됨")
                 correctedEventData
             }
         } else {
-            // 시간 분석 결과가 없으면 AI 응답 그대로 사용
-            result.events
+            // 시간 분석 결과가 없으면 AI 응답 그대로 사용하되, 날짜 검증은 수행
+            result.events.mapIndexed { index, eventData ->
+                validateAndCorrectPushNotificationDate(
+                    eventData = eventData,
+                    fullText = fullText,
+                    notificationReceivedDate = notificationReceivedDate
+                )
+            }
         }
         
         // 보정된 이벤트로 결과 업데이트
@@ -2676,6 +2827,23 @@ class HuenDongMinAiAgent(
                 } else {
                     eventDao.upsert(event)
                     android.util.Log.d("HuenDongMinAiAgent", "푸시 알림 Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalNotificationId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                    
+                    // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                    try {
+                        com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                            event = event,
+                            eventDao = eventDao
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "푸시 알림 일정 리마인더 스케줄링 실패", e)
+                    }
+                    
+                    // 푸시 알림 일정 생성 시 푸시 알림 표시
+                    try {
+                        showPushNotificationEventCreatedNotification(event, appName ?: "알림")
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "푸시 알림 일정 생성 알림 실패", e)
+                    }
                 }
             }
         }
@@ -2767,6 +2935,16 @@ class HuenDongMinAiAgent(
                 } else {
                     eventDao.upsert(event)
                     android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                    
+                    // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                    try {
+                        com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                            event = event,
+                            eventDao = eventDao
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "OCR 일정 리마인더 스케줄링 실패", e)
+                    }
                 }
             }
             
@@ -2815,12 +2993,15 @@ class HuenDongMinAiAgent(
             
             ⚠️⚠️⚠️ 절대적으로 중요: OCR은 이미지 촬영 시점 (현재 시간 기준) ⚠️⚠️⚠️
             
+            🔴🔴🔴 현재 날짜 (모든 상대적 표현 계산의 기준!) 🔴🔴🔴
             📅 현재 시간 (이미지 촬영 시점):
-            - 현재 연도: ${now.year}년
-            - 현재 월: ${now.monthValue}월
-            - 현재 일: ${now.dayOfMonth}일
-            - 현재 요일: $dayOfWeekKorean
-            - 현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms (한국 시간 기준)
+            - **현재 연도: ${now.year}년**
+            - **현재 월: ${now.monthValue}월**
+            - **현재 일: ${now.dayOfMonth}일**
+            - **현재 요일: $dayOfWeekKorean**
+            - **현재 Epoch ms: ${now.toInstant().toEpochMilli()}ms (한국 시간 기준)**
+            
+            ⚠️ **"내일", "다음주" 등 상대적 표현은 반드시 위의 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)를 기준으로 계산하세요!**
             
             📅 OCR 처리 시간 (참고용):
             - OCR 처리 연도: ${ocrProcessedDate.year}년
@@ -3038,16 +3219,24 @@ class HuenDongMinAiAgent(
             - OCR에 "10월 30일 14시" → ${now.year}년 10월 30일 14:00 ✅
             - OCR에 "2025,10,30.(목) 11:30" → 2025년 10월 30일 11:30 ✅
             
-            **2단계: 상대적 표현 처리 (거의 없지만, 있다면 현재 시간 기준)**
+            **2단계: 상대적 표현 처리 (현재 날짜 기준 필수!)**
             
-            OCR에 상대적 표현("내일", "다음주" 등)이 있다면, **현재 시간(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)**을 기준으로 계산:
-            - "내일" → ${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일
-            - "다음주 수요일" → 현재 시간 기준 다음 주 수요일
+            🔴🔴🔴 현재 날짜: ${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일 $dayOfWeekKorean 🔴🔴🔴
+            
+            OCR에 상대적 표현("내일", "다음주" 등)이 있다면, **반드시 위의 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)**를 기준으로 계산하세요:
+            - "내일" → **${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일** (현재 날짜 + 1일)
+            - "모레" → **${now.plusDays(2).year}년 ${now.plusDays(2).monthValue}월 ${now.plusDays(2).dayOfMonth}일** (현재 날짜 + 2일)
+            - "다음주 수요일" → 현재 날짜 기준 다음 주 수요일 계산
+            
+            🔍 예시 (현재 날짜가 ${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일인 경우):
+            - OCR에 "내일 12시" → **${now.plusDays(1).year}년 ${now.plusDays(1).monthValue}월 ${now.plusDays(1).dayOfMonth}일 12:00** ✅
+            - OCR에 "다음주 금요일" → 현재 날짜 기준 다음 주 금요일 계산 ✅
             
             ⚠️ **매우 중요:**
             - 명시적 날짜는 절대 수정하지 마세요!
             - "10월 30일"을 "10월 29일"로 변경하지 마세요!
             - "2025,10,30"을 다른 날짜로 해석하지 마세요!
+            - **상대적 표현("내일", "다음주" 등)은 반드시 현재 날짜(${now.year}년 ${now.monthValue}월 ${now.dayOfMonth}일)를 기준으로 계산하세요!**
             
             **3단계: 시간 찾기**
             
@@ -3126,12 +3315,20 @@ class HuenDongMinAiAgent(
                 val location = eventData["location"]?.jsonPrimitive?.content
                 
                 // 시간 분석 결과를 사용하여 JSON 변환 (OCR만 특별 처리)
-                val correctedEventData = convertTimeAnalysisToJson(
+                var correctedEventData = convertTimeAnalysisToJson(
                     timeAnalysis = timeAnalysis,
                     title = title,
                     body = body,
                     location = location,
                     sourceType = "ocr"
+                )
+                
+                // OCR 텍스트에서 상대적 표현("내일", "다음주" 등)을 찾아서 날짜 검증 및 수정
+                val currentTime = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
+                correctedEventData = validateAndCorrectOcrDate(
+                    eventData = correctedEventData,
+                    ocrText = ocrText,
+                    currentTime = currentTime
                 )
                 
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} - 시간 분석 결과로 보정됨")
@@ -3184,10 +3381,417 @@ class HuenDongMinAiAgent(
                 val event = createEventFromAiData(eventData, originalOcrId, "ocr")
                 eventDao.upsert(event)
                 android.util.Log.d("HuenDongMinAiAgent", "OCR Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalOcrId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 리마인더 알림 스케줄링 (하루 전, 당일, 2시간 전)
+                try {
+                    com.example.agent_app.service.EventNotificationService.scheduleNotificationForEvent(
+                        event = event,
+                        eventDao = eventDao
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "OCR 일정 리마인더 스케줄링 실패", e)
+                }
             }
         }
         
         adjustedResult
+    }
+    
+    /**
+     * 푸시 알림 날짜 검증 및 수정
+     * 푸시 알림 본문에서 명시적 날짜를 찾아서 AI 응답과 비교하고 수정
+     */
+    private fun validateAndCorrectPushNotificationDate(
+        eventData: Map<String, JsonElement?>,
+        fullText: String,
+        notificationReceivedDate: java.time.ZonedDateTime
+    ): Map<String, JsonElement?> {
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 푸시 알림 날짜 검증 시작")
+        
+        // 푸시 알림 본문에서 명시적 날짜 패턴 찾기
+        val explicitDatePatterns = listOf(
+            // "10월 30일" 패턴
+            """(\d{1,2})월\s*(\d{1,2})일""".toRegex(),
+            // "10.30" 패턴
+            """(\d{1,2})\.(\d{1,2})""".toRegex(),
+            // "10/30" 패턴
+            """(\d{1,2})/(\d{1,2})""".toRegex(),
+            // "2025년 10월 30일" 패턴
+            """(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일""".toRegex()
+        )
+        
+        var foundExplicitDate: Triple<Int, Int, Int>? = null
+        
+        for (pattern in explicitDatePatterns) {
+            val match = pattern.find(fullText)
+            if (match != null) {
+                val groups = match.groupValues
+                when {
+                    groups.size == 4 && groups[1].length == 4 -> {
+                        // "2025년 10월 30일" 패턴
+                        val year = groups[1].toInt()
+                        val month = groups[2].toInt()
+                        val day = groups[3].toInt()
+                        foundExplicitDate = Triple(year, month, day)
+                        android.util.Log.d("HuenDongMinAiAgent", "✅ 푸시 알림 명시적 날짜 발견: ${year}년 ${month}월 ${day}일")
+                        break
+                    }
+                    groups.size == 3 -> {
+                        // "10월 30일", "10.30", "10/30" 패턴
+                        val month = groups[1].toInt()
+                        val day = groups[2].toInt()
+                        foundExplicitDate = Triple(notificationReceivedDate.year, month, day)
+                        android.util.Log.d("HuenDongMinAiAgent", "✅ 푸시 알림 명시적 날짜 발견: ${notificationReceivedDate.year}년 ${month}월 ${day}일")
+                        break
+                    }
+                }
+            }
+        }
+        
+        if (foundExplicitDate == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ 푸시 알림 명시적 날짜를 찾을 수 없음, AI 응답 그대로 사용")
+            return eventData
+        }
+        
+        val (targetYear, targetMonth, targetDay) = foundExplicitDate
+        
+        // AI가 추출한 시간 확인
+        val aiStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+        if (aiStartAt == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI가 startAt을 추출하지 못함")
+            return eventData
+        }
+        
+        val aiDate = java.time.Instant.ofEpochMilli(aiStartAt)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 AI 추출 날짜: ${aiDate.year}년 ${aiDate.monthValue}월 ${aiDate.dayOfMonth}일")
+        android.util.Log.d("HuenDongMinAiAgent", "🎯 푸시 알림 명시적 날짜: ${targetYear}년 ${targetMonth}월 ${targetDay}일")
+        
+        // 날짜가 다르면 수정
+        if (aiDate.year != targetYear || aiDate.monthValue != targetMonth || aiDate.dayOfMonth != targetDay) {
+            android.util.Log.d("HuenDongMinAiAgent", "❌ 푸시 알림 날짜 불일치 감지! AI 응답 수정 중...")
+            
+            // 시간은 AI가 추출한 것을 유지하고, 날짜만 수정
+            val correctedDate = aiDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+            val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+            
+            android.util.Log.d("HuenDongMinAiAgent", "✅ 푸시 알림 날짜 수정 완료: ${correctedDate.year}년 ${correctedDate.monthValue}월 ${correctedDate.dayOfMonth}일 ${correctedDate.hour}:${correctedDate.minute}")
+            
+            // endAt도 수정 (있다면)
+            val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                val endDate = java.time.Instant.ofEpochMilli(endAt)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                val correctedEndDate = endDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+                correctedEndDate.toInstant().toEpochMilli()
+            }
+            
+            return eventData.toMutableMap().apply {
+                this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                if (correctedEndAt != null) {
+                    this["endAt"] = JsonPrimitive(correctedEndAt.toString())
+                }
+            }
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "✅ 푸시 알림 날짜 일치, 수정 불필요")
+        return eventData
+    }
+    
+    /**
+     * SMS 날짜 검증 및 수정
+     * SMS 본문에서 명시적 날짜를 찾아서 AI 응답과 비교하고 수정
+     */
+    private fun validateAndCorrectSmsDate(
+        eventData: Map<String, JsonElement?>,
+        smsBody: String,
+        smsReceivedDate: java.time.ZonedDateTime
+    ): Map<String, JsonElement?> {
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 SMS 날짜 검증 시작")
+        
+        // SMS 본문에서 명시적 날짜 패턴 찾기
+        val explicitDatePatterns = listOf(
+            // "10월 30일" 패턴
+            """(\d{1,2})월\s*(\d{1,2})일""".toRegex(),
+            // "10.30" 패턴
+            """(\d{1,2})\.(\d{1,2})""".toRegex(),
+            // "10/30" 패턴
+            """(\d{1,2})/(\d{1,2})""".toRegex(),
+            // "2025년 10월 30일" 패턴
+            """(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일""".toRegex()
+        )
+        
+        var foundExplicitDate: Triple<Int, Int, Int>? = null
+        
+        for (pattern in explicitDatePatterns) {
+            val match = pattern.find(smsBody)
+            if (match != null) {
+                val groups = match.groupValues
+                when {
+                    groups.size == 4 && groups[1].length == 4 -> {
+                        // "2025년 10월 30일" 패턴
+                        val year = groups[1].toInt()
+                        val month = groups[2].toInt()
+                        val day = groups[3].toInt()
+                        foundExplicitDate = Triple(year, month, day)
+                        android.util.Log.d("HuenDongMinAiAgent", "✅ SMS 명시적 날짜 발견: ${year}년 ${month}월 ${day}일")
+                        break
+                    }
+                    groups.size == 3 -> {
+                        // "10월 30일", "10.30", "10/30" 패턴
+                        val month = groups[1].toInt()
+                        val day = groups[2].toInt()
+                        foundExplicitDate = Triple(smsReceivedDate.year, month, day)
+                        android.util.Log.d("HuenDongMinAiAgent", "✅ SMS 명시적 날짜 발견: ${smsReceivedDate.year}년 ${month}월 ${day}일")
+                        break
+                    }
+                }
+            }
+        }
+        
+        if (foundExplicitDate == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ SMS 명시적 날짜를 찾을 수 없음, AI 응답 그대로 사용")
+            return eventData
+        }
+        
+        val (targetYear, targetMonth, targetDay) = foundExplicitDate
+        
+        // AI가 추출한 시간 확인
+        val aiStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+        if (aiStartAt == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI가 startAt을 추출하지 못함")
+            return eventData
+        }
+        
+        val aiDate = java.time.Instant.ofEpochMilli(aiStartAt)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 AI 추출 날짜: ${aiDate.year}년 ${aiDate.monthValue}월 ${aiDate.dayOfMonth}일")
+        android.util.Log.d("HuenDongMinAiAgent", "🎯 SMS 명시적 날짜: ${targetYear}년 ${targetMonth}월 ${targetDay}일")
+        
+        // 날짜가 다르면 수정
+        if (aiDate.year != targetYear || aiDate.monthValue != targetMonth || aiDate.dayOfMonth != targetDay) {
+            android.util.Log.d("HuenDongMinAiAgent", "❌ SMS 날짜 불일치 감지! AI 응답 수정 중...")
+            
+            // 시간은 AI가 추출한 것을 유지하고, 날짜만 수정
+            val correctedDate = aiDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+            val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+            
+            android.util.Log.d("HuenDongMinAiAgent", "✅ SMS 날짜 수정 완료: ${correctedDate.year}년 ${correctedDate.monthValue}월 ${correctedDate.dayOfMonth}일 ${correctedDate.hour}:${correctedDate.minute}")
+            
+            // endAt도 수정 (있다면)
+            val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                val endDate = java.time.Instant.ofEpochMilli(endAt)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                val correctedEndDate = endDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+                correctedEndDate.toInstant().toEpochMilli()
+            }
+            
+            return eventData.toMutableMap().apply {
+                this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                if (correctedEndAt != null) {
+                    this["endAt"] = JsonPrimitive(correctedEndAt.toString())
+                }
+            }
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "✅ SMS 날짜 일치, 수정 불필요")
+        return eventData
+    }
+    
+    /**
+     * OCR 날짜 검증 및 수정
+     * OCR 텍스트에서 상대적 표현("내일", "다음주" 등)을 찾아서 AI 응답과 비교하고 수정
+     */
+    private fun validateAndCorrectOcrDate(
+        eventData: Map<String, JsonElement?>,
+        ocrText: String,
+        currentTime: java.time.ZonedDateTime
+    ): Map<String, JsonElement?> {
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 OCR 날짜 검증 시작")
+        android.util.Log.d("HuenDongMinAiAgent", "📱 OCR 텍스트: $ocrText")
+        android.util.Log.d("HuenDongMinAiAgent", "📅 현재 날짜: ${currentTime.year}년 ${currentTime.monthValue}월 ${currentTime.dayOfMonth}일")
+        
+        // OCR 텍스트에서 상대적 표현 찾기
+        val relativeExpressions = listOf(
+            "내일" to 1,
+            "모레" to 2,
+            "글피" to 3,
+            "다음주" to 7,
+            "다음 주" to 7,
+            "담주" to 7
+        )
+        
+        var foundRelativeExpression: Pair<String, Int>? = null
+        for ((expr, daysOffset) in relativeExpressions) {
+            if (ocrText.contains(expr)) {
+                foundRelativeExpression = Pair(expr, daysOffset)
+                android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 상대적 표현 발견: $expr (현재 날짜 + $daysOffset 일)")
+                break
+            }
+        }
+        
+        // 상대적 표현이 없으면 명시적 날짜 패턴 찾기
+        if (foundRelativeExpression == null) {
+            val explicitDatePatterns = listOf(
+                // "2025.10.30.(목)" 패턴
+                """(\d{4})\.(\d{1,2})\.(\d{1,2})\.\([월화수목금토일]\)""".toRegex(),
+                // "2025,10,30.(목)" 패턴  
+                """(\d{4}),(\d{1,2}),(\d{1,2})\.\([월화수목금토일]\)""".toRegex(),
+                // "10월 30일" 패턴
+                """(\d{1,2})월\s*(\d{1,2})일""".toRegex(),
+                // "10.30" 패턴
+                """(\d{1,2})\.(\d{1,2})""".toRegex()
+            )
+            
+            var foundExplicitDate: Triple<Int, Int, Int>? = null
+            
+            for (pattern in explicitDatePatterns) {
+                val match = pattern.find(ocrText)
+                if (match != null) {
+                    val groups = match.groupValues
+                    when {
+                        groups.size == 4 && groups[1].length == 4 -> {
+                            // "2025.10.30.(목)" 또는 "2025,10,30.(목)" 패턴
+                            val year = groups[1].toInt()
+                            val month = groups[2].toInt()
+                            val day = groups[3].toInt()
+                            foundExplicitDate = Triple(year, month, day)
+                            android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 명시적 날짜 발견: ${year}년 ${month}월 ${day}일")
+                            break
+                        }
+                        groups.size == 3 -> {
+                            // "10월 30일" 또는 "10.30" 패턴
+                            val month = groups[1].toInt()
+                            val day = groups[2].toInt()
+                            foundExplicitDate = Triple(currentTime.year, month, day)
+                            android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 명시적 날짜 발견: ${currentTime.year}년 ${month}월 ${day}일")
+                            break
+                        }
+                    }
+                }
+            }
+            
+            if (foundExplicitDate == null) {
+                android.util.Log.d("HuenDongMinAiAgent", "⚠️ OCR 명시적 날짜를 찾을 수 없음, AI 응답 그대로 사용")
+                return eventData
+            }
+            
+            val (targetYear, targetMonth, targetDay) = foundExplicitDate
+            
+            // AI가 추출한 시간 확인
+            val aiStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+            if (aiStartAt == null) {
+                android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI가 startAt을 추출하지 못함")
+                return eventData
+            }
+            
+            val aiDate = java.time.Instant.ofEpochMilli(aiStartAt)
+                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+            
+            android.util.Log.d("HuenDongMinAiAgent", "🔍 AI 추출 날짜: ${aiDate.year}년 ${aiDate.monthValue}월 ${aiDate.dayOfMonth}일")
+            android.util.Log.d("HuenDongMinAiAgent", "🎯 OCR 명시적 날짜: ${targetYear}년 ${targetMonth}월 ${targetDay}일")
+            
+            // 날짜가 다르면 수정
+            if (aiDate.year != targetYear || aiDate.monthValue != targetMonth || aiDate.dayOfMonth != targetDay) {
+                android.util.Log.d("HuenDongMinAiAgent", "❌ OCR 날짜 불일치 감지! AI 응답 수정 중...")
+                
+                // 시간은 AI가 추출한 것을 유지하고, 날짜만 수정
+                val correctedDate = aiDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+                val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+                
+                android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 날짜 수정 완료: ${correctedDate.year}년 ${correctedDate.monthValue}월 ${correctedDate.dayOfMonth}일 ${correctedDate.hour}:${correctedDate.minute}")
+                
+                // endAt도 수정 (있다면)
+                val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                    val endDate = java.time.Instant.ofEpochMilli(endAt)
+                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    val correctedEndDate = endDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+                    correctedEndDate.toInstant().toEpochMilli()
+                }
+                
+                return eventData.toMutableMap().apply {
+                    this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                    if (correctedEndAt != null) {
+                        this["endAt"] = JsonPrimitive(correctedEndAt.toString())
+                    }
+                }
+            }
+            
+            android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 날짜 일치, 수정 불필요")
+            return eventData
+        }
+        
+        // 상대적 표현이 있으면 현재 날짜 기준으로 계산
+        val (expr, daysOffset) = foundRelativeExpression
+        val targetDate = if (expr.contains("주")) {
+            // "다음주" 처리
+            val daysUntilMonday = when (currentTime.dayOfWeek) {
+                java.time.DayOfWeek.MONDAY -> 7L
+                java.time.DayOfWeek.TUESDAY -> 6L
+                java.time.DayOfWeek.WEDNESDAY -> 5L
+                java.time.DayOfWeek.THURSDAY -> 4L
+                java.time.DayOfWeek.FRIDAY -> 3L
+                java.time.DayOfWeek.SATURDAY -> 2L
+                java.time.DayOfWeek.SUNDAY -> 1L
+            }
+            currentTime.plusDays(daysUntilMonday)
+        } else {
+            // "내일", "모레" 등 처리
+            currentTime.plusDays(daysOffset.toLong())
+        }
+        
+        val targetYear = targetDate.year
+        val targetMonth = targetDate.monthValue
+        val targetDay = targetDate.dayOfMonth
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🎯 OCR 상대적 표현 계산 결과: ${targetYear}년 ${targetMonth}월 ${targetDay}일")
+        
+        // AI가 추출한 시간 확인
+        val aiStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+        if (aiStartAt == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI가 startAt을 추출하지 못함")
+            return eventData
+        }
+        
+        val aiDate = java.time.Instant.ofEpochMilli(aiStartAt)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 AI 추출 날짜: ${aiDate.year}년 ${aiDate.monthValue}월 ${aiDate.dayOfMonth}일")
+        
+        // 날짜가 다르면 수정
+        if (aiDate.year != targetYear || aiDate.monthValue != targetMonth || aiDate.dayOfMonth != targetDay) {
+            android.util.Log.d("HuenDongMinAiAgent", "❌ OCR 날짜 불일치 감지! AI 응답 수정 중...")
+            android.util.Log.d("HuenDongMinAiAgent", "  - AI 추출: ${aiDate.year}년 ${aiDate.monthValue}월 ${aiDate.dayOfMonth}일")
+            android.util.Log.d("HuenDongMinAiAgent", "  - 계산 결과: ${targetYear}년 ${targetMonth}월 ${targetDay}일")
+            
+            // 시간은 AI가 추출한 것을 유지하고, 날짜만 수정
+            val correctedDate = aiDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+            val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+            
+            android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 날짜 수정 완료: ${correctedDate.year}년 ${correctedDate.monthValue}월 ${correctedDate.dayOfMonth}일 ${correctedDate.hour}:${correctedDate.minute}")
+            
+            // endAt도 수정 (있다면)
+            val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                val endDate = java.time.Instant.ofEpochMilli(endAt)
+                    .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                val correctedEndDate = endDate.withYear(targetYear).withMonth(targetMonth).withDayOfMonth(targetDay)
+                correctedEndDate.toInstant().toEpochMilli()
+            }
+            
+            return eventData.toMutableMap().apply {
+                this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                if (correctedEndAt != null) {
+                    this["endAt"] = JsonPrimitive(correctedEndAt.toString())
+                }
+            }
+        }
+        
+        android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 날짜 일치, 수정 불필요")
+        return eventData
     }
     
     /**
@@ -3901,6 +4505,104 @@ class HuenDongMinAiAgent(
             }
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 표시 실패", e)
+        }
+    }
+    
+    /**
+     * 푸시 알림 일정 생성 시 푸시 알림 표시
+     */
+    private fun showPushNotificationEventCreatedNotification(event: Event, appName: String) {
+        try {
+            // Android 13+ (API 33+) 알림 권한 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val hasPermission = android.content.pm.PackageManager.PERMISSION_GRANTED ==
+                    ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                if (!hasPermission) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 권한이 없어 푸시 알림 일정 생성 알림을 표시할 수 없습니다. 설정에서 알림 권한을 허용해주세요.")
+                    return
+                }
+            }
+            
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            // 알림이 활성화되어 있는지 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                if (!notificationManager.areNotificationsEnabled()) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 시스템에서 알림이 비활성화되어 있습니다. 설정에서 알림을 활성화해주세요.")
+                    return
+                }
+            }
+            
+            // 알림 채널 생성 (Android O 이상)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    "push_notification_event_created",
+                    "푸시 알림 일정 생성 알림",
+                    android.app.NotificationManager.IMPORTANCE_HIGH // 중요도 높임 (알림 차단 방지)
+                ).apply {
+                    description = "푸시 알림에서 일정이 생성되었을 때 알림을 표시합니다"
+                    enableVibration(true)
+                    enableLights(true)
+                    setShowBadge(true)
+                    setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION), null)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            // 일정 시간 포맷팅
+            val timeStr = if (event.startAt != null) {
+                try {
+                    val instant = java.time.Instant.ofEpochMilli(event.startAt)
+                    val zonedDateTime = instant.atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                } catch (e: Exception) {
+                    "시간 미정"
+                }
+            } else {
+                "시간 미정"
+            }
+            
+            // 알림 클릭 시 앱 열기
+            val intent = android.content.Intent(context, com.example.agent_app.ui.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                event.id.toInt() + 20000, // 푸시 알림 알림 ID는 SMS와 Gmail과 구분하기 위해 +20000
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = androidx.core.app.NotificationCompat.Builder(context, "push_notification_event_created")
+                .setSmallIcon(com.example.agent_app.R.drawable.ic_launcher_foreground)
+                .setContentTitle("📅 일정이 생성되었습니다")
+                .setContentText("${event.title}\n$timeStr")
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle()
+                    .bigText("앱: $appName\n\n일정: ${event.title}\n시간: $timeStr${if (event.location != null) "\n장소: ${event.location}" else ""}"))
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH) // 중요도 높임
+                .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            
+            // 시간 기반으로 고유 ID 생성 (같은 일정이라도 다른 시간에 알림 표시 가능)
+            val notificationId = (event.id.toInt() + 20000 + System.currentTimeMillis().toInt()) % Int.MAX_VALUE
+            notificationManager.notify(notificationId, notification)
+            
+            // 알림 채널 상태 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = notificationManager.getNotificationChannel("push_notification_event_created")
+                if (channel != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "📢 푸시 알림 일정 생성 알림 표시 - ${event.title} (채널 중요도: ${channel.importance}, ID: $notificationId)")
+                    if (channel.importance == android.app.NotificationManager.IMPORTANCE_NONE) {
+                        android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 채널이 차단되어 있습니다. 설정에서 '푸시 알림 일정 생성 알림' 채널을 활성화해주세요.")
+                    }
+                }
+            } else {
+                android.util.Log.d("HuenDongMinAiAgent", "📢 푸시 알림 일정 생성 알림 표시 - ${event.title} (ID: $notificationId)")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "푸시 알림 일정 생성 알림 표시 실패", e)
         }
     }
     

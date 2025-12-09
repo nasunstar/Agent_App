@@ -2242,13 +2242,14 @@ private fun InboxContent(
         }
     }
     
-    val filteredOcrItems = remember(ocrItems, debouncedQuery) { filterItems(ocrItems) }
-    val filteredSmsItems = remember(smsItems, debouncedQuery) { filterItems(smsItems) }
-    val filteredGmailItems = remember(gmailItems, debouncedQuery) { filterItems(gmailItems) }
-    val filteredPushNotificationItems = remember(pushNotificationItems, debouncedQuery) { filterItems(pushNotificationItems) }
-    
     // Pull-to-refresh 상태
     val isRefreshing = mainViewModel.isRefreshing.collectAsStateWithLifecycle().value
+    
+    // 새로고침 시 UI가 업데이트되도록 isRefreshing도 의존성에 추가
+    val filteredOcrItems = remember(ocrItems, debouncedQuery, isRefreshing) { filterItems(ocrItems) }
+    val filteredSmsItems = remember(smsItems, debouncedQuery, isRefreshing) { filterItems(smsItems) }
+    val filteredGmailItems = remember(gmailItems, debouncedQuery, isRefreshing) { filterItems(gmailItems) }
+    val filteredPushNotificationItems = remember(pushNotificationItems, debouncedQuery, isRefreshing) { filterItems(pushNotificationItems) }
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
         onRefresh = { mainViewModel.refreshInboxData() }
