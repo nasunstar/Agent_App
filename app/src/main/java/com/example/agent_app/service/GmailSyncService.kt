@@ -245,6 +245,8 @@ class GmailSyncService : Service() {
     
     /**
      * 주기적 동기화 수행
+     * 주의: 주기적 동기화는 마지막 동기화 이후의 새 메일만 가져옵니다.
+     * 옛날 메일을 가져오려면 "지난 일정 가져오기" 같은 수동 동기화를 사용하세요.
      */
     private suspend fun performSync() {
         Log.d("GmailSyncService", "주기적 동기화 수행 시작")
@@ -256,17 +258,23 @@ class GmailSyncService : Service() {
             return
         }
         
-        // 자동 처리 기간 가져오기 (기간이 없으면 최근 1시간 이내 메시지만 동기화)
-        val period = com.example.agent_app.util.AutoProcessSettings.getGmailAutoProcessPeriod(applicationContext)
-        val sinceTimestamp = if (period != null) {
-            period.first
+        // 주기적 동기화는 마지막 동기화 시간 이후의 새 메일만 가져옴
+        // 옛날 메일은 "지난 일정 가져오기" 같은 수동 동기화에서만 처리
+        val prefs = applicationContext.getSharedPreferences("gmail_sync_service", Context.MODE_PRIVATE)
+        val lastSyncTimeKey = "last_sync_time"
+        val lastSyncTime = prefs.getLong(lastSyncTimeKey, 0L)
+        
+        val sinceTimestamp = if (lastSyncTime > 0L) {
+            // 마지막 동기화 이후의 새 메일만
+            lastSyncTime
         } else {
-            // 기간이 설정되지 않았으면 최근 1시간 이내 메시지만 동기화 (메모리 효율)
+            // 첫 동기화: 최근 1시간 이내 메시지만 (메모리 효율)
             val oneHourAgo = System.currentTimeMillis() - (60 * 60 * 1000)
-            Log.d("GmailSyncService", "Gmail 자동 처리 기간 없음 - 최근 1시간 이내 메시지만 동기화 (메모리 효율)")
+            Log.d("GmailSyncService", "첫 동기화 - 최근 1시간 이내 메시지만 동기화 (메모리 효율)")
             oneHourAgo
         }
-        Log.d("GmailSyncService", "Gmail 동기화 시작 - sinceTimestamp: $sinceTimestamp")
+        
+        Log.d("GmailSyncService", "Gmail 동기화 시작 - sinceTimestamp: $sinceTimestamp (마지막 동기화: ${if (lastSyncTime > 0L) java.time.Instant.ofEpochMilli(lastSyncTime).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) else "없음"})")
         
         // 모든 Google 계정에 대해 동기화
         val accounts = authRepository.getAllGoogleTokens()
@@ -324,7 +332,10 @@ class GmailSyncService : Service() {
             
             when (result) {
                 is com.example.agent_app.data.repo.GmailSyncResult.Success -> {
-                    Log.d("GmailSyncService", "계정 ${token.email} 동기화 성공: ${result.upsertedCount}개 메시지, 일정 ${result.eventCount}개")
+                    // 마지막 동기화 시간 업데이트
+                    val currentTime = System.currentTimeMillis()
+                    prefs.edit().putLong(lastSyncTimeKey, currentTime).apply()
+                    Log.d("GmailSyncService", "계정 ${token.email} 동기화 성공: ${result.upsertedCount}개 메시지, 일정 ${result.eventCount}개 (마지막 동기화 시간 업데이트: $currentTime)")
                     updateNotification("${token.email}: ${result.upsertedCount}개 새 메시지, 일정 ${result.eventCount}개", 1.0f)
                 }
                 is com.example.agent_app.data.repo.GmailSyncResult.Unauthorized -> {
@@ -351,7 +362,7 @@ class GmailSyncService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Gmail 동기화",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN // 최대한 조용/비표시
             ).apply {
                 description = "Gmail 실시간 동기화 상태"
                 setShowBadge(false)
@@ -382,6 +393,8 @@ class GmailSyncService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(progress < 1.0f)
             .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
         
         // 진행률 표시 (0.0 ~ 1.0)
         if (progress > 0f && progress < 1.0f) {

@@ -3,6 +3,7 @@ package com.example.agent_app.util
 import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
+import android.net.Uri
 import android.provider.Telephony
 import android.util.Log
 
@@ -36,7 +37,7 @@ object SmsReader {
      * @param sinceTimestamp 이 시간(epoch milliseconds) 이후의 메시지만 읽어옵니다
      * @return SMS 읽기 결과 (성공 또는 오류)
      */
-    fun readSmsMessages(context: Context, sinceTimestamp: Long): SmsReadResult {
+    fun readSmsMessages(context: Context, sinceTimestamp: Long, allowFallback: Boolean = true, limit: Int = 0, windowEndTimestamp: Long = System.currentTimeMillis()): SmsReadResult {
         val messages = mutableListOf<SmsMessage>()
         
         try {
@@ -50,51 +51,163 @@ object SmsReader {
             }
             
             val contentResolver: ContentResolver = context.contentResolver
-            val uri = Telephony.Sms.CONTENT_URI
+            
+            // 원격 main 방식: 여러 URI를 시도 (Inbox, Sent, 전체 순서로)
+            val urisToTry = listOf(
+                Telephony.Sms.Inbox.CONTENT_URI,  // 받은 메시지
+                Telephony.Sms.Sent.CONTENT_URI,   // 보낸 메시지
+                Telephony.Sms.CONTENT_URI         // 전체 SMS
+            )
             
             // sinceTimestamp가 0L이면 모든 SMS를 읽음 (첫 스캔 또는 전체 스캔)
-            val selection = if (sinceTimestamp > 0L) {
-                "${Telephony.Sms.DATE} >= ?"
-            } else {
-                null
+            // windowEndTimestamp도 필터링에 포함 (기간별 확인 시 필요)
+            val selection = when {
+                sinceTimestamp > 0L && windowEndTimestamp > 0L -> {
+                    "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?"
+                }
+                sinceTimestamp > 0L -> {
+                    "${Telephony.Sms.DATE} >= ?"
+                }
+                else -> null
             }
-            val selectionArgs = if (sinceTimestamp > 0L) {
-                arrayOf(sinceTimestamp.toString())
-            } else {
-                null
+            val selectionArgs = when {
+                sinceTimestamp > 0L && windowEndTimestamp > 0L -> {
+                    arrayOf(sinceTimestamp.toString(), windowEndTimestamp.toString())
+                }
+                sinceTimestamp > 0L -> {
+                    arrayOf(sinceTimestamp.toString())
+                }
+                else -> null
             }
             
-            val cursor: Cursor? = try {
-                contentResolver.query(
-                    uri,
-                    arrayOf(
-                        Telephony.Sms._ID,
-                        Telephony.Sms.ADDRESS,
-                        Telephony.Sms.BODY,
-                        Telephony.Sms.DATE,
-                        Telephony.Sms.DATE_SENT,
-                    ),
-                    selection,
-                    selectionArgs,
-                    "${Telephony.Sms.DATE} DESC"
-                )
-            } catch (e: SecurityException) {
-                Log.e("SmsReader", "SMS 읽기 권한 오류", e)
-                return SmsReadResult.Error(
-                    errorType = SmsReadError.PERMISSION_DENIED,
-                    message = "SMS 읽기 권한이 거부되었습니다: ${e.message}",
-                    exception = e
-                )
-            } catch (e: IllegalStateException) {
-                Log.e("SmsReader", "ContentProvider 접근 오류", e)
+            // 타임스탬프를 읽기 쉬운 형식으로 변환
+            val sinceTimestampStr = try {
+                java.time.Instant.ofEpochMilli(sinceTimestamp).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            } catch (e: Exception) { sinceTimestamp.toString() }
+            val windowEndTimestampStr = try {
+                java.time.Instant.ofEpochMilli(windowEndTimestamp).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            } catch (e: Exception) { windowEndTimestamp.toString() }
+            Log.d("SmsReader", "📋 SMS 읽기 시작")
+            Log.d("SmsReader", "   sinceTimestamp: $sinceTimestamp ($sinceTimestampStr)")
+            Log.d("SmsReader", "   windowEndTimestamp: $windowEndTimestamp ($windowEndTimestampStr)")
+            Log.d("SmsReader", "   selection: $selection")
+            Log.d("SmsReader", "   selectionArgs: ${selectionArgs?.joinToString(", ")}")
+            
+            var cursor: Cursor? = null
+            var successfulUri: Uri? = null
+            
+            // 여러 URI를 시도 (원격 main 방식)
+            for (uri in urisToTry) {
+                try {
+                    Log.d("SmsReader", "📋 SMS URI 시도: $uri")
+                    cursor = contentResolver.query(
+                        uri,
+                        arrayOf(
+                            Telephony.Sms._ID,
+                            Telephony.Sms.ADDRESS,
+                            Telephony.Sms.BODY,
+                            Telephony.Sms.DATE,
+                            Telephony.Sms.DATE_SENT,
+                        ),
+                        selection,
+                        selectionArgs,
+                        "${Telephony.Sms.DATE} DESC" // DATE로 정렬 (최신순, 원격 main 방식)
+                    )
+                    
+                    if (cursor != null) {
+                        val count = cursor.count
+                        Log.d("SmsReader", "✅ URI $uri 성공 - Cursor 행 수: $count")
+                        
+                        // 디버깅: 필터 없이 최신 메시지 10개 확인 (DATE와 DATE_SENT 모두 확인)
+                        if (count == 0 && sinceTimestamp > 0L) {
+                            Log.w("SmsReader", "⚠️ 필터링 결과 0개 - 최신 메시지 10개 확인 중...")
+                            try {
+                                val debugCursor = contentResolver.query(
+                                    uri,
+                                    arrayOf(
+                                        Telephony.Sms._ID,
+                                        Telephony.Sms.ADDRESS,
+                                        Telephony.Sms.BODY,
+                                        Telephony.Sms.DATE,
+                                        Telephony.Sms.DATE_SENT,
+                                    ),
+                                    null, // 필터 없음
+                                    null,
+                                    "${Telephony.Sms.DATE} DESC"
+                                )
+                                debugCursor?.use {
+                                    val dateIndex = it.getColumnIndex(Telephony.Sms.DATE)
+                                    val dateSentIndex = it.getColumnIndex(Telephony.Sms.DATE_SENT)
+                                    var debugCount = 0
+                                    while (it.moveToNext() && debugCount < 10) {
+                                        if (dateIndex >= 0) {
+                                            val date = it.getLong(dateIndex)
+                                            val dateSent = if (dateSentIndex >= 0 && !it.isNull(dateSentIndex)) {
+                                                it.getLong(dateSentIndex)
+                                            } else {
+                                                date
+                                            }
+                                            val dateStr = try {
+                                                java.time.Instant.ofEpochMilli(date).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                                            } catch (e: Exception) { date.toString() }
+                                            val dateSentStr = try {
+                                                java.time.Instant.ofEpochMilli(dateSent).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                                            } catch (e: Exception) { dateSent.toString() }
+                                            val id = it.getString(it.getColumnIndex(Telephony.Sms._ID))
+                                            val address = if (it.getColumnIndex(Telephony.Sms.ADDRESS) >= 0) it.getString(it.getColumnIndex(Telephony.Sms.ADDRESS)) else "Unknown"
+                                            Log.d("SmsReader", "   최신 메시지 #${debugCount + 1}: ID=$id, 발신자=$address, DATE=$date ($dateStr), DATE_SENT=$dateSent ($dateSentStr)")
+                                            
+                                            // sinceTimestamp와 비교
+                                            if (date >= sinceTimestamp && date <= windowEndTimestamp) {
+                                                Log.d("SmsReader", "     ✅ DATE 범위 내: $date >= $sinceTimestamp && $date <= $windowEndTimestamp")
+                                            } else {
+                                                Log.d("SmsReader", "     ❌ DATE 범위 밖: $date < $sinceTimestamp 또는 $date > $windowEndTimestamp")
+                                            }
+                                            if (dateSent >= sinceTimestamp && dateSent <= windowEndTimestamp) {
+                                                Log.d("SmsReader", "     ✅ DATE_SENT 범위 내: $dateSent >= $sinceTimestamp && $dateSent <= $windowEndTimestamp")
+                                            } else {
+                                                Log.d("SmsReader", "     ❌ DATE_SENT 범위 밖: $dateSent < $sinceTimestamp 또는 $dateSent > $windowEndTimestamp")
+                                            }
+                                        }
+                                        debugCount++
+                                    }
+                                    Log.d("SmsReader", "   최신 메시지 총 확인: $debugCount 개")
+                                }
+                            } catch (e: Exception) {
+                                Log.w("SmsReader", "디버깅 쿼리 실패", e)
+                            }
+                        }
+                        
+                        successfulUri = uri
+                        // count가 0이어도 성공 (해당 기간에 SMS가 없을 수 있음)
+                        break
+                    } else {
+                        Log.w("SmsReader", "⚠️ URI $uri - cursor가 null")
+                    }
+                } catch (e: SecurityException) {
+                    Log.w("SmsReader", "⚠️ URI $uri 권한 오류: ${e.message}")
+                    cursor?.close()
+                    cursor = null
+                } catch (e: IllegalStateException) {
+                    Log.w("SmsReader", "⚠️ URI $uri ContentProvider 오류: ${e.message}")
+                    cursor?.close()
+                    cursor = null
+                } catch (e: Exception) {
+                    Log.w("SmsReader", "⚠️ URI $uri 오류: ${e.message}", e)
+                    cursor?.close()
+                    cursor = null
+                }
+            }
+            
+            if (cursor == null) {
+                Log.e("SmsReader", "❌ 모든 URI 시도 실패 - SMS 데이터베이스 접근 불가")
                 return SmsReadResult.Error(
                     errorType = SmsReadError.CONTENT_PROVIDER_ERROR,
-                    message = "SMS 데이터베이스에 접근할 수 없습니다: ${e.message}",
-                    exception = e
+                    message = "SMS 데이터베이스 접근 실패"
                 )
             }
             
-            cursor?.use {
+            cursor.use {
                 val idIndex = it.getColumnIndex(Telephony.Sms._ID)
                 val addressIndex = it.getColumnIndex(Telephony.Sms.ADDRESS)
                 val bodyIndex = it.getColumnIndex(Telephony.Sms.BODY)
@@ -128,8 +241,8 @@ object SmsReader {
                 var errorCount = 0
                 var readCount = 0
                 
-                // 모든 행 읽기
-                while (it.moveToNext()) {
+                // 모든 행 읽기 (limit이 있으면 limit만큼만)
+                while (it.moveToNext() && (limit <= 0 || messages.size < limit)) {
                     readCount++
                     try {
                         val id = it.getString(idIndex)
@@ -145,35 +258,35 @@ object SmsReader {
                         val body = it.getString(bodyIndex)
                         val date = it.getLong(dateIndex)
                         
-                        // DATE_SENT가 있으면 사용, 없으면 DATE 사용
-                        val dateSent = if (hasDateSent && !it.isNull(dateSentIndex)) {
-                            try {
-                                it.getLong(dateSentIndex)
-                            } catch (e: Exception) {
-                                Log.w("SmsReader", "DATE_SENT 읽기 실패, DATE 사용", e)
-                                date
-                            }
-                        } else {
-                            date
-                        }
-                        
-                        if (id != null && body != null && body.isNotBlank()) {
-                            val smsAddress = address ?: "Unknown"
-                            val category = classifySmsCategory(smsAddress, body)
-                            messages.add(
-                                SmsMessage(
-                                    id = id,
-                                    address = smsAddress,
-                                    body = body,
-                                    timestamp = dateSent,
-                                    category = category,
-                                )
-                            )
-                            successCount++
-                        } else {
-                            Log.w("SmsReader", "SMS 메시지 데이터가 불완전합니다 (id=$id, body=${body?.take(20)}...)")
-                            errorCount++
-                        }
+                        // 원격 main 방식: 받은 메시지는 DATE(수신 시간)를 사용
+                        // DATE_SENT는 발신 시간이므로 받은 메시지에서는 부정확할 수 있음
+                        val timestamp = date
+                
+                if (id != null && body != null && body.isNotBlank()) {
+                    val smsAddress = address ?: "Unknown"
+                    val category = classifySmsCategory(smsAddress, body)
+                    val timeStr = try {
+                        java.time.Instant.ofEpochMilli(timestamp)
+                            .atZone(java.time.ZoneId.systemDefault())
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    } catch (e: Exception) {
+                        timestamp.toString()
+                    }
+                    Log.d("SmsReader", "📨 SMS 메시지 발견 - ID: $id, 발신자: $smsAddress, 타임스탬프: $timestamp ($timeStr)")
+                    messages.add(
+                        SmsMessage(
+                            id = id,
+                            address = smsAddress,
+                            body = body,
+                            timestamp = timestamp, // DATE 사용 (받은 메시지의 수신 시간)
+                            category = category,
+                        )
+                    )
+                    successCount++
+                } else {
+                    Log.w("SmsReader", "SMS 메시지 데이터가 불완전합니다 (id=$id, body=${body?.take(20)}...)")
+                    errorCount++
+                }
                     } catch (e: Exception) {
                         Log.w("SmsReader", "개별 SMS 메시지 읽기 실패 (계속 진행)", e)
                         errorCount++

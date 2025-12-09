@@ -401,6 +401,15 @@ class MainViewModel(
                                 expiresAt = tokenResult.expiresAt,
                                 email = null, // 이메일은 나중에 API로 가져올 수 있음
                             )
+                            
+                            // Google API 토큰이 추가되었으므로 Gmail 실시간 동기화 시작
+                            try {
+                                com.example.agent_app.service.GmailRealtimeSyncWorker.startRepeatingWorkIfTokenExists(context)
+                                android.util.Log.d("MainViewModel", "✅ Google 로그인 후 Gmail 실시간 동기화 시작")
+                            } catch (e: Exception) {
+                                android.util.Log.e("MainViewModel", "Gmail 실시간 동기화 시작 실패", e)
+                            }
+                            
                             loginState.update {
                                 it.copy(
                                     statusMessage = "Google 계정이 추가되었습니다. Refresh Token이 포함되어 자동 갱신이 가능합니다.",
@@ -521,6 +530,15 @@ class MainViewModel(
                             expiresAt = expiresAt,
                             email = account.email,
                         )
+                        
+                        // Google API 토큰이 추가되었으므로 Gmail 실시간 동기화 시작
+                        try {
+                            com.example.agent_app.service.GmailRealtimeSyncWorker.startRepeatingWorkIfTokenExists(context)
+                            android.util.Log.d("MainViewModel", "✅ Google 로그인 후 Gmail 실시간 동기화 시작")
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainViewModel", "Gmail 실시간 동기화 시작 실패", e)
+                        }
+                        
                         loginState.update {
                             it.copy(
                                 statusMessage = "Google 계정이 추가되었습니다: ${account.email}\n⚠️ Refresh Token이 없어 수동 입력이 필요합니다.",

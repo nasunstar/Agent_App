@@ -136,7 +136,9 @@ class SmsScanService : Service() {
             
             // SMS 메시지 읽기
             updateNotification("SMS 메시지 읽는 중...", 0, 0)
-            val readResult = SmsReader.readSmsMessages(this, sinceTimestamp)
+            // windowEndTimestamp를 현재 시간으로 설정 (기간별 확인 시 필요)
+            val windowEndTimestamp = System.currentTimeMillis()
+            val readResult = SmsReader.readSmsMessages(this, sinceTimestamp, windowEndTimestamp = windowEndTimestamp)
             
             val messages = when (readResult) {
                 is SmsReader.SmsReadResult.Success -> {

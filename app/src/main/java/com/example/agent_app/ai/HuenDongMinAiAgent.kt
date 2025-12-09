@@ -1,6 +1,7 @@
 package com.example.agent_app.ai
 
 import android.content.Context
+import androidx.core.content.ContextCompat
 import com.example.agent_app.BuildConfig
 import com.example.agent_app.data.dao.EventDao
 import com.example.agent_app.data.dao.EventTypeDao
@@ -1378,8 +1379,29 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalEmailId, "gmail")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 중복 체크: 같은 제목, 시간, 장소의 일정이 이미 있는지 확인
+                val duplicateEvent = eventDao.findDuplicateEvent(
+                    title = event.title,
+                    startAt = event.startAt,
+                    location = event.location
+                )
+                
+                if (duplicateEvent != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "⏭️ 중복 일정 발견, 건너뜀 - ${event.title} (기존 ID: ${duplicateEvent.id})")
+                    return@forEachIndexed
+                }
+                
+                val eventId = eventDao.upsert(event)
+                val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // Gmail 일정 생성 시 푸시 알림
+                try {
+                    showGmailEventCreatedNotification(savedEvent, emailSubject ?: "제목 없음")
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 생성 알림 실패", e)
+                }
             }
             
             return@withContext adjustedResult
@@ -1736,8 +1758,35 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalEmailId, "gmail")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalEmailId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 중복 체크: 같은 제목, 시간, 장소의 일정이 이미 있는지 확인
+                val duplicateEvent = eventDao.findDuplicateEvent(
+                    title = event.title,
+                    startAt = event.startAt,
+                    location = event.location
+                )
+                
+                if (duplicateEvent != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "⏭️ 중복 일정 발견, 저장 건너뜀 - ${event.title} (기존 ID: ${duplicateEvent.id})")
+                    // 중복이어도 알림은 표시 (사용자가 새로운 메일에서 일정이 생성되었음을 알 수 있도록)
+                    try {
+                        showGmailEventCreatedNotification(duplicateEvent, emailSubject ?: "제목 없음")
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 생성 알림 실패", e)
+                    }
+                    return@forEachIndexed
+                }
+                
+                val eventId = eventDao.upsert(event)
+                val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+                android.util.Log.d("HuenDongMinAiAgent", "Gmail Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalEmailId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // Gmail 일정 생성 시 푸시 알림
+                try {
+                    showGmailEventCreatedNotification(savedEvent, emailSubject ?: "제목 없음")
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 생성 알림 실패", e)
+                }
             }
         }
         
@@ -1922,11 +1971,34 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
-                if (isDuplicateEvent(event)) {
-                    android.util.Log.d("HuenDongMinAiAgent", "SMS Event 중복 감지, 건너뜀 - ${event.title}")
-                } else {
-                    eventDao.upsert(event)
-                    android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 중복 체크: 같은 제목, 시간, 장소의 일정이 이미 있는지 확인
+                val duplicateEvent = eventDao.findDuplicateEvent(
+                    title = event.title,
+                    startAt = event.startAt,
+                    location = event.location
+                )
+                
+                if (duplicateEvent != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "⏭️ 중복 일정 발견, 저장 건너뜀 - ${event.title} (기존 ID: ${duplicateEvent.id})")
+                    // 중복이어도 알림은 표시 (사용자가 새로운 SMS에서 일정이 생성되었음을 알 수 있도록)
+                    try {
+                        showSmsEventCreatedNotification(duplicateEvent, smsAddress)
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 실패", e)
+                    }
+                    return@forEachIndexed
+                }
+                
+                val eventId = eventDao.upsert(event)
+                val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // SMS 일정 생성 시 푸시 알림
+                try {
+                    showSmsEventCreatedNotification(savedEvent, smsAddress)
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 실패", e)
                 }
             }
             
@@ -2298,8 +2370,35 @@ class HuenDongMinAiAgent(
                 
                 // 모든 Event는 같은 IngestItem을 참조 (원본 데이터 추적용)
                 val event = createEventFromAiData(eventData, originalSmsId, "sms")
-                eventDao.upsert(event)
-                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${event.title}, sourceId: $originalSmsId, 시작: ${event.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // 중복 체크: 같은 제목, 시간, 장소의 일정이 이미 있는지 확인
+                val duplicateEvent = eventDao.findDuplicateEvent(
+                    title = event.title,
+                    startAt = event.startAt,
+                    location = event.location
+                )
+                
+                if (duplicateEvent != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "⏭️ 중복 일정 발견, 저장 건너뜀 - ${event.title} (기존 ID: ${duplicateEvent.id})")
+                    // 중복이어도 알림은 표시 (사용자가 새로운 SMS에서 일정이 생성되었음을 알 수 있도록)
+                    try {
+                        showSmsEventCreatedNotification(duplicateEvent, smsAddress)
+                    } catch (e: Exception) {
+                        android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 실패", e)
+                    }
+                    return@forEachIndexed
+                }
+                
+                val eventId = eventDao.upsert(event)
+                val savedEvent = event.copy(id = if (eventId == 0L) event.id else eventId)
+                android.util.Log.d("HuenDongMinAiAgent", "SMS Event ${index + 1} 저장 완료 - ${savedEvent.title}, sourceId: $originalSmsId, 시작: ${savedEvent.startAt?.let { java.time.Instant.ofEpochMilli(it) }}")
+                
+                // SMS 일정 생성 시 푸시 알림
+                try {
+                    showSmsEventCreatedNotification(savedEvent, smsAddress)
+                } catch (e: Exception) {
+                    android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 실패", e)
+                }
             }
         }
         
@@ -3704,6 +3803,203 @@ class HuenDongMinAiAgent(
                 confidence = 0.0,
                 events = emptyList()
             )
+        }
+    }
+    
+    /**
+     * SMS 일정 생성 시 푸시 알림 표시
+     */
+    private fun showSmsEventCreatedNotification(event: Event, smsAddress: String) {
+        try {
+            // Android 13+ (API 33+) 알림 권한 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val hasPermission = android.content.pm.PackageManager.PERMISSION_GRANTED ==
+                    ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                if (!hasPermission) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 권한이 없어 SMS 일정 생성 알림을 표시할 수 없습니다. 설정에서 알림 권한을 허용해주세요.")
+                    return
+                }
+            }
+            
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            // 알림이 활성화되어 있는지 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                if (!notificationManager.areNotificationsEnabled()) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 시스템에서 알림이 비활성화되어 있습니다. 설정에서 알림을 활성화해주세요.")
+                    return
+                }
+            }
+            
+            // 알림 채널 생성 (Android O 이상)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    "sms_event_created",
+                    "SMS 일정 생성 알림",
+                    android.app.NotificationManager.IMPORTANCE_HIGH // 중요도 높임 (알림 차단 방지)
+                ).apply {
+                    description = "SMS에서 일정이 생성되었을 때 알림을 표시합니다"
+                    enableVibration(true)
+                    enableLights(true)
+                    setShowBadge(true)
+                    setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION), null)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            // 일정 시간 포맷팅
+            val timeStr = if (event.startAt != null) {
+                try {
+                    val instant = java.time.Instant.ofEpochMilli(event.startAt)
+                    val zonedDateTime = instant.atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                } catch (e: Exception) {
+                    "시간 미정"
+                }
+            } else {
+                "시간 미정"
+            }
+            
+            // 알림 클릭 시 앱 열기
+            val intent = android.content.Intent(context, com.example.agent_app.ui.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                event.id.toInt() + 10000, // SMS 알림 ID는 Gmail과 구분하기 위해 +10000
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = androidx.core.app.NotificationCompat.Builder(context, "sms_event_created")
+                .setSmallIcon(com.example.agent_app.R.drawable.ic_launcher_foreground)
+                .setContentTitle("📅 일정이 생성되었습니다")
+                .setContentText("${event.title}\n$timeStr")
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle()
+                    .bigText("발신자: $smsAddress\n\n일정: ${event.title}\n시간: $timeStr${if (event.location != null) "\n장소: ${event.location}" else ""}"))
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH) // 중요도 높임
+                .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            
+            // 시간 기반으로 고유 ID 생성 (같은 일정이라도 다른 시간에 알림 표시 가능)
+            val notificationId = (event.id.toInt() + 10000 + System.currentTimeMillis().toInt()) % Int.MAX_VALUE
+            notificationManager.notify(notificationId, notification)
+            
+            // 알림 채널 상태 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = notificationManager.getNotificationChannel("sms_event_created")
+                if (channel != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "📢 SMS 일정 생성 알림 표시 - ${event.title} (채널 중요도: ${channel.importance}, ID: $notificationId)")
+                    if (channel.importance == android.app.NotificationManager.IMPORTANCE_NONE) {
+                        android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 채널이 차단되어 있습니다. 설정에서 'SMS 일정 생성 알림' 채널을 활성화해주세요.")
+                    }
+                }
+            } else {
+                android.util.Log.d("HuenDongMinAiAgent", "📢 SMS 일정 생성 알림 표시 - ${event.title} (ID: $notificationId)")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "SMS 일정 생성 알림 표시 실패", e)
+        }
+    }
+    
+    /**
+     * Gmail 일정 생성 시 푸시 알림 표시
+     */
+    private fun showGmailEventCreatedNotification(event: Event, emailSubject: String) {
+        try {
+            // Android 13+ (API 33+) 알림 권한 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val hasPermission = android.content.pm.PackageManager.PERMISSION_GRANTED ==
+                    ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                if (!hasPermission) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 권한이 없어 Gmail 일정 생성 알림을 표시할 수 없습니다. 설정에서 알림 권한을 허용해주세요.")
+                    return
+                }
+            }
+            
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            // 알림이 활성화되어 있는지 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                if (!notificationManager.areNotificationsEnabled()) {
+                    android.util.Log.w("HuenDongMinAiAgent", "⚠️ 시스템에서 알림이 비활성화되어 있습니다. 설정에서 알림을 활성화해주세요.")
+                    return
+                }
+            }
+            
+            // 알림 채널 생성 (Android O 이상)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    "gmail_event_created",
+                    "Gmail 일정 생성 알림",
+                    android.app.NotificationManager.IMPORTANCE_HIGH // 중요도 높임 (알림 차단 방지)
+                ).apply {
+                    description = "Gmail에서 일정이 생성되었을 때 알림을 표시합니다"
+                    enableVibration(true)
+                    enableLights(true)
+                    setShowBadge(true)
+                    setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION), null)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            // 일정 시간 포맷팅
+            val timeStr = if (event.startAt != null) {
+                try {
+                    val instant = java.time.Instant.ofEpochMilli(event.startAt)
+                    val zonedDateTime = instant.atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MM월 dd일 HH:mm"))
+                } catch (e: Exception) {
+                    "시간 미정"
+                }
+            } else {
+                "시간 미정"
+            }
+            
+            // 알림 클릭 시 앱 열기
+            val intent = android.content.Intent(context, com.example.agent_app.ui.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                event.id.toInt(),
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = androidx.core.app.NotificationCompat.Builder(context, "gmail_event_created")
+                .setSmallIcon(com.example.agent_app.R.drawable.ic_launcher_foreground)
+                .setContentTitle("📅 일정이 생성되었습니다")
+                .setContentText("${event.title}\n$timeStr")
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle()
+                    .bigText("메일: $emailSubject\n\n일정: ${event.title}\n시간: $timeStr${if (event.location != null) "\n장소: ${event.location}" else ""}"))
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH) // 중요도 높임
+                .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            
+            // 일정 ID를 알림 ID로 사용 (같은 일정에 대한 중복 알림 방지)
+            // 시간 기반으로 고유 ID 생성 (같은 일정이라도 다른 시간에 알림 표시 가능)
+            val notificationId = (event.id.toInt() + System.currentTimeMillis().toInt()) % Int.MAX_VALUE
+            notificationManager.notify(notificationId, notification)
+            
+            // 알림 채널 상태 확인
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = notificationManager.getNotificationChannel("gmail_event_created")
+                if (channel != null) {
+                    android.util.Log.d("HuenDongMinAiAgent", "📢 Gmail 일정 생성 알림 표시 - ${event.title} (채널 중요도: ${channel.importance}, ID: $notificationId)")
+                    if (channel.importance == android.app.NotificationManager.IMPORTANCE_NONE) {
+                        android.util.Log.w("HuenDongMinAiAgent", "⚠️ 알림 채널이 차단되어 있습니다. 설정에서 'Gmail 일정 생성 알림' 채널을 활성화해주세요.")
+                    }
+                }
+            } else {
+                android.util.Log.d("HuenDongMinAiAgent", "📢 Gmail 일정 생성 알림 표시 - ${event.title} (ID: $notificationId)")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HuenDongMinAiAgent", "Gmail 일정 생성 알림 표시 실패", e)
         }
     }
 }

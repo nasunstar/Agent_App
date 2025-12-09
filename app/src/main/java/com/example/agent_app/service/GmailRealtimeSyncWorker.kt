@@ -18,7 +18,10 @@ import com.example.agent_app.data.repo.GmailRepositoryWithAi
 import com.example.agent_app.di.AppContainer
 import com.example.agent_app.gmail.GmailServiceFactory
 import com.example.agent_app.ui.MainActivity
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -54,7 +57,16 @@ class GmailRealtimeSyncWorker(
             // 모든 Google 계정 가져오기
             val accounts = authRepository.getAllGoogleTokens()
             if (accounts.isEmpty()) {
-                Log.d(TAG, "ℹ️ 동기화할 계정이 없음")
+                Log.d(TAG, "ℹ️ 동기화할 계정이 없음 - 다음 작업 스케줄링 안 함")
+                // 토큰이 없으면 다음 작업을 스케줄링하지 않음 (메모리 절약)
+                return@withContext Result.success()
+            }
+            
+            // 토큰이 있는 계정이 있는지 확인
+            val hasValidToken = accounts.any { it.accessToken.isNotBlank() }
+            if (!hasValidToken) {
+                Log.d(TAG, "ℹ️ 유효한 토큰이 없음 - 다음 작업 스케줄링 안 함")
+                // 토큰이 없으면 다음 작업을 스케줄링하지 않음 (메모리 절약)
                 return@withContext Result.success()
             }
             
@@ -163,15 +175,32 @@ class GmailRealtimeSyncWorker(
             Log.d(TAG, "✅ Gmail 실시간 동기화 완료 - 성공: $successCount, 실패: $errorCount")
             
             // 체인 방식: 성공 시 다음 작업 스케줄링 (5초 후)
-            GmailRealtimeSyncWorker.scheduleNextWork(applicationContext, 5)
+            // 토큰이 있는 경우에만 계속 실행
+            val hasToken = authRepository.getAllGoogleTokens().any { it.accessToken.isNotBlank() }
+            if (hasToken) {
+                scheduleNextWork(applicationContext, 5)
+            } else {
+                Log.d(TAG, "ℹ️ 토큰이 없어 다음 작업 스케줄링 안 함")
+            }
             
             Result.success()
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Gmail 실시간 동기화 실패", e)
             
-            // 실패 시에도 다음 작업 스케줄링 (5초 후 재시도)
-            GmailRealtimeSyncWorker.scheduleNextWork(applicationContext, 5)
+            // 실패 시에도 토큰이 있으면 다음 작업 스케줄링 (5초 후 재시도)
+            try {
+                val appContainer = AppContainer(applicationContext)
+                val authRepository = appContainer.authRepository
+                val hasToken = authRepository.getAllGoogleTokens().any { it.accessToken.isNotBlank() }
+                if (hasToken) {
+                    scheduleNextWork(applicationContext, 5)
+                } else {
+                    Log.d(TAG, "ℹ️ 토큰이 없어 다음 작업 스케줄링 안 함")
+                }
+            } catch (checkError: Exception) {
+                Log.e(TAG, "토큰 확인 실패", checkError)
+            }
             
             Result.success() // 실패해도 다음 작업은 계속 진행
         }
@@ -291,10 +320,51 @@ class GmailRealtimeSyncWorker(
         }
         
         /**
+         * Gmail 실시간 동기화 시작 (토큰 체크 후 시작)
+         * Google API 토큰이 있으면 5초 주기로 동기화 시작, 없으면 시작하지 않음
+         */
+        fun startRepeatingWorkIfTokenExists(context: Context) {
+            // Coroutine scope에서 실행 (suspend 함수 호출을 위해)
+            CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+                try {
+                    // Gmail 자동 처리 활성화 여부 확인
+                    val isAutoProcessEnabled = com.example.agent_app.util.AutoProcessSettings.isGmailAutoProcessEnabled(context)
+                    if (!isAutoProcessEnabled) {
+                        Log.d(TAG, "⚠️ Gmail 자동 처리 비활성화 - 동기화 시작 안 함")
+                        stopRepeatingWork(context)
+                        return@launch
+                    }
+                    
+                    // Google API 토큰 확인
+                    val appContainer = AppContainer(context)
+                    val authRepository = appContainer.authRepository
+                    val accounts = authRepository.getAllGoogleTokens() // suspend 함수
+                    
+                    // 토큰이 있는 계정이 있는지 확인
+                    val hasValidToken = accounts.any { it.accessToken.isNotBlank() }
+                    
+                    if (!hasValidToken) {
+                        Log.d(TAG, "ℹ️ Google API 토큰이 없어 Gmail 동기화 시작 안 함")
+                        stopRepeatingWork(context)
+                        return@launch
+                    }
+                    
+                    // 토큰이 있으면 동기화 시작
+                    startRepeatingWork(context)
+                    Log.d(TAG, "✅ Gmail 실시간 동기화 시작 (토큰 확인 완료, 5초 주기)")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Gmail 동기화 시작 확인 실패", e)
+                    stopRepeatingWork(context)
+                }
+            }
+        }
+        
+        /**
          * 더 짧은 간격을 위한 OneTimeWorkRequest 체인 방식 (테스트용)
          * 5초마다 실행되도록 체인으로 연결
+         * 주의: 이 함수는 토큰 체크를 하지 않으므로, startRepeatingWorkIfTokenExists()를 사용하세요
          */
-        fun startRepeatingWork(context: Context) {
+        private fun startRepeatingWork(context: Context) {
             val workManager = WorkManager.getInstance(context)
             
             // 기존 작업 취소
@@ -304,6 +374,15 @@ class GmailRealtimeSyncWorker(
             scheduleNextWork(context, 5) // 5초 후 실행
             
             Log.d(TAG, "✅ Gmail 실시간 동기화 작업 시작 (체인 방식, 5초 주기)")
+        }
+        
+        /**
+         * Gmail 실시간 동기화 중지
+         */
+        fun stopRepeatingWork(context: Context) {
+            val workManager = WorkManager.getInstance(context)
+            workManager.cancelAllWorkByTag(WORK_NAME)
+            Log.d(TAG, "⏹️ Gmail 실시간 동기화 중지")
         }
         
         /**

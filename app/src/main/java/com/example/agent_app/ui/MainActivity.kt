@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.agent_app.data.repo.AuthRepository
@@ -116,6 +117,17 @@ class MainActivity : ComponentActivity() {
         mainViewModel.handleGoogleSignInResult(result.data)
     }
     
+    // 알림 권한 요청 (Android 13+)
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            android.util.Log.d("MainActivity", "✅ 알림 권한 허용됨")
+        } else {
+            android.util.Log.w("MainActivity", "⚠️ 알림 권한 거부됨 - 일정 생성 알림이 표시되지 않을 수 있습니다")
+        }
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -189,6 +201,21 @@ class MainActivity : ComponentActivity() {
         
         // SMS ContentObserver는 Application 레벨에서 등록됨 (백그라운드에서도 동작)
         android.util.Log.d("MainActivity", "ℹ️ SMS ContentObserver는 Application 레벨에서 등록됨 (백그라운드 지원)")
+
+        // 알림 권한 확인 및 요청 (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasNotificationPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            
+            if (!hasNotificationPermission) {
+                android.util.Log.d("MainActivity", "📢 알림 권한 요청 시작")
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                android.util.Log.d("MainActivity", "✅ 알림 권한 이미 허용됨")
+            }
+        }
 
         // SMS 스캔 완료 및 진행 상황 브로드캐스트 수신 등록
         val filter = IntentFilter().apply {

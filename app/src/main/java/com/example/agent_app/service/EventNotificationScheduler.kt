@@ -118,7 +118,7 @@ class EventNotificationScheduler : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "일정 알림 스케줄러",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN // 최대한 조용/비표시
             ).apply {
                 description = "일정 알림을 체크하는 백그라운드 서비스"
                 setShowBadge(false)
@@ -149,7 +149,8 @@ class EventNotificationScheduler : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build()
     }
     
