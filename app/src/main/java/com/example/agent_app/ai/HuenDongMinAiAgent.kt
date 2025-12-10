@@ -1071,63 +1071,73 @@ class HuenDongMinAiAgent(
                 expr.contains("내일") -> result = result.plusDays(1)
                 expr.contains("모레") -> result = result.plusDays(2)
                 expr.contains("이번주") || expr.contains("이번 주") -> {
-                    // 이번 주의 월요일 찾기
-                    val daysFromMonday = when (result.dayOfWeek) {
-                        java.time.DayOfWeek.MONDAY -> 0L
-                        java.time.DayOfWeek.TUESDAY -> 1L
-                        java.time.DayOfWeek.WEDNESDAY -> 2L
-                        java.time.DayOfWeek.THURSDAY -> 3L
-                        java.time.DayOfWeek.FRIDAY -> 4L
-                        java.time.DayOfWeek.SATURDAY -> 5L
-                        java.time.DayOfWeek.SUNDAY -> 6L
+                    // 이번 주의 일요일 찾기 (일요일~토요일 기준)
+                    val daysFromSunday = when (result.dayOfWeek) {
+                        java.time.DayOfWeek.SUNDAY -> 0L
+                        java.time.DayOfWeek.MONDAY -> 1L
+                        java.time.DayOfWeek.TUESDAY -> 2L
+                        java.time.DayOfWeek.WEDNESDAY -> 3L
+                        java.time.DayOfWeek.THURSDAY -> 4L
+                        java.time.DayOfWeek.FRIDAY -> 5L
+                        java.time.DayOfWeek.SATURDAY -> 6L
                     }
-                    val thisWeekMonday = result.minusDays(daysFromMonday)
+                    val thisWeekSunday = result.minusDays(daysFromSunday)
                     
                     // 요일이 지정된 경우 이번 주의 해당 요일로 설정
                     var foundWeekday = false
                     for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
                         if (expr.contains(koreanDay)) {
                             val targetWeekday = dayOfWeek.value
-                            val daysToAdd = (targetWeekday - 1).toLong() // 월요일=1이므로 -1
-                            result = thisWeekMonday.plusDays(daysToAdd)
+                            // 일요일=7, 월요일=1, ..., 토요일=6
+                            val daysToAdd = if (targetWeekday == java.time.DayOfWeek.SUNDAY.value) {
+                                0L // 일요일
+                            } else {
+                                targetWeekday.toLong() // 월요일=1, 화요일=2, ..., 토요일=6
+                            }
+                            result = thisWeekSunday.plusDays(daysToAdd)
                             foundWeekday = true
                             break
                         }
                     }
                     
-                    // 요일이 지정되지 않았으면 이번 주 월요일 사용
+                    // 요일이 지정되지 않았으면 이번 주 일요일 사용
                     if (!foundWeekday) {
-                        result = thisWeekMonday
+                        result = thisWeekSunday
                     }
                 }
                 expr.contains("다음주") || expr.contains("담주") || expr.contains("다음 주") -> {
-                    // 다음 주 월요일 찾기
-                    val daysUntilMonday = when (result.dayOfWeek) {
-                        java.time.DayOfWeek.MONDAY -> 7L
-                        java.time.DayOfWeek.TUESDAY -> 6L
-                        java.time.DayOfWeek.WEDNESDAY -> 5L
-                        java.time.DayOfWeek.THURSDAY -> 4L
-                        java.time.DayOfWeek.FRIDAY -> 3L
-                        java.time.DayOfWeek.SATURDAY -> 2L
-                        java.time.DayOfWeek.SUNDAY -> 1L
+                    // 다음 주 일요일 찾기 (일요일~토요일 기준)
+                    val daysUntilSunday = when (result.dayOfWeek) {
+                        java.time.DayOfWeek.SUNDAY -> 7L
+                        java.time.DayOfWeek.MONDAY -> 6L
+                        java.time.DayOfWeek.TUESDAY -> 5L
+                        java.time.DayOfWeek.WEDNESDAY -> 4L
+                        java.time.DayOfWeek.THURSDAY -> 3L
+                        java.time.DayOfWeek.FRIDAY -> 2L
+                        java.time.DayOfWeek.SATURDAY -> 1L
                     }
-                    val nextWeekMonday = result.plusDays(daysUntilMonday)
+                    val nextWeekSunday = result.plusDays(daysUntilSunday)
                     
                     // 요일이 지정된 경우 다음 주의 해당 요일로 설정
                     var foundWeekday = false
                     for ((koreanDay, dayOfWeek) in dayOfWeekMap) {
                         if (expr.contains(koreanDay)) {
                             val targetWeekday = dayOfWeek.value
-                            val daysToAdd = (targetWeekday - 1).toLong() // 월요일=1이므로 -1
-                            result = nextWeekMonday.plusDays(daysToAdd)
+                            // 일요일=7, 월요일=1, ..., 토요일=6
+                            val daysToAdd = if (targetWeekday == java.time.DayOfWeek.SUNDAY.value) {
+                                0L // 일요일
+                            } else {
+                                targetWeekday.toLong() // 월요일=1, 화요일=2, ..., 토요일=6
+                            }
+                            result = nextWeekSunday.plusDays(daysToAdd)
                             foundWeekday = true
                             break
                         }
                     }
                     
-                    // 요일이 지정되지 않았으면 다음 주 월요일 사용
+                    // 요일이 지정되지 않았으면 다음 주 일요일 사용
                     if (!foundWeekday) {
-                        result = nextWeekMonday
+                        result = nextWeekSunday
                     }
                 }
                 // 요일만 있는 경우 (이번주/다음주 없이)
@@ -1394,6 +1404,10 @@ class HuenDongMinAiAgent(
         
         val fullText = "${emailSubject ?: ""}\n${emailBody ?: ""}".trim()
         
+        // 메일 수신 시간 (한국시간) - 함수 전체에서 사용
+        val emailReceivedDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+        
         // 먼저 일정 요약 추출로 일정 개수 확인
         val eventSummaries = extractEventSummary(
             text = fullText,
@@ -1431,14 +1445,24 @@ class HuenDongMinAiAgent(
                 confidence = 0.9,
                 events = events
             )
+            // Gmail 날짜 보정 (상대 표현/명시적 날짜 우선)
+            val correctedEvents = events.map { eventData ->
+                validateAndCorrectGmailDate(
+                    eventData = eventData,
+                    emailText = fullText,
+                    emailReceivedDate = emailReceivedDate
+                )
+            }
+            val correctedBaseResult = baseResult.copy(events = correctedEvents)
+
             val adjustedConfidence = calculateConfidenceScore(
                 baseConfidence = baseResult.confidence,
                 timeAnalysis = timeAnalysis,
-                result = baseResult,
+                result = correctedBaseResult,
                 sourceText = fullText,
                 sourceType = "gmail"
             )
-            val adjustedResult = baseResult.copy(confidence = adjustedConfidence)
+            val adjustedResult = correctedBaseResult.copy(confidence = adjustedConfidence)
 
             val firstEvent = adjustedResult.events.firstOrNull()
             val ingestItem = IngestItem(
@@ -1510,10 +1534,6 @@ class HuenDongMinAiAgent(
         // 실제 현재 시간 (한국시간)
         val now = java.time.Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul"))
         
-        // 메일 수신 시간 (한국시간)
-        val emailReceivedDate = java.time.Instant.ofEpochMilli(receivedTimestamp)
-            .atZone(java.time.ZoneId.of("Asia/Seoul"))
-        
         // 요일 이름 가져오기 (한글) - 현재 시간 기준
         val dayOfWeekKorean = when (now.dayOfWeek) {
             java.time.DayOfWeek.MONDAY -> "월요일"
@@ -1583,11 +1603,15 @@ class HuenDongMinAiAgent(
 
             - "내일", "모레", "다음주", "다음달" 등은 **'원칙 1'에서 정한 '기준 시점'**을 기준으로 계산합니다.
             
-            **"다음주" 계산 알고리즘:**
-            1. 기준 시점의 요일 확인 (월요일=1, 화요일=2, ..., 일요일=7)
-            2. 기준 주의 월요일 찾기: 기준 시점이 월요일이면 그대로, 아니면 월요일로 역산
-            3. 다음 주 월요일 = 기준 주 월요일 + 7일
-            4. "다음주 [요일]" = 다음 주 월요일 + (요일번호 - 1)일
+            **"다음주" 계산 알고리즘 (일요일~토요일 기준):**
+            1. 기준 시점의 요일 확인 (일요일=7, 월요일=1, 화요일=2, ..., 토요일=6)
+            2. 기준 주의 일요일 찾기: 기준 시점이 일요일이면 그대로, 아니면 일요일로 역산
+               - 기준 시점이 일요일이면: 그대로 사용
+               - 기준 시점이 월요일~토요일이면: 일요일로 역산 (월요일=일요일-1일, 화요일=일요일-2일, ...)
+            3. 다음 주 일요일 = 기준 주 일요일 + 7일
+            4. "다음주 [요일]" 계산:
+               - 일요일이면: 다음 주 일요일 (daysToAdd = 0)
+               - 월요일~토요일이면: 다음 주 일요일 + 요일번호 (월요일=1, 화요일=2, ..., 토요일=6)
             
             **"다음달" 계산 알고리즘:**
             1. 기준 시점의 월/연도 확인
@@ -1656,20 +1680,21 @@ class HuenDongMinAiAgent(
             
             "내일", "모레", "다음주", "담주" 등은 **2단계의 기준 시점**을 기준으로 계산
             
-            **"다음주" 계산 알고리즘:**
-            1. 기준 시점의 요일 확인 (월요일=1, 화요일=2, ..., 일요일=7)
-            2. 기준 주의 월요일 찾기:
-               - 기준 시점이 월요일이면 그대로 사용
-               - 기준 시점이 화요일~일요일이면 월요일로 역산 (화요일=월요일-1일, 수요일=월요일-2일, ...)
-            3. 다음 주 월요일 = 기준 주 월요일 + 7일
-            4. "다음주 수요일" = 다음 주 월요일 + 2일
-            5. "다음주 [요일]" = 다음 주 월요일 + (요일번호 - 1)일
+            **"다음주" 계산 알고리즘 (일요일~토요일 기준):**
+            1. 기준 시점의 요일 확인 (일요일=7, 월요일=1, 화요일=2, ..., 토요일=6)
+            2. 기준 주의 일요일 찾기:
+               - 기준 시점이 일요일이면 그대로 사용
+               - 기준 시점이 월요일~토요일이면 일요일로 역산 (월요일=일요일-1일, 화요일=일요일-2일, ...)
+            3. 다음 주 일요일 = 기준 주 일요일 + 7일
+            4. "다음주 [요일]" 계산:
+               - 일요일이면: 다음 주 일요일 (daysToAdd = 0)
+               - 월요일~토요일이면: 다음 주 일요일 + 요일번호 (월요일=1, 화요일=2, ..., 토요일=6)
             
             **요일 매핑:**
-            - 월요일 = 1, 화요일 = 2, 수요일 = 3, 목요일 = 4, 금요일 = 5, 토요일 = 6, 일요일 = 7
+            - 일요일 = 7, 월요일 = 1, 화요일 = 2, 수요일 = 3, 목요일 = 4, 금요일 = 5, 토요일 = 6
             
             🔍 예시:
-            - 기준 시점: 임의의 날짜, 표현: "다음주 수요일" → 다음 주 월요일 + 2일 계산 ✅
+            - 기준 시점: 임의의 날짜, 표현: "다음주 수요일" → 다음 주 일요일 + 3일 계산 ✅
             - 기준 시점: 임의의 날짜, 표현: "14시" → 기준 시점의 날짜 14:00 ✅
             - 기준 시점: 현재, 표현: "내일" → 현재 기준 내일 ✅
             
@@ -1807,12 +1832,20 @@ class HuenDongMinAiAgent(
             // 시간 분석 결과가 없으면 AI 응답 그대로 사용
             result.events
         }
+        // Gmail 날짜 검증/보정 추가 적용 (명시적/상대 표현 기반)
+        val validatedEvents = correctedEvents.map { eventData ->
+            validateAndCorrectGmailDate(
+                eventData = eventData,
+                emailText = fullText,
+                emailReceivedDate = emailReceivedDate
+            )
+        }
         
         // 보정된 이벤트로 결과 업데이트
         val finalResult = AiProcessingResult(
             type = result.type,
             confidence = result.confidence,
-            events = correctedEvents
+            events = validatedEvents
         )
         val adjustedConfidence = calculateConfidenceScore(
             baseConfidence = finalResult.confidence,
@@ -3793,6 +3826,98 @@ class HuenDongMinAiAgent(
         android.util.Log.d("HuenDongMinAiAgent", "✅ OCR 날짜 일치, 수정 불필요")
         return eventData
     }
+
+    /**
+     * Gmail 날짜 검증 및 수정
+     * - 명시적 날짜가 있으면 그 날짜로 강제
+     * - 명시적 날짜가 없고 상대적 표현(내일/모레/다음주/담주 등)이 있으면 수신일 기준으로 계산
+     * - 시간은 AI가 파싱한 값을 유지하고 날짜만 수정
+     */
+    private fun validateAndCorrectGmailDate(
+        eventData: Map<String, JsonElement?>,
+        emailText: String,
+        emailReceivedDate: java.time.ZonedDateTime
+    ): Map<String, JsonElement?> {
+
+        android.util.Log.d("HuenDongMinAiAgent", "🔍 Gmail 날짜 검증 시작")
+
+        val aiStartAt = eventData["startAt"]?.jsonPrimitive?.content?.toLongOrNull()
+        if (aiStartAt == null) {
+            android.util.Log.d("HuenDongMinAiAgent", "⚠️ AI가 startAt을 추출하지 못함")
+            return eventData
+        }
+        val aiDate = java.time.Instant.ofEpochMilli(aiStartAt)
+            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+
+        // 1) 명시적 날짜 우선
+        val explicitDatePatterns = listOf(
+            """(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일""".toRegex(), // 2025년 12월 11일
+            """(\d{1,2})월\s*(\d{1,2})일""".toRegex(),           // 12월 11일
+            """(\d{1,2})\.(\d{1,2})""".toRegex(),                // 12.11
+            """(\d{1,2})/(\d{1,2})""".toRegex()                  // 12/11
+        )
+        for (pattern in explicitDatePatterns) {
+            val match = pattern.find(emailText)
+            if (match != null) {
+                val groups = match.groupValues
+                val (year, month, day) = when {
+                    groups.size >= 4 && groups[1].length == 4 -> Triple(groups[1].toInt(), groups[2].toInt(), groups[3].toInt())
+                    groups.size >= 3 -> Triple(emailReceivedDate.year, groups[1].toInt(), groups[2].toInt())
+                    else -> null
+                } ?: continue
+
+                val correctedDate = aiDate.withYear(year).withMonth(month).withDayOfMonth(day)
+                val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+
+                if (correctedStartAt != aiStartAt) {
+                    android.util.Log.d("HuenDongMinAiAgent", "✅ Gmail 명시적 날짜로 수정: ${year}년 ${month}월 ${day}일")
+                    val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                        val endDate = java.time.Instant.ofEpochMilli(endAt).atZone(java.time.ZoneId.of("Asia/Seoul"))
+                        endDate.withYear(year).withMonth(month).withDayOfMonth(day).toInstant().toEpochMilli()
+                    }
+                    return eventData.toMutableMap().apply {
+                        this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                        correctedEndAt?.let { this["endAt"] = JsonPrimitive(it.toString()) }
+                    }
+                }
+                // 명시적 날짜와 동일하면 그대로 반환
+                return eventData
+            }
+        }
+
+        // 2) 상대적 표현 처리
+        val relativeExpressions = listOf(
+            "내일" to 1,
+            "모레" to 2,
+            "글피" to 3,
+            "다음주" to 7,
+            "다음 주" to 7,
+            "담주" to 7
+        )
+        val foundRel = relativeExpressions.firstOrNull { (expr, _) -> emailText.contains(expr) }
+        if (foundRel != null) {
+            val offsetDays = foundRel.second.toLong()
+            val targetDate = emailReceivedDate.plusDays(offsetDays)
+            val correctedDate = aiDate.withYear(targetDate.year).withMonth(targetDate.monthValue).withDayOfMonth(targetDate.dayOfMonth)
+            val correctedStartAt = correctedDate.toInstant().toEpochMilli()
+
+            if (correctedStartAt != aiStartAt) {
+                android.util.Log.d("HuenDongMinAiAgent", "✅ Gmail 상대 표현(${foundRel.first})으로 날짜 수정: ${targetDate.year}년 ${targetDate.monthValue}월 ${targetDate.dayOfMonth}일")
+                val correctedEndAt = eventData["endAt"]?.jsonPrimitive?.content?.toLongOrNull()?.let { endAt ->
+                    val endDate = java.time.Instant.ofEpochMilli(endAt).atZone(java.time.ZoneId.of("Asia/Seoul"))
+                    endDate.withYear(targetDate.year).withMonth(targetDate.monthValue).withDayOfMonth(targetDate.dayOfMonth).toInstant().toEpochMilli()
+                }
+                return eventData.toMutableMap().apply {
+                    this["startAt"] = JsonPrimitive(correctedStartAt.toString())
+                    correctedEndAt?.let { this["endAt"] = JsonPrimitive(it.toString()) }
+                }
+            }
+        }
+
+        android.util.Log.d("HuenDongMinAiAgent", "✅ Gmail 날짜 수정 불필요")
+        return eventData
+    }
+
     
     /**
      * AI 응답 검증 및 수정

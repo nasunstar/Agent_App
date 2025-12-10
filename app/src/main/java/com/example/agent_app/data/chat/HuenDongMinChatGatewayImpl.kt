@@ -69,29 +69,30 @@ class HuenDongMinChatGatewayImpl(
         
         // AI에게 검색 필터 생성 요청 (TimeResolver 대체)
         val aiFilters = extractSearchFilters(question, currentTimestamp)
+        val adjustedFilters = adjustWeekFiltersIfNeeded(question, currentTimestamp, aiFilters)
         
         // 필터 상세 로깅
-        aiFilters.startTimeMillis?.let { start ->
+        adjustedFilters.startTimeMillis?.let { start ->
             val startDate = java.time.Instant.ofEpochMilli(start)
                 .atZone(java.time.ZoneId.of("Asia/Seoul"))
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
             android.util.Log.d("HuenDongMinChatGateway", "필터 시작 시간: $startDate ($start)")
         } ?: android.util.Log.d("HuenDongMinChatGateway", "필터 시작 시간: null")
         
-        aiFilters.endTimeMillis?.let { end ->
+        adjustedFilters.endTimeMillis?.let { end ->
             val endDate = java.time.Instant.ofEpochMilli(end)
                 .atZone(java.time.ZoneId.of("Asia/Seoul"))
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
             android.util.Log.d("HuenDongMinChatGateway", "필터 종료 시간: $endDate ($end)")
         } ?: android.util.Log.d("HuenDongMinChatGateway", "필터 종료 시간: null")
         
-        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 키워드: ${aiFilters.keywords}")
-        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 소스: ${aiFilters.source}")
+        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 키워드: ${adjustedFilters.keywords}")
+        android.util.Log.d("HuenDongMinChatGateway", "AI 필터 소스: ${adjustedFilters.source}")
         
         // 로컬 DB 검색
         val searchResults = hybridSearchEngine.search(
             question = question,
-            filters = aiFilters,
+            filters = adjustedFilters,
             limit = limit
         )
         
@@ -298,8 +299,10 @@ class HuenDongMinChatGatewayImpl(
                    - "내일" → 기준 날짜 +1일
                    - "모레" → 기준 날짜 +2일
                    - "내일모레", "내일 모레" → 기준 날짜 +2일 (띄어쓰기 무관)
-                   - "이번 주", "이번주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
-                   - "다음주", "다음 주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                   - "이번 주", "이번주" → 이번 주 일요일 00:00:00 ~ 토요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                     * ⚠️ 중요: 이번주는 일요일부터 시작하여 토요일까지입니다!
+                   - "다음주", "다음 주" → 다음 주 일요일 00:00:00 ~ 토요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                     * ⚠️ 중요: 다음주는 일요일부터 시작하여 토요일까지입니다!
                    - "이번 주 금요일", "이번주 금요일" → 이번 주의 금요일 (띄어쓰기 무관)
                    - "다음주 수요일", "다음 주 수요일" → 다음 주의 수요일 (띄어쓰기 무관)
                    - "다다음주", "다다음 주" → 다음주 + 1주 (띄어쓰기 무관)
@@ -687,7 +690,8 @@ class HuenDongMinChatGatewayImpl(
                - "수욜" → "수요일", "목욜" → "목요일", "금욜" → "금요일"
                - "이번주말", "이번 주말", "이번 주 말" → 이번 주 토요일~일요일 (모두 동일하게 처리)
                - "다음주말", "다음 주말", "다음 주 말" → 다음 주 토요일~일요일 (모두 동일하게 처리)
-               - "이번주", "이번 주" → 이번 주 월요일~일요일 (띄어쓰기 유무와 관계없이 동일하게 처리)
+               - "이번주", "이번 주" → 이번 주 일요일~토요일 (띄어쓰기 유무와 관계없이 동일하게 처리)
+                 * ⚠️ 중요: 이번주는 일요일부터 시작하여 토요일까지입니다!
             
             3. 날짜 관련 표현
                ⚠️ 중요: 아래 표현들은 띄어쓰기 유무와 관계없이 동일하게 처리합니다!
@@ -695,10 +699,14 @@ class HuenDongMinChatGatewayImpl(
                - "내일" → 내일 00:00:00 ~ 23:59:59
                - "어제" → 어제 00:00:00 ~ 23:59:59
                - "모레" → 모레 00:00:00 ~ 23:59:59
-               - "이번 주", "이번주" → 이번 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
-                 * 현재 날짜를 기준으로 이번 주 월요일과 일요일을 계산합니다.
-                 * 예: 현재가 2025년 12월 3일(수요일)이면, 이번 주는 2025년 12월 1일(월) 00:00:00 ~ 12월 7일(일) 23:59:59
-               - "다음주", "다음 주" → 다음 주 월요일 00:00:00 ~ 일요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+               - "이번 주", "이번주" → 이번 주 일요일 00:00:00 ~ 토요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                 * 현재 날짜를 기준으로 이번 주 일요일과 토요일을 계산합니다.
+                 * 예: 현재가 2025년 12월 10일(수요일)이면, 이번 주는 2025년 12월 7일(일) 00:00:00 ~ 12월 13일(토) 23:59:59
+                 * ⚠️ 중요: 이번주는 일요일부터 시작하여 토요일까지입니다!
+               - "다음주", "다음 주" → 다음 주 일요일 00:00:00 ~ 토요일 23:59:59 (띄어쓰기 무관, 동일 처리)
+                 * 다음주는 이번주 다음 주의 일요일부터 토요일까지입니다.
+                 * 예: 현재가 2025년 12월 10일(수요일)이면, 다음주는 2025년 12월 14일(일) 00:00:00 ~ 12월 20일(토) 23:59:59
+                 * ⚠️ 중요: 다음주는 일요일부터 시작하여 토요일까지입니다!
                - "이번 주 금요일", "이번주 금요일" → 이번 주 금요일 하루 (00:00:00 ~ 23:59:59) (띄어쓰기 무관)
                - "다음주 수요일", "다음 주 수요일" → 다음 주 수요일 하루 (00:00:00 ~ 23:59:59) (띄어쓰기 무관)
                - "이번 달", "이번달" → 이번 달 1일 00:00:00 ~ 마지막 날 23:59:59 (띄어쓰기 무관, 동일 처리)
@@ -727,11 +735,54 @@ class HuenDongMinChatGatewayImpl(
             3. 키워드 추출:
                - 사람 이름, 장소, 이벤트명, 중요한 명사/동사는 keywords 배열에 넣습니다.
                - 예: "김철수", "회의실", "프로젝트 발표"
+               - ⚠️ 중요: "다음주 일정은 뭐야?", "이번주 일정 알려줘" 같은 질문에서 "일정"이라는 키워드를 반드시 추출하세요.
+               - "일정", "약속", "회의", "스케줄" 같은 단어는 keywords에 포함하세요.
             
             4. 소스 추출:
                - "이메일에서", "메일에서" → "gmail"
                - "카톡에서", "메신저에서" → "chat" 또는 내부에서 사용하는 소스명
                - 명시적인 소스가 없으면 null 또는 기본값을 사용합니다.
+            
+            ⚠️⚠️⚠️ 질문 패턴 처리 예시 (반드시 참고하세요!) ⚠️⚠️⚠️
+            
+            현재 날짜가 ${currentDate.year}년 ${currentDate.monthValue}월 ${currentDate.dayOfMonth}일($dayOfWeekKorean)인 경우:
+            
+            - "다음주 일정은 뭐야?" 또는 "다음주 일정이 뭐야?"
+              → start_time_millis: 다음 주 일요일 00:00:00 (KST 기준 epoch milliseconds)
+              → end_time_millis: 다음 주 토요일 23:59:59 (KST 기준 epoch milliseconds)
+              → keywords: ["일정"]
+              → ⚠️ 중요: 다음주는 일요일부터 시작하여 토요일까지입니다! 현재 날짜를 기준으로 다음 주 일요일과 토요일을 정확히 계산하세요!
+              
+            - "이번주 일정 알려줘"
+              → start_time_millis: 이번 주 일요일 00:00:00 (KST 기준 epoch milliseconds)
+              → end_time_millis: 이번 주 토요일 23:59:59 (KST 기준 epoch milliseconds)
+              → ⚠️ 중요: 이번주는 일요일부터 시작하여 토요일까지입니다!
+              → keywords: ["일정"]
+              
+            - "내일 일정 있어?"
+              → start_time_millis: 내일 00:00:00 (KST 기준 epoch milliseconds)
+              → end_time_millis: 내일 23:59:59 (KST 기준 epoch milliseconds)
+              → keywords: ["일정"]
+              
+            - "오늘 약속 뭐야?"
+              → start_time_millis: 오늘 00:00:00 (KST 기준 epoch milliseconds)
+              → end_time_millis: 오늘 23:59:59 (KST 기준 epoch milliseconds)
+              → keywords: ["약속"]
+            
+            ⚠️⚠️⚠️ 다음주 계산 방법 (매우 중요!) ⚠️⚠️⚠️
+            1. 현재 날짜의 요일을 확인하세요.
+            2. 다음 주 일요일을 찾으세요 (일요일~토요일 기준):
+               - 현재가 일요일이면: 현재 + 7일
+               - 현재가 월요일이면: 현재 + 6일
+               - 현재가 화요일이면: 현재 + 5일
+               - 현재가 수요일이면: 현재 + 4일
+               - 현재가 목요일이면: 현재 + 3일
+               - 현재가 금요일이면: 현재 + 2일
+               - 현재가 토요일이면: 현재 + 1일
+            3. 다음 주 일요일 00:00:00을 KST 기준으로 epoch milliseconds로 변환하세요.
+            4. 다음 주 토요일 23:59:59를 KST 기준으로 epoch milliseconds로 변환하세요.
+            
+            ⚠️⚠️⚠️ 반드시 계산된 숫자(epoch milliseconds)를 반환하세요! 수식이나 설명을 포함하지 마세요!
             
             출력 형식 (순수 JSON만):
             {
@@ -907,6 +958,84 @@ class HuenDongMinChatGatewayImpl(
         } catch (e: Exception) {
             android.util.Log.e("HuenDongMinChatGateway", "필터 파싱 실패", e)
             QueryFilters()
+        }
+    }
+
+    /**
+     * "이번주"/"다음주"가 포함된 질문에 대해
+     * - 키워드가 없으면 "일정" 추가
+     * - 주간 범위가 없거나, 월요일~일요일 등 잘못된 범위가 들어오면
+     *   일요일 00:00:00 ~ 토요일 23:59:59 (KST)로 재계산하여 보정한다.
+     */
+    private fun adjustWeekFiltersIfNeeded(
+        question: String,
+        currentTimestamp: Long,
+        filters: QueryFilters
+    ): QueryFilters {
+        val lower = question.lowercase()
+        val zone = java.time.ZoneId.of("Asia/Seoul")
+        val now = java.time.Instant.ofEpochMilli(currentTimestamp).atZone(zone)
+
+        val containsThisWeek = lower.contains("이번주") || lower.contains("이번 주")
+        val containsNextWeek = lower.contains("다음주") || lower.contains("다음 주") || lower.contains("담주")
+        val needsWeekAdjust = containsThisWeek || containsNextWeek
+
+        // 항상 키워드는 보정
+        val keywords = if (filters.keywords.isEmpty()) listOf("일정") else filters.keywords
+
+        if (!needsWeekAdjust) {
+            return filters.copy(keywords = keywords)
+        }
+
+        // 기대 범위 계산 (일요일 00:00:00 ~ 토요일 23:59:59.999)
+        val currentDow = now.dayOfWeek.value // 1=월 ... 7=일
+        val daysFromSunday = if (currentDow == 7) 0L else currentDow.toLong()
+        val thisWeekSunday = now.minusDays(daysFromSunday)
+            .withHour(0).withMinute(0).withSecond(0).withNano(0)
+
+        val targetStartZdt = if (containsNextWeek) thisWeekSunday.plusDays(7) else thisWeekSunday
+        val targetEndZdt = targetStartZdt.plusDays(6)
+            .withHour(23).withMinute(59).withSecond(59).withNano(999_000_000)
+
+        val targetStartMs = targetStartZdt.toInstant().toEpochMilli()
+        val targetEndMs = targetEndZdt.toInstant().toEpochMilli()
+
+        // 현재 필터가 주간 범위를 올바르게 담고 있는지 검사
+        val startOk = filters.startTimeMillis?.let {
+            val z = java.time.Instant.ofEpochMilli(it).atZone(zone)
+            z.dayOfWeek == java.time.DayOfWeek.SUNDAY &&
+                    z.hour == 0 && z.minute == 0 && z.second == 0
+        } ?: false
+
+        val endOk = filters.endTimeMillis?.let {
+            val z = java.time.Instant.ofEpochMilli(it).atZone(zone)
+            z.dayOfWeek == java.time.DayOfWeek.SATURDAY &&
+                    z.hour == 23 && z.minute == 59 && z.second == 59
+        } ?: false
+
+        val rangeOk = startOk && endOk &&
+                filters.startTimeMillis != null && filters.endTimeMillis != null &&
+                filters.startTimeMillis!! <= filters.endTimeMillis!!
+
+        val isExpectedRange = rangeOk &&
+                filters.startTimeMillis == targetStartMs &&
+                filters.endTimeMillis == targetEndMs
+
+        val useOverride = !isExpectedRange
+
+        return if (useOverride) {
+            android.util.Log.d(
+                "HuenDongMinChatGateway",
+                "필터 보정 적용 - ${if (containsNextWeek) "다음주" else "이번주"}: $targetStartZdt ~ $targetEndZdt"
+            )
+            QueryFilters(
+                startTimeMillis = targetStartMs,
+                endTimeMillis = targetEndMs,
+                keywords = keywords,
+                source = filters.source,
+            )
+        } else {
+            filters.copy(keywords = keywords)
         }
     }
 }

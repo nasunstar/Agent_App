@@ -121,10 +121,10 @@ fun DashboardScreen(
         event.startAt != null && isEventIncludingToday(event)
     }.sortedBy { it.startAt }
 
-    // 앞으로 7일 일정: 오늘을 제외한 다음 7일간의 일정
+    // 이번주 일정: 이번주 일요일 ~ 토요일 (오늘 제외)
     val weekEvents = uiState.events.filter { event ->
         event.startAt != null && 
-        isNext7Days(event.startAt!!) && 
+        isThisWeek(event.startAt!!) && 
         !isToday(event.startAt!!)
     }.sortedBy { it.startAt }
     
@@ -468,8 +468,39 @@ private fun formatTime(timestamp: Long?): String {
 }
 
 /**
+ * 이번주 일정인지 확인 (일요일 ~ 토요일 기준)
+ * 이번주 일요일 00:00:00 ~ 토요일 23:59:59 범위 내의 일정
+ */
+private fun isThisWeek(timestamp: Long): Boolean {
+    val calendar = Calendar.getInstance()
+    val now = calendar.timeInMillis
+    
+    // 이번주 일요일 찾기 (현재 날짜에서 일요일로 이동)
+    val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=일요일, 7=토요일
+    val daysFromSunday = if (dayOfWeek == Calendar.SUNDAY) 0 else dayOfWeek - Calendar.SUNDAY
+    calendar.add(Calendar.DAY_OF_YEAR, -daysFromSunday)
+    calendar.set(Calendar.HOUR_OF_DAY, 0)
+    calendar.set(Calendar.MINUTE, 0)
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    val startOfWeek = calendar.timeInMillis
+    
+    // 이번주 토요일 23:59:59
+    calendar.add(Calendar.DAY_OF_YEAR, 6)
+    calendar.set(Calendar.HOUR_OF_DAY, 23)
+    calendar.set(Calendar.MINUTE, 59)
+    calendar.set(Calendar.SECOND, 59)
+    calendar.set(Calendar.MILLISECOND, 999)
+    val endOfWeek = calendar.timeInMillis
+    
+    // 이벤트 시간이 이번주 범위 내에 있는지 확인
+    return timestamp >= startOfWeek && timestamp <= endOfWeek
+}
+
+/**
  * 앞으로 7일 동안의 일정인지 확인 (오늘 제외)
  * 오늘보다 미래이고, 오늘부터 7일 후까지의 일정
+ * @deprecated 이번주 필터링은 isThisWeek을 사용하세요
  */
 private fun isNext7Days(timestamp: Long): Boolean {
     val calendar = Calendar.getInstance()

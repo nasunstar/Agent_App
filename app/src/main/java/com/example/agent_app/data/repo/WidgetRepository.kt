@@ -43,27 +43,35 @@ class WidgetRepository(
     }
     
     /**
-     * 이번 주의 일정 및 마감일 조회
+     * 이번 주의 일정 및 마감일 조회 (일요일 ~ 토요일 기준)
      */
     suspend fun getWeekItems(): WidgetData = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance().apply {
             timeInMillis = now
-            firstDayOfWeek = Calendar.MONDAY
-            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
         }
+        
+        // 이번주 일요일 찾기 (현재 날짜에서 일요일로 이동)
+        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=일요일, 7=토요일
+        val daysFromSunday = if (dayOfWeek == Calendar.SUNDAY) 0 else dayOfWeek - Calendar.SUNDAY
+        calendar.add(Calendar.DAY_OF_YEAR, -daysFromSunday)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val startOfWeek = calendar.timeInMillis
         
-        calendar.add(Calendar.WEEK_OF_YEAR, 1)
+        // 이번주 토요일 23:59:59
+        calendar.add(Calendar.DAY_OF_YEAR, 6)
+        calendar.set(Calendar.HOUR_OF_DAY, 23)
+        calendar.set(Calendar.MINUTE, 59)
+        calendar.set(Calendar.SECOND, 59)
+        calendar.set(Calendar.MILLISECOND, 999)
         val endOfWeek = calendar.timeInMillis
         
-        val events = eventDao.searchByTimeRange(startOfWeek, endOfWeek - 1, limit = 50)
-        val items = ingestItemDao.getByTimestampRange(startOfWeek, endOfWeek - 1)
-            .filter { it.dueDate != null && it.dueDate!! >= startOfWeek && it.dueDate!! < endOfWeek }
+        val events = eventDao.searchByTimeRange(startOfWeek, endOfWeek, limit = 50)
+        val items = ingestItemDao.getByTimestampRange(startOfWeek, endOfWeek)
+            .filter { it.dueDate != null && it.dueDate!! >= startOfWeek && it.dueDate!! <= endOfWeek }
         
         WidgetData(
             events = events,

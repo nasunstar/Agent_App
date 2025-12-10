@@ -2967,7 +2967,12 @@ private fun GmailItemCard(
             onDismissRequest = { showTextDialog = false },
             title = { Text("이메일 내용") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
                         text = item.title ?: "(제목 없음)",
                         fontWeight = FontWeight.Bold,

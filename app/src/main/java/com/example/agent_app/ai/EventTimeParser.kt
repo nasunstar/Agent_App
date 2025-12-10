@@ -317,15 +317,19 @@ object EventTimeParser {
                                 if (daysToAdd == 0) daysToAdd = 7 // 같은 요일이면 다음 주
                                 targetDate = targetDate.plusDays(daysToAdd.toLong())
                             } else {
-                                // "다음주": 다음 주의 해당 요일
-                                // 현재 주의 월요일 찾기
-                                val daysFromMonday = (currentWeekday - 1 + 7) % 7
-                                val thisWeekMonday = targetDate.minusDays(daysFromMonday.toLong())
-                                // 다음 주 월요일
-                                val nextWeekMonday = thisWeekMonday.plusDays(7)
-                                // 다음 주의 해당 요일 (월요일=1이므로 -1)
-                                val daysToTargetWeekday = (targetWeekday - 1).toLong()
-                                targetDate = nextWeekMonday.plusDays(daysToTargetWeekday)
+                                // "다음주": 다음 주의 해당 요일 (일요일~토요일 기준)
+                                // 현재 주의 일요일 찾기
+                                val daysFromSunday = if (currentWeekday == 7) 0 else currentWeekday
+                                val thisWeekSunday = targetDate.minusDays(daysFromSunday.toLong())
+                                // 다음 주 일요일
+                                val nextWeekSunday = thisWeekSunday.plusDays(7)
+                                // 다음 주의 해당 요일 (일요일=7, 월요일=1, ..., 토요일=6)
+                                val daysToTargetWeekday = if (targetWeekday == 7) {
+                                    0L // 일요일
+                                } else {
+                                    targetWeekday.toLong() // 월요일=1, 화요일=2, ..., 토요일=6
+                                }
+                                targetDate = nextWeekSunday.plusDays(daysToTargetWeekday)
                             }
                         }
                     }
